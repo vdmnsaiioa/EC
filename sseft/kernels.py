@@ -57,6 +57,14 @@ def f6_long(r, l):
     return P / r ** 6
 
 
+def f8_long(r, l):
+    """the p = 8 long kernel: [1 - e^-x (1 + x + x^2/2 + x^3/6)] / r^8."""
+    x = (r / l) ** 2
+    small = x ** 4 / 24.0 - x ** 5 / 30.0 + x ** 6 / 72.0 - x ** 7 / 252.0
+    P = jnp.where(x < 1e-2, small, 1.0 - jnp.exp(-x) * (1.0 + x + 0.5 * x * x + x ** 3 / 6.0))
+    return P / r ** 8
+
+
 # ---------------------------------------------------------------- analytic-kernel family (rung M_A) -----------
 def gaussian_family_polys(N):
     """coefficients (in x = r^2/l^2) of P_n with (-l^2 lap)^n exp(-x) = P_n(x) exp(-x) in 3-D, n = 0..N."""
@@ -114,6 +122,12 @@ def casimir_polder_grid(K=8, omega0=0.3):
 def c6_from_alpha(alpha_i, alpha_j, w):
     """alpha_* of shape (..., K); returns C6 = (3/pi) sum_k w_k alpha_i alpha_j."""
     return (3.0 / math.pi) * jnp.sum(w * alpha_i * alpha_j, axis=-1)
+
+
+def c8_from_alpha(alpha1_i, alpha2_i, alpha1_j, alpha2_j, w):
+    """dipole-quadrupole dispersion: C8 = (15/pi) sum_k w_k [alpha1_i alpha2_j + alpha2_i alpha1_j] / 2
+    (Casimir-Polder: C8_AB = (15/2 pi) int [a1_A a2_B + a2_A a1_B] d omega)."""
+    return (15.0 / (2.0 * math.pi)) * jnp.sum(w * (alpha1_i * alpha2_j + alpha2_i * alpha1_j), axis=-1)
 
 
 def london_c6(alpha0_a, omega_a, alpha0_b, omega_b):

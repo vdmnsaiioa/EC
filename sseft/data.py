@@ -93,6 +93,7 @@ def published_c2n(name, n):
 # C6 values are recalled and must be verified against the DOSD tables before E2 is reported.
 DOSD_C6 = {("Ne", "Ne"): 6.383, ("Ar", "Ar"): 64.30, ("Kr", "Kr"): 129.6, ("Xe", "Xe"): 285.9,
            ("Ne", "Ar"): 19.50, ("Ar", "Kr"): 91.13}
+DOSD_C8 = {("Ne", "Ne"): 90.34, ("Ar", "Ar"): 1623.0, ("Kr", "Kr"): 4187.0, ("Xe", "Xe"): 12810.0}   # E_h a0^8 (TT 2003 table; verify against Kumar & Meath)
 ALPHA_STATIC = {"Ne": 2.669, "Ar": 11.083, "Kr": 16.78, "Xe": 27.32}
 SYMBOL = {2: "He", 10: "Ne", 18: "Ar", 36: "Kr", 54: "Xe"}
 

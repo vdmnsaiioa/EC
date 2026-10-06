@@ -26,6 +26,8 @@ def init_heads(key, cfg, K=8, one_oscillator=False, energy_scale=1.0):
         "dipole": _mlp_init(k[2], [F, F, F]),
         "alpha": _mlp_init(k[3], [F, F, 2 if one_oscillator else K]),
         "alpha_ref": jnp.zeros(cfg["n_species"]) + 1.0,      # species offset inside the softplus (log-scale start)
+        "alpha2": _mlp_init(k[5], [F, F, 2 if one_oscillator else K]),   # quadrupole polarisability alpha_2(i w) (C8 channel)
+        "alpha2_ref": jnp.zeros(cfg["n_species"]) + 2.0,
         "source_A": _mlp_init(k[4], [F, F, 1]),               # scalar source of the analytic-kernel rung
     }
     return p
@@ -59,6 +61,18 @@ def polarisabilities(p, s, numbers, mask, omega, one_oscillator=False):
         alpha = a0[:, None] / (1.0 + (omega[None, :] / w0[:, None]) ** 2)
     else:
         alpha = jax.nn.softplus(raw + p["alpha_ref"][numbers][:, None])
+    return alpha * mask[:, None]
+
+
+def quad_polarisabilities(p, s, numbers, mask, omega, one_oscillator=False):
+    """alpha_2,i(i omega_k), shape (N,K), positive (the quadrupole polarisability; sources the C8 band)."""
+    raw = mlp(p["alpha2"], s)
+    if one_oscillator:
+        a0 = jax.nn.softplus(raw[..., 0] + p["alpha2_ref"][numbers])
+        w0 = jax.nn.softplus(raw[..., 1]) + 1e-3
+        alpha = a0[:, None] / (1.0 + (omega[None, :] / w0[:, None]) ** 2)
+    else:
+        alpha = jax.nn.softplus(raw + p["alpha2_ref"][numbers][:, None])
     return alpha * mask[:, None]
 
 

@@ -79,7 +79,7 @@ def main():
         rung = M.RUNGS[name]
         rung = M.with_rung(rung, lA=ang_to_bohr(a.lA), NA=a.NA, one_oscillator=a.one_oscillator,
                            e0={**rung.e0, "r_cut": ang_to_bohr(a.rcut)})
-        preds = {s: [] for s in systems}; alphas = {Z: [] for Z in species}; t0 = time.time()
+        preds = {s: [] for s in systems}; alphas = {Z: [] for Z in species}; alphas2 = {Z: [] for Z in species}; t0 = time.time()
         for seed in range(a.seeds):
             params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0)
             msg = []
@@ -90,8 +90,9 @@ def main():
                 preds[s].append(E_te); msg.append(f"{s} window rmse {rmse:.2e}")
             if rung.dispersion and not rung.pin_alpha:
                 for Z in species:
-                    al = T.predict_aux(params, rung, with_pins([D.isolated_atom(Z)]))["alpha"][0, 0]
-                    alphas[Z].append(np.array(al))
+                    aux_iso = T.predict_aux(params, rung, with_pins([D.isolated_atom(Z)]))
+                    alphas[Z].append(np.array(aux_iso["alpha"][0, 0]))
+                    if rung.dispersion8: alphas2[Z].append(np.array(aux_iso["alpha2"][0, 0]))
             if rung.charges and not rung.pin_q:
                 qmax = max(float(np.max(np.abs(T.predict_aux(params, rung, tests[s]["train"])["q"]))) for s in systems)
                 print(f"    max |q_i| over the windows: {qmax:.2e}  (homonuclear dimers: 0 by neutrality + equivalence)", flush=True)
@@ -136,6 +137,13 @@ def main():
                 print(f"  {name} E2 C6({key[0]}-{key[1]}): CP from learned alpha {c6.mean():.2f} +- {c6.std(ddof=1) if len(c6) > 1 else 0:.2f}  "
                       f"vs DOSD {ref:.2f}  (ratio {c6.mean() / ref:.3f}; {tag})", flush=True)
                 e2[f"C6_{key[0]}{key[1]}"] = dict(cp=c6.tolist(), dosd=ref)
+                if rung.dispersion8:
+                    c8 = np.array([float(kn.c8_from_alpha(a1, a2, b1, b2, w)) for a1, a2, b1, b2 in
+                                   zip(alphas[Za], alphas2[Za], alphas[Zb], alphas2[Zb])])
+                    ref8 = D.DOSD_C8.get(key, D.DOSD_C8.get(key[::-1], float("nan")))
+                    print(f"  {name} E2 C8({key[0]}-{key[1]}): CP from learned alpha1, alpha2 {c8.mean():.1f} +- {c8.std(ddof=1) if len(c8) > 1 else 0:.1f}  "
+                          f"vs DOSD {ref8:.1f}  (ratio {c8.mean() / ref8:.3f}; {tag})", flush=True)
+                    e2[f"C8_{key[0]}{key[1]}"] = dict(cp=c8.tolist(), dosd=ref8)
             results[name]["E2"] = e2
         print(f"  {name}: {time.time() - t0:.0f} s total", flush=True)
     json.dump(results, open(a.out, "w"), indent=1)

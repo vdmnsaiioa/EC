@@ -38,6 +38,12 @@ def dispersion_band(alpha, w, r, pmask, l):
     return -0.5 * jnp.sum(C6 * kn.f6_long(r, l) * pmask)
 
 
+def dispersion8_band(alpha1, alpha2, w, r, pmask, l):
+    """the p = 8 band on dipole and quadrupole polarisabilities: -1/2 sum_{i!=j} C8_ij f8(r_ij)."""
+    C8 = kn.c8_from_alpha(alpha1[:, None, :], alpha2[:, None, :], alpha1[None, :, :], alpha2[None, :, :], w)
+    return -0.5 * jnp.sum(C8 * kn.f8_long(r, l) * pmask)
+
+
 def analytic_band(s, coeffs, r, pmask, lA):
     """rung M_A: learned scalar sources s (N,) and kernel coefficients coeffs (N_A + 1,) of the normalised
     family G_n / rms(G_n) (kernels.analytic_family_scales)."""

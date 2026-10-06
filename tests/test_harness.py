@@ -34,9 +34,14 @@ def test_kernel_derivatives():
         g = lambda x: kn.g_long(x, l)
         assert abs(float(jax.grad(g)(r)) - float(kn.dg_long(r, l))) < 1e-10
         assert abs(float(jax.grad(jax.grad(g))(r)) - float(kn.d2g_long(r, l))) < 1e-9
-    # p = 6 closed form against the incomplete gamma
+    # p = 6 and p = 8 closed forms against the incomplete gamma
     for r in (0.5, 2.0, 6.0):
         assert abs(float(kn.f6_long(r, l)) - float(kn.k_long(r, l, 6))) < 1e-12 * max(1.0, float(kn.k_long(r, l, 6)))
+        assert abs(float(kn.f8_long(r, l)) - float(kn.k_long(r, l, 8))) < 1e-12 * max(1.0, float(kn.k_long(r, l, 8)))
+    # Casimir-Polder C8 of two equal one-oscillator atoms: (15/4) a1 a2 w0
+    om, w = kn.casimir_polder_grid(8)
+    a1 = 11.1 / (1 + (om / 0.7) ** 2); a2 = 52.0 / (1 + (om / 0.7) ** 2)
+    assert abs(float(kn.c8_from_alpha(a1, a2, a1, a2, w)) / (3.75 * 11.1 * 52.0 * 0.7) - 1) < 3e-3
 
 
 def test_casimir_polder_london():

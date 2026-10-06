@@ -25,12 +25,14 @@ class Rung:
     charges: bool = False
     dipoles: bool = False
     dispersion: bool = False
+    dispersion8: bool = False              # the C8 band on a learned (or pinned) quadrupole polarisability: L6b
     analytic: bool = False
     band_fields: int = -1                  # -1: off; k: field tensors through order k at the atom
     readout: str = "pair"                  # band-field read-out: "pair" (Taylor class on the structure) or "node" (L <= 2)
     pin_q: bool = False
     pin_mu: bool = False
     pin_alpha: bool = False
+    pin_alpha2: bool = False
     l1: float = ang_to_bohr(1.5)           # band edge
     lA: float = ang_to_bohr(4.0)           # envelope of the analytic kernel (M_A)
     NA: int = 4                            # powers of q^2 in M_A
@@ -50,6 +52,7 @@ RUNGS = {
     "M_A": Rung("M_A", analytic=True),
     "M_1": Rung("M_1", charges=True),
     "M_6": Rung("M_6", dispersion=True),
+    "M_68": Rung("M_68", dispersion=True, dispersion8=True),
     "M_16": Rung("M_16", charges=True, dispersion=True),
     "M_16p": Rung("M_16p", charges=True, dispersion=True, pin_q=True, pin_alpha=True),
     "M_S0": Rung("M_S0", charges=True, dispersion=True, pin_q=True, pin_alpha=True, band_fields=0),
@@ -120,6 +123,10 @@ def energy_single(params, rung: Rung, b):
         alpha = b["pin_alpha"][:, :rung.K] if rung.pin_alpha else H.polarisabilities(hp, s, Z, mask, omega, rung.one_oscillator)
         Ed = B.dispersion_band(alpha, w, r, pmask, rung.l1)
         E = E + Ed; aux["E_disp"] = Ed; aux["alpha"] = alpha
+        if rung.dispersion8:
+            alpha2 = b["pin_alpha2"][:, :rung.K] if rung.pin_alpha2 else H.quad_polarisabilities(hp, s, Z, mask, omega, rung.one_oscillator)
+            E8 = B.dispersion8_band(alpha, alpha2, w, r, pmask, rung.l1)
+            E = E + E8; aux["E_disp8"] = E8; aux["alpha2"] = alpha2
     if rung.analytic:
         sA = H.scalar_source(hp, s, mask)
         Ea = B.analytic_band(sA, params["A_coeffs"], r, pmask, rung.lA)

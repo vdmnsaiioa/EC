@@ -40,6 +40,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         "energy": np.zeros(B), "forces": np.zeros((B, n_max, 3)), "has_energy": np.zeros(B, dtype=bool),
         "has_forces": np.zeros(B, dtype=bool),
         "pin_q": np.zeros((B, n_max)), "pin_mu": np.zeros((B, n_max, 3)), "pin_alpha": np.zeros((B, n_max, n_freq)),
+        "pin_alpha2": np.zeros((B, n_max, n_freq)),
     }
     for b, s in enumerate(structures):
         n = s.n_atoms
@@ -51,6 +52,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         if "q" in s.pinned: out["pin_q"][b, :n] = s.pinned["q"]
         if "mu" in s.pinned: out["pin_mu"][b, :n] = s.pinned["mu"]
         if "alpha" in s.pinned: out["pin_alpha"][b, :n] = s.pinned["alpha"]
+        if "alpha2" in s.pinned: out["pin_alpha2"][b, :n] = s.pinned["alpha2"]
     return {k: jnp.asarray(v) for k, v in out.items()}
 
 

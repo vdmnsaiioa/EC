@@ -16,7 +16,7 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
 ## Install
 
     pip install -e .            # jax, optax, numpy, scipy (tested with jax 0.10, optax 0.2.8, numpy 2.4, scipy 1.17)
-    pytest -q tests/            # ~2.5 min on a CPU
+    pytest -q tests/            # 22 tests, ~2.5 min on a CPU
 
 For GPUs install the matching `jax[cuda]` wheel first.
 
@@ -28,6 +28,7 @@ For GPUs install the matching `jax[cuda]` wheel first.
 | `M_A`   | analytic pair kernel | scalar `s_i` learned   | –           | learned kernel analytic in `q²` (branch 3 of Theorem 3, `x1-prediction.md`) |
 | `M_1`   | Coulomb              | `q_i` learned (+`μ_i` optional) | –  | LES / 4G-type: Coulomb added, no dispersion band |
 | `M_6`   | dispersion           | `α_i(iω)` learned      | –           | EFT leading order for neutral fragments (L6a) |
+| `M_68`  | dispersion, C₆ + C₈  | `α_i`, `α₂,i` learned  | –           | next order: the `p = 8` band on the quadrupole polarisability (L6b) |
 | `M_16`  | Coulomb + dispersion | `q_i`, `α_i` learned   | –           | both bands, sources free |
 | `M_16p` | Coulomb + dispersion | pinned                 | –           | same architecture, sources from an independent calculation (the dagger models) |
 | `M_S0`  | as `M_16p`           | pinned                 | order 0     | v1.5: `E_1`, `|E_1|²`-type invariants at the atom |
@@ -44,10 +45,11 @@ Pieces (one module each):
   radial basis with a cosine cutoff; messages are exactly zero beyond the cutoff (no bias in the radial
   weights).
 * `heads.py` — site energies (data-derived output scale), charges with an exact neutrality shift, gated
-  dipoles, dynamic polarisabilities at K = 8 Gauss–Legendre imaginary frequencies (softplus or
-  one-oscillator), the scalar source of `M_A`.  Each source can be *pinned* to values carried by the structure.
-* `kernels.py` — the split kernels: `erf(r/l)/r` and its derivatives (p = 1, dipoles), the `p = 6`
-  long part `[1 − e^{−x}(1 + x + x²/2)]/r⁶` with its small-`x` series, the Gaussian Laplacian family
+  dipoles, dipole and quadrupole dynamic polarisabilities at K = 8 Gauss–Legendre imaginary frequencies
+  (softplus or one-oscillator), the scalar source of `M_A`.  Each source can be *pinned* to values carried
+  by the structure.
+* `kernels.py` — the split kernels: `erf(r/l)/r` and its derivatives (p = 1, dipoles), the `p = 6` and
+  `p = 8` long parts `[1 − e^{−x}P(x)]/r^p` with their small-`x` series, the Gaussian Laplacian family
   `(−l²∇²)ⁿ e^{−r²/l²}` (exact rational recursion; used column-normalised, since the raw family's
   window Gram matrix has condition number ~10¹⁰) for `M_A`, the Casimir–Polder quadrature.
 * `bands.py` — the band energies for open systems (direct pair sums; Ewald versions are the week-2 item).
