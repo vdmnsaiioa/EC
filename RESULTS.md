@@ -95,3 +95,10 @@ free K = 8: Ne–Ne 7.36 ± 0.37, Ar–Ar 81.70 ± 0.79, **Ne–Ar (unseen) 18.7
 one-oscillator: 7.21 ± 0.14, 81.13 ± 0.10, **21.30 ± 1.00**.  The cross C₆'s seed spread (17 % free, 5 %
 one-oscillator) is the measured gauge freedom; α₀ is not identified from dimer energies (Ne 2.66, Ar 5.28
 against 2.67, 11.08 with the one-oscillator prior).
+
+**The +5 % C₆ offset, resolved** (`results/c6bias_Ar2_M6_rcut{5.0,7.0}`): trained Ĉ₆/C₆ at r_c = 5.0 / 6.0 / 7.0 Å
+= 1.372 / 1.265 / 1.186 (two seeds agree to four digits).  A scan of the training loss with α pinned puts its
+minimum at 1.37 / 1.26 / 1.18 — the energies + forces objective — while the energies-only minimum is at
+1.31 / 1.21 / 1.15, the numbers the pre-registration quoted.  The forces (∝ R⁻⁷) weight the inner window where
+C₈/C₆R² is largest; at r_c = 5.0 Å E₀ sees no pair in the window, so nothing else is involved.  Linear-class
+predictions must be computed under the training objective, forces included.

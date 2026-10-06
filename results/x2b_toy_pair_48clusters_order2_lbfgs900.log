@@ -1,0 +1,4 @@
+480 training / 80 test structures; rms E_band train 1.228e+00  [0 s]
+exact Taylor class, order 0: train rel rms 4.042e-03, test 4.007e-03  [178 s]
+exact Taylor class, order 1: train rel rms 1.818e-03, test 2.083e-03  [178 s]
+exact Taylor class, order 2: train rel rms 6.250e-04, test 7.686e-04  [178 s]

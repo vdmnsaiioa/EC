@@ -1,0 +1,16 @@
+Ar2 (published): window [5.15, 9.26] A, 40 nodes, sigma = 1e-09; |f*| at R+ = 2.43e-06 E_h
+  M_6 seed 0: Ar2 window rmse 2.34e-06; 126 s
+  M_6 seed 1: Ar2 window rmse 2.34e-06; 127 s
+  M_6 / Ar2:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+                  10.1  1.43e-06  -1.82e-06  2.73e-01       nan       nan     nan
+                  12.3  4.24e-07  -5.54e-07  3.05e-01       nan       nan     nan
+                  15.0  1.27e-07  -1.68e-07  3.27e-01       nan       nan     nan
+                  19.6  2.56e-08  -3.44e-08  3.46e-01       nan       nan     nan
+                  29.1  2.34e-09  -3.18e-09  3.60e-01       nan       nan     nan
+                  49.4  9.72e-11  -1.33e-10  3.68e-01       nan       nan     nan
+                 102.2  1.23e-12  -1.69e-12  3.71e-01       nan       nan     nan
+                 294.5  2.15e-15  -2.95e-15  3.72e-01       nan       nan     nan
+  M_6 / Ar2: slope of log(W/|f*|) vs log R on [30, 300] A = +nan  (branch 2: 0; branch 1: p* - p_min; branch 3: -> -inf)
+  M_6 E2 Ar: alpha(i w) mean over seeds [1.446 1.633 1.302 1.415 1.304 1.329 1.291 1.203]  spread [0.017 0.154 0.036 0.183 0.076 0.008 0.111 0.133]  [alpha_0 ref 11.083]
+  M_6 E2 C6(Ar-Ar): CP from learned alpha 87.63 +- 0.00  vs DOSD 64.30  (ratio 1.363; seen)
+  M_6: 284 s total
