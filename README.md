@@ -32,6 +32,7 @@ For GPUs install the matching `jax[cuda]` wheel first.
 | `M_16p` | Coulomb + dispersion | pinned                 | –           | same architecture, sources from an independent calculation (the dagger models) |
 | `M_S0`  | as `M_16p`           | pinned                 | order 0     | v1.5: `E_1`, `|E_1|²`-type invariants at the atom |
 | `M_S2`  | as `M_16p`           | pinned                 | order 2     | v1.5: field, gradient and Hessian tensors at the atom, degree 2 |
+| `M_G`   | global pair block    | –                      | –           | the null: `Σ_{i≠j} MLP(s_i, s_j, r_ij)` with no cutoff and no envelope (an MLP in `r`) |
 
 Every energy the model returns is an interaction (atomisation) energy: the model's own isolated-atom
 energies are subtracted inside `energy_single`, so non-interacting fragments give exactly zero and the
@@ -47,25 +48,36 @@ Pieces (one module each):
   one-oscillator), the scalar source of `M_A`.  Each source can be *pinned* to values carried by the structure.
 * `kernels.py` — the split kernels: `erf(r/l)/r` and its derivatives (p = 1, dipoles), the `p = 6`
   long part `[1 − e^{−x}(1 + x + x²/2)]/r⁶` with its small-`x` series, the Gaussian Laplacian family
-  `(−l²∇²)ⁿ e^{−r²/l²}` (exact rational recursion) for `M_A`, the Casimir–Polder quadrature.
+  `(−l²∇²)ⁿ e^{−r²/l²}` (exact rational recursion; used column-normalised, since the raw family's
+  window Gram matrix has condition number ~10¹⁰) for `M_A`, the Casimir–Polder quadrature.
 * `bands.py` — the band energies for open systems (direct pair sums; Ewald versions are the week-2 item).
 * `bandfields.py` — band-field tensors at the atom by nested forward-mode differentiation of the band
   potential (own charge excluded), and the degree-2 equivariant read-out with environment-dependent
   coefficients from `E_0`.
 * `model.py`, `train.py`, `measure.py`, `data.py`, `toys.py` — assembly, training (Adam + optional
-  L-BFGS polish, targets scaled never shifted), the Phase 1c / X2 measurements, the Tang–Toennies dimers and
-  windows of `phase2-reference-data.md`, and the X2-B dielectric toy.
+  L-BFGS polish, targets scaled never shifted), the Phase 1c / X2 measurements, the dimer truths
+  (Tang–Toennies, and the published ab initio Ar₂ / Ne₂ potentials in the Rostock form with their
+  provenance check), the windows of `phase2-reference-data.md`, the sealed E2 targets, and the X2-B
+  dielectric toy.
+
+A note on optimisation: the analytic rung `M_A` and the band-field read-out are ill-conditioned linear
+problems inside a non-linear model; Adam alone leaves them far from the floor (`M_A` window rmse 3e-5 E_h
+after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3e-8 E_h).  Always polish.
 
 ## Scripts
 
-    python scripts/dimer_ladder.py --system Ar2 --rungs M_inf,M_6,M_A --seeds 4 --steps 1500
+    python scripts/dimer_ladder.py --system Ar2 --truth tt --rungs M_inf,M_6,M_A,M_G --seeds 4 --steps 1500 --lbfgs 300
+    python scripts/dimer_ladder.py --system Ne2,Ar2 --truth published --rungs M_6,M_16 --seeds 8 --lbfgs 300
     python scripts/x2b_toy_regression.py --steps 1500 --lbfgs 200
 
 `dimer_ladder.py` trains an ensemble of each rung on the Phase 2 window (40 log-uniform nodes on
 `[R₋, 1.8 R₋]`, label noise `σ = 1e-9 E_h`) and prints the Phase 1c table on the evaluation grid out to
 500 Å: ensemble mean, relative error, spread `W`, `W/|f*|`, local exponent `q`, and the plateau slope of
-`log(W/|f*|)` on [30, 300] Å (branch 2 predicts 0).  `x2b_toy_regression.py` trains the band-field path
-(orders 0 and 2) on the X2-B toy of `x2-protocol.md` §3 (truth T3, `a/l₁ = 1/4`).
+`log(W/|f*|)` on [30, 300] Å (branch 2 predicts 0).  With `--truth published` the truths are the ab initio
+potentials; with several systems one model is trained on the union, and for the dispersion rungs the
+learned free-atom `α(iω)` and the Casimir–Polder `C₆` of every pair of species — including the mixed pair
+the model never saw — are compared with the sealed targets (E2).  `x2b_toy_regression.py` trains the
+band-field path (orders 0 and 2) on the X2-B toy of `x2-protocol.md` §3 (truth T3, `a/l₁ = 1/4`).
 
 ## What v0 reproduces
 
@@ -77,8 +89,12 @@ Pieces (one module each):
   `M_inf` has relative error exactly 1 beyond the cutoff (branch 3); `M_6` has local exponent `q = 6.00`
   at every evaluation point with a flat relative spread `W/|f*| ≈ 1.2e-3` (the branch-2 plateau) and a
   16–25 % relative error from the `C₈, C₁₀` truncation (learned `C₆ = 80.4` vs 64.3 `E_h a₀⁶`, the L6a
-  bias of the proof document).  A `C₈` channel (quadrupole polarisability) is the L6b item of the build plan.
-* The X2-B toy: see `RESULTS.md`.
+  bias of the proof document); `M_A(ℓ = 4 Å, N = 4)` shows the three regimes of `x1-prediction.md` — a
+  burst beyond `R₊` with negative `q`, `q` rising through 6 near `ℓ√(N+3)` and then growing linearly in
+  `R′²` with the slope `2/ℓ²` (measured 0.132 Å⁻² against 0.125), the mean's relative error settling at 1
+  and the spread collapsing to the float64 floor by 30 Å.  A `C₈` channel (quadrupole polarisability) is
+  the L6b item of the build plan.
+* The X2-B toy and the numbers behind the lines above: `RESULTS.md`.
 
 ## Layout
 

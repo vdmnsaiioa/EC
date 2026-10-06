@@ -3,6 +3,6 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-*.json
-!tests/**/*.json
 .pytest_cache/
+# experiment outputs are committed under results/ only
+/*.json

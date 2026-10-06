@@ -9,6 +9,7 @@ The model: E_0 + IR bands on learned (or pinned) sources [+ band-field inputs], 
     M_16    Coulomb + dispersion q, alpha learned  --             both bands, charges free
     M_16p   Coulomb + dispersion pinned            --             the same architecture with sources from an independent calculation (dagger)
     M_S     as M_16p (or M_6)    pinned/learned    order k        v1.5: band fields read at the atom, degree 2
+    M_G     global pair block    --                --             the null: an unconstrained function of r with no envelope
 Energies in hartree, positions in bohr; forces by autodiff.
 """
 from dataclasses import dataclass, field, replace
@@ -26,6 +27,7 @@ class Rung:
     dispersion: bool = False
     analytic: bool = False
     band_fields: int = -1                  # -1: off; k: field tensors through order k at the atom
+    readout: str = "pair"                  # band-field read-out: "pair" (Taylor class on the structure) or "node" (L <= 2)
     pin_q: bool = False
     pin_mu: bool = False
     pin_alpha: bool = False
@@ -37,11 +39,14 @@ class Rung:
     one_oscillator: bool = False
     site_energies: bool = True             # E_0's site energies (off only for toy regressions of the band-field path)
     coulomb_energy: bool = True            # the bare Coulomb band energy (off: charges only source the band fields)
+    global_block: bool = False             # M_G: sum_{i != j} MLP([s_i, s_j, r_ij / r_G]) with no cutoff and no envelope
+    rG: float = 10.0                       # length unit of the global block's distance input (bohr)
     e0: dict = field(default_factory=E0.default_config)
 
 
 RUNGS = {
     "M_inf": Rung("M_inf"),
+    "M_G": Rung("M_G", global_block=True),
     "M_A": Rung("M_A", analytic=True),
     "M_1": Rung("M_1", charges=True),
     "M_6": Rung("M_6", dispersion=True),
@@ -58,8 +63,21 @@ def init_params(key, rung: Rung, energy_scale=1.0):
     if rung.analytic:
         p["A_coeffs"] = jnp.zeros(rung.NA + 1).at[0].set(1e-3)
     if rung.band_fields >= 0:
-        p["readout"] = BF.init_readout(k[2], rung.e0, rung.band_fields)
+        p["readout"] = (BF.init_readout_pair if rung.readout == "pair" else BF.init_readout)(k[2], rung.e0, rung.band_fields)
+    if rung.global_block:
+        F = rung.e0["F"]
+        p["global"] = E0._mlp_init(k[3], [2 * F + 1, F, F, 1])
     return p
+
+
+def global_pair_energy(p, s, r, pmask, rG, energy_scale):
+    """the null: an unconstrained learned pair function of (s_i, s_j, r_ij) summed over all pairs, no cutoff."""
+    N = s.shape[0]
+    x = jnp.concatenate([jnp.broadcast_to(s[:, None, :], (N, N, s.shape[1])),
+                         jnp.broadcast_to(s[None, :, :], (N, N, s.shape[1])),
+                         (jnp.where(pmask, r, 1.0) / rG)[..., None]], axis=-1)
+    e = E0.mlp(p, x)[..., 0] * pmask
+    return 0.5 * energy_scale * jnp.sum(e)
 
 
 def frequencies(rung: Rung):
@@ -106,10 +124,16 @@ def energy_single(params, rung: Rung, b):
         sA = H.scalar_source(hp, s, mask)
         Ea = B.analytic_band(sA, params["A_coeffs"], r, pmask, rung.lA)
         E = E + Ea; aux["E_A"] = Ea; aux["sA"] = sA
+    if rung.global_block:
+        Eg = global_pair_energy(params["global"], s, r, pmask, rung.rG, hp["e_scale"])
+        E = E + Eg; aux["E_G"] = Eg
     if rung.band_fields >= 0:
         assert q is not None, "band-field inputs need the charge channel"
         Ef, gE, ggE = BF.band_field_tensors(pos, q, pmask, rung.l1, rung.band_fields)
-        eps_bf = BF.response_energy(params["readout"], cfg, rung.band_fields, s, v, t, mask, Ef, gE, ggE)
+        if rung.readout == "pair":
+            eps_bf = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s, r, D, pmask, mask, Ef, gE, ggE, rung.l1)
+        else:
+            eps_bf = BF.response_energy(params["readout"], cfg, rung.band_fields, s, v, t, mask, Ef, gE, ggE, rung.l1)
         E = E + jnp.sum(eps_bf); aux["E_bf"] = jnp.sum(eps_bf); aux["eps_bf"] = eps_bf; aux["Efield"] = Ef
     return E, aux
 

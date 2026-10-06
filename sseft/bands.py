@@ -39,7 +39,9 @@ def dispersion_band(alpha, w, r, pmask, l):
 
 
 def analytic_band(s, coeffs, r, pmask, lA):
-    """rung M_A: learned scalar sources s (N,) and kernel coefficients coeffs (N_A + 1,)."""
-    G = kn.analytic_family(r, lA, coeffs.shape[0] - 1)                                       # (N,N,N_A+1)
+    """rung M_A: learned scalar sources s (N,) and kernel coefficients coeffs (N_A + 1,) of the normalised
+    family G_n / rms(G_n) (kernels.analytic_family_scales)."""
+    NA = coeffs.shape[0] - 1
+    G = kn.analytic_family(r, lA, NA) / kn.analytic_family_scales(NA)                          # (N,N,N_A+1)
     K = jnp.sum(G * coeffs, axis=-1) * pmask
     return 0.5 * jnp.sum(s[:, None] * s[None, :] * K)

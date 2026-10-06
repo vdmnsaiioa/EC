@@ -89,6 +89,18 @@ def analytic_family(r, l, N):
     return jnp.stack(cols, axis=-1)
 
 
+def analytic_family_scales(N):
+    """rms of G_n over r in [l/2, 5l/2] (a fixed diagonal preconditioner: the raw family's columns differ by
+    10^4 in scale and its window Gram matrix has condition number ~10^10, which no first-order optimiser
+    resolves; normalised it is ~10^5, which L-BFGS does)."""
+    x = np.linspace(0.25, 6.25, 400)
+    out = []
+    for P in gaussian_family_polys(N):
+        val = np.polyval(P[::-1], x) * np.exp(-x)
+        out.append(np.sqrt(np.mean(val ** 2)))
+    return jnp.asarray(out)
+
+
 # ---------------------------------------------------------------- Casimir-Polder ------------------------------
 def casimir_polder_grid(K=8, omega0=0.3):
     """imaginary frequencies and weights for C6_ij = (3/pi) sum_k w_k alpha_i(i w_k) alpha_j(i w_k):
