@@ -9,3 +9,8 @@ exact Taylor class, order 2: train rel rms 6.250e-04, test 7.686e-04  [178 s]
     step   400  loss 1.415e-04  (E 1.42e-04, F 0.00e+00)  [332 s]
     step   500  loss 8.869e-05  (E 8.87e-05, F 0.00e+00)  [433 s]
     step   600  loss 7.204e-05  (E 7.20e-05, F 0.00e+00)  [593 s]
+    step   700  loss 7.275e-05  (E 7.28e-05, F 0.00e+00)  [737 s]
+    step   800  loss 2.939e-05  (E 2.94e-05, F 0.00e+00)  [871 s]
+    step   900  loss 2.141e-05  (E 2.14e-05, F 0.00e+00)  [1003 s]
+    step   999  loss 3.394e-05  (E 3.39e-05, F 0.00e+00)  [1134 s]
+Killed

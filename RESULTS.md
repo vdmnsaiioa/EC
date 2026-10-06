@@ -104,3 +104,24 @@ C₈/C₆R² is largest; at r_c = 5.0 Å E₀ sees no pair in the window, so not
 minimum 1.125 (energies only 1.105); seeds at 1.120, 1.133, 1.149 and one unconverged seed at 1.251.
 Linear-class predictions must be computed under the training objective, forces included, and seeds need a
 convergence criterion before averaging.
+
+## v0.0.3 — the L6b rung M_68 (C₆ + C₈ bands) on Ar₂ and Ne₂ (K = 4)
+
+Pre-registered in the project note `e1-m68-preregistration.md` with the linear-class minimum computed under the
+training objective (energies + forces, nodes beyond r_c): Ar₂ Ĉ₆/C₆ = 0.958, Ĉ₈/C₈ = 1.455; Ne₂ 0.984, 1.321.
+`results/e1_{Ar2,Ne2}_published_M68_K4`.
+
+| system | window rmse | Ĉ₆/C₆ per seed | Ĉ₈/C₈ per seed | rel. err 20 / 300 Å | W/\|f*\| 20 / 300 Å, slope | q 10 → 300 Å |
+|---|---|---|---|---|---|---|
+| Ar₂ | 1.2–1.7e-8 | 0.957–0.963 (pred. 0.958 ± 0.03 ✓) | 1.433–1.460 (pred. 1.455 ± 0.10 ✓) | 0.031 / 0.040 (pred. 0.034 / 0.042 ✓) | 2.4e-3 / 2.7e-3, +0.02 | 4.84 → 6.00 |
+| Ne₂ | 1.1–2.4e-8 | 1.02, 1.04, 0.954, 0.965 | 0.87, 0.87, 1.56, 1.50 | 0.0035 / 0.0052 (pred. 0.013 / 0.016) | 3.8e-2 / 4.2e-2, +0.01 | 5.07 → 6.00 |
+
+Ar₂: every number inside its tolerance; the C₁₀–C₁₆ truncation loads onto C₈ (+45 %) and pulls C₆ 4 % low, as
+computed.  Ne₂: the two parameters on 16 nodes (0.34 octaves) beyond r_c are ill-conditioned — the seeds split
+into two groups along the C₆–C₈ valley (the better-converged pair at 0.96 / 1.53, the other at 1.03 / 0.87),
+the C₈ prediction fails (1.32 ± 0.10 against 1.53 for the converged pair) while the asymptotic C₆ holds to 3 %;
+reported as such.  One wrong prediction on both systems: q was predicted between 6 and 8 at 10–20 Å and is
+instead 4.8–5.8, approaching 6 from below — the seeds' δC₆ and δC₈ are anticorrelated (the fibre runs along the
+valley), so the spread |δC₆/R⁶ + δC₈/R⁸| is partially cancelled at short R′; the uncorrelated estimate was wrong.
+Window rmse 50× below M_6's (the C₈ term absorbs the L6a misfit); the plateau level 2.6e-3 on Ar₂ is 4× M_6's,
+the wider two-parameter fibre.
