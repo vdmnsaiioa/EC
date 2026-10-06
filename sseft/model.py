@@ -142,9 +142,11 @@ def energy_single(params, rung: Rung, b):
                 E8 = B.dispersion8_band(alpha, alpha2, w, r, pmask, rung.l1)
             E = E + E8; aux["E_disp8"] = E8; aux["alpha2"] = alpha2
     if rung.analytic:
-        assert not rung.periodic, "M_A under periodic boundary conditions: not implemented yet (polynomial in q^2 in reciprocal space)"
         sA = H.scalar_source(hp, s, mask)
-        Ea = B.analytic_band(sA, params["A_coeffs"], r, pmask, rung.lA)
+        if rung.periodic:
+            Ea = EW.analytic_band_pbc(sA, params["A_coeffs"], pos, b["cell"], mask, rung.lA, rung.ewald_n_max, rung.ewald_b_max)
+        else:
+            Ea = B.analytic_band(sA, params["A_coeffs"], r, pmask, rung.lA)
         E = E + Ea; aux["E_A"] = Ea; aux["sA"] = sA
     if rung.global_block:
         Eg = global_pair_energy(params["global"], s, r, pmask, rung.rG, hp["e_scale"])

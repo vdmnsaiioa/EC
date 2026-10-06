@@ -16,7 +16,7 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
 ## Install
 
     pip install -e .            # jax, optax, numpy, scipy (tested with jax 0.10, optax 0.2.8, numpy 2.4, scipy 1.17)
-    pytest -q tests/            # 28 tests, ~4 min on a CPU
+    pytest -q tests/            # 29 tests, ~4 min on a CPU
 
 For GPUs install the matching `jax[cuda]` wheel first.
 
@@ -60,7 +60,9 @@ Pieces (one module each):
   limit of the dipole terms, and finite-difference forces.  Switched on per rung with `periodic=True`.  The
   band-field tensors of the v1.5 rungs come from the same Ewald potential under periodic boundary conditions
   (own charge removed analytically; checked against explicit image sums, with the depolarisation field of a
-  spherical sum accounted for).  Not yet periodic: `M_A` (needs the polynomial in `q²` in reciprocal space).
+  spherical sum accounted for).  `M_A` under periodic boundary conditions is the polynomial in `k²` times the
+  Gaussian envelope in reciprocal space (checked against explicit images to 1e-10).  Every rung now runs on
+  open clusters and on periodic cells.
 * `bandfields.py` — band-field tensors at the atom by nested forward-mode differentiation of the band
   potential (own charge excluded), and the degree-2 equivariant read-out with environment-dependent
   coefficients from `E_0`.

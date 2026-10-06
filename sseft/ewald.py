@@ -106,3 +106,25 @@ def dispersion8_band_pbc(alpha1, alpha2, w, positions, cell, mask, l, n_max=8, b
     B1 = f * alpha1; B2 = f * alpha2
     # sum_kappa Re[S1 conj S2] + Re[S2 conj S1] = 2 Re[S1 conj S2]; C_ii = 2 B1 B2
     return 2.0 * _dispersion_pbc(B1, B2, positions, cell, mask, l, ghat8, (1.0 / l) ** 8 / 24.0, n_max, b_max)
+
+
+def analytic_band_pbc(s, coeffs, positions, cell, mask, lA, n_max=8, b_max=4.0):
+    """periodic rung M_A: K(r) = sum_n c_n G_n(r) / rms_n with G_n = (-lA^2 lap)^n exp(-r^2/lA^2); in reciprocal space
+    Ghat_n(k) = (k^2 lA^2)^n pi^{3/2} lA^3 exp(-k^2 lA^2 / 4), so
+        E = (1 / 2V) sum_k Khat(k) |S(k)|^2 - (1/2) sum_i s_i^2 K(0),   S(k) = sum_j s_j e^{i k . r_j},
+    with K(0) = sum_n c_n P_n(0) / rms_n (the polynomials' constant terms) and the k = 0 term included."""
+    from . import kernels as kn
+    NA = coeffs.shape[0] - 1
+    scales = kn.analytic_family_scales(NA)
+    polys = kn.gaussian_family_polys(NA)
+    K0 = sum(float(P[0]) * coeffs[n] / scales[n] for n, P in enumerate(polys))
+    k = k_vectors(cell, n_max)
+    k2 = jnp.sum(k * k, axis=-1)
+    live = k2 <= (2.0 * b_max / lA) ** 2
+    x = k2 * lA * lA
+    Khat = math.pi ** 1.5 * lA ** 3 * jnp.exp(-0.25 * x) * sum(coeffs[n] / scales[n] * x ** n for n in range(NA + 1))
+    phase = k @ positions.T
+    sm = s * mask
+    S2 = jnp.sum(sm[None, :] * jnp.cos(phase), axis=1) ** 2 + jnp.sum(sm[None, :] * jnp.sin(phase), axis=1) ** 2
+    V = _volume(cell)
+    return (0.5 / V) * jnp.sum(jnp.where(live, Khat * S2, 0.0)) - 0.5 * jnp.sum(sm * sm) * K0

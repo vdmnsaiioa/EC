@@ -195,3 +195,21 @@ def test_periodic_band_field_rung_forces():
     for (i, c) in [(0, 1), (2, 2)]:
         fd = -(-E_at(i, c, 2 * h) + 8 * E_at(i, c, h) - 8 * E_at(i, c, -h) + E_at(i, c, -2 * h)) / (12 * h)
         assert abs(fd - float(F[i, c])) < 1e-6 * abs(fd) + 1e-10, (i, c, fd, float(F[i, c]))
+
+
+def test_analytic_band_pbc_against_images():
+    """the periodic M_A kernel (polynomial in k^2 times the Gaussian envelope) equals the open-cluster family summed
+    over images (the family is Gaussian in r: a 3 x 3 x 3 block of images is converged to machine precision)."""
+    from sseft import bands as B
+    rng = np.random.default_rng(3)
+    a = 12.0; N = 5; lA = 3.0
+    pos = rng.uniform(0, a, (N, 3)); s = rng.normal(size=N); coeffs = jnp.asarray([1.0, -0.5, 0.3, 0.1, -0.05])
+    E_pbc = float(EW.analytic_band_pbc(jnp.asarray(s), coeffs, jnp.asarray(pos), jnp.asarray(np.eye(3) * a), jnp.ones(N, bool), lA, n_max=10, b_max=6.0))
+    tot = 0.0
+    for L in _images(3) * a:
+        d = pos[:, None, :] - pos[None, :, :] + L; r = np.linalg.norm(d, axis=-1)
+        m = r > 1e-9
+        G = np.array(kn.analytic_family(jnp.asarray(np.where(m, r, 1.0)), lA, 4) / kn.analytic_family_scales(4))
+        K = np.sum(G * np.array(coeffs), axis=-1)
+        tot += 0.5 * np.sum(np.where(m, np.outer(s, s) * K, 0.0))
+    assert abs(E_pbc - tot) < 1e-10 * max(1.0, abs(tot)), (E_pbc, tot)
