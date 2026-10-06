@@ -79,7 +79,8 @@ def main():
         rung = M.RUNGS[name]
         rung = M.with_rung(rung, lA=ang_to_bohr(a.lA), NA=a.NA, one_oscillator=a.one_oscillator,
                            e0={**rung.e0, "r_cut": ang_to_bohr(a.rcut)})
-        preds = {s: [] for s in systems}; alphas = {Z: [] for Z in species}; alphas2 = {Z: [] for Z in species}; t0 = time.time()
+        preds = {s: [] for s in systems}; rmses = {s: [] for s in systems}
+        alphas = {Z: [] for Z in species}; alphas2 = {Z: [] for Z in species}; t0 = time.time()
         for seed in range(a.seeds):
             params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0)
             msg = []
@@ -87,7 +88,7 @@ def main():
                 E_tr, _ = T.predict(params, rung, tests[s]["train"])
                 rmse = np.sqrt(np.mean((E_tr - np.array([st.energy for st in tests[s]["train"]])) ** 2))
                 E_te, _ = T.predict(params, rung, with_pins(D.dimer_structures(tests[s]["Z"], tests[s]["R_eval"], tests[s]["truth"])))
-                preds[s].append(E_te); msg.append(f"{s} window rmse {rmse:.2e}")
+                preds[s].append(E_te); rmses[s].append(rmse); msg.append(f"{s} window rmse {rmse:.2e}")
             if rung.dispersion and not rung.pin_alpha:
                 for Z in species:
                     aux_iso = T.predict_aux(params, rung, with_pins([D.isolated_atom(Z)]))
@@ -100,6 +101,13 @@ def main():
         results[name] = {}
         for s in systems:
             P = np.array(preds[s]); R_eval = tests[s]["R_eval"]; f_true = tests[s]["f_true"]
+            # convergence rule (e1-e2-results.md section 5): seeds whose window rmse exceeds 2x the best seed's are
+            # reported but excluded from the ensemble statistics
+            rm = np.array(rmses[s]); conv = rm <= 2.0 * rm.min()
+            if (~conv).any():
+                print(f"  {name} / {s}: {int((~conv).sum())} of {len(rm)} seeds unconverged (window rmse {rm[~conv]} vs best {rm.min():.2e}); excluded", flush=True)
+            if conv.sum() >= 2:
+                P = P[conv]
             mean, W = ME.ensemble_stats(P)
             # a spread at the float64 floor of the interaction energy (1e-16 of the window energies) is zero:
             # the Gaussian collapse of M_A reaches it, and q / the plateau slope are undefined there
@@ -117,7 +125,7 @@ def main():
             slope = ME.plateau_slope(bohr_to_ang(R_eval), relW, 30, 300)
             print(f"  {name} / {s}: slope of log(W/|f*|) vs log R on [30, 300] A = {slope:+.2f}  "
                   f"(branch 2: 0; branch 1: p* - p_min; branch 3: -> -inf)", flush=True)
-            results[name][s] = dict(rows=rows, slope=slope,
+            results[name][s] = dict(rows=rows, slope=slope, window_rmse=rm.tolist(), converged=conv.tolist(),
                                     grid=dict(R_A=bohr_to_ang(R_eval).tolist(), f_true=f_true.tolist(), mean=mean.tolist(),
                                               W=np.nan_to_num(W, nan=0.0).tolist(), q=np.nan_to_num(q, nan=0.0).tolist(),
                                               preds=P.tolist()))
