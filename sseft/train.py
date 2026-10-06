@@ -44,17 +44,27 @@ def make_loss(rung, scale, w_energy=1.0, w_force=10.0):
 
 
 def make_chunked_loss(rung, scale, data, w_energy=1.0, w_force=10.0, chunk=48):
-    """the full-data loss evaluated chunk by chunk (exact: sums and counts are combined after the chunks), so
-    that the full-batch gradient of L-BFGS does not hold the whole data set's forward graph in memory."""
+    """the full-data loss evaluated chunk by chunk (exact: sums and counts are combined after the chunks) with
+    a scan over rematerialised chunks, so that the full-batch gradient of L-BFGS holds the forward graph of one
+    chunk only.  The data are padded to a multiple of the chunk size with inert structures (no energy, no
+    forces, no atoms), which contribute nothing to the sums."""
     sums = make_loss_sums(rung, scale, w_force)
     n = int(data["mask"].shape[0])
-    bounds = list(range(0, n, chunk)) + [n]
-    chunks = [{k: v[a:b] for k, v in data.items()} for a, b in zip(bounds[:-1], bounds[1:])]
+    n_chunks = -(-n // chunk)
+    pad = n_chunks * chunk - n
+    def padded(v):
+        if pad == 0: return v
+        tail = jnp.zeros((pad,) + v.shape[1:], dtype=v.dtype)
+        if v.dtype == jnp.bool_: tail = jnp.zeros((pad,) + v.shape[1:], dtype=bool)
+        return jnp.concatenate([v, tail], axis=0)
+    stacked = {k: padded(v).reshape((n_chunks, chunk) + v.shape[1:]) for k, v in data.items()}
+    # padded structures: cell must stay invertible, and positions / numbers are zero -> masked everywhere
+    if pad > 0:
+        stacked["cell"] = stacked["cell"].at[-1, chunk - pad:].set(jnp.eye(3) * 1e6)
+    chunk_sums = jax.checkpoint(lambda params, c: jnp.stack(sums(params, c)))
     def loss_fn(params):
-        se = ce = sf = cf = 0.0
-        for c in chunks:
-            a, b, cc, d = sums(params, c)
-            se, ce, sf, cf = se + a, ce + b, sf + cc, cf + d
+        out = jax.lax.map(lambda c: chunk_sums(params, c), stacked)          # (n_chunks, 4)
+        se, ce, sf, cf = jnp.sum(out, axis=0)
         le = se / jnp.maximum(ce, 1.0); lf = sf / jnp.maximum(cf, 1.0)
         return w_energy * le + w_force * lf
     return loss_fn
