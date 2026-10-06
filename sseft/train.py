@@ -17,25 +17,51 @@ def energy_scale(structures):
     return float(np.std(e) + 1e-30) if len(e) > 1 else float(abs(e[0]) + 1e-30)
 
 
-def make_loss(rung, scale, w_energy=1.0, w_force=10.0):
-    def loss_fn(params, batch):
+def make_loss_sums(rung, scale, w_force=10.0):
+    """per-batch sums and counts of the squared scaled residuals: (sum_e, cnt_e, sum_f, cnt_f)."""
+    def sums(params, batch):
         n = jnp.maximum(jnp.sum(batch["mask"], axis=1), 1.0)
         if w_force > 0:
             E, F = M.energy_forces(params, rung, batch)
             f_err = (F - batch["forces"]) / scale
             fm = batch["mask"][:, :, None] * batch["has_forces"][:, None, None]
-            lf = jnp.sum(f_err ** 2 * fm) / jnp.maximum(jnp.sum(fm), 1.0)
+            sf, cf = jnp.sum(f_err ** 2 * fm), jnp.sum(fm)
         else:
             E = jax.vmap(lambda bb: M.energy_single(params, rung, bb)[0])(batch)
-            lf = jnp.zeros(())
+            sf, cf = jnp.zeros(()), jnp.zeros(())
         e_err = (E - batch["energy"]) / n / scale
-        le = jnp.sum(e_err ** 2 * batch["has_energy"]) / jnp.maximum(jnp.sum(batch["has_energy"]), 1.0)
+        return jnp.sum(e_err ** 2 * batch["has_energy"]), jnp.sum(batch["has_energy"]), sf, cf
+    return sums
+
+
+def make_loss(rung, scale, w_energy=1.0, w_force=10.0):
+    sums = make_loss_sums(rung, scale, w_force)
+    def loss_fn(params, batch):
+        se, ce, sf, cf = sums(params, batch)
+        le = se / jnp.maximum(ce, 1.0); lf = sf / jnp.maximum(cf, 1.0)
         return w_energy * le + w_force * lf, (le, lf)
     return loss_fn
 
 
+def make_chunked_loss(rung, scale, data, w_energy=1.0, w_force=10.0, chunk=48):
+    """the full-data loss evaluated chunk by chunk (exact: sums and counts are combined after the chunks), so
+    that the full-batch gradient of L-BFGS does not hold the whole data set's forward graph in memory."""
+    sums = make_loss_sums(rung, scale, w_force)
+    n = int(data["mask"].shape[0])
+    bounds = list(range(0, n, chunk)) + [n]
+    chunks = [{k: v[a:b] for k, v in data.items()} for a, b in zip(bounds[:-1], bounds[1:])]
+    def loss_fn(params):
+        se = ce = sf = cf = 0.0
+        for c in chunks:
+            a, b, cc, d = sums(params, c)
+            se, ce, sf, cf = se + a, ce + b, sf + cc, cf + d
+        le = se / jnp.maximum(ce, 1.0); lf = sf / jnp.maximum(cf, 1.0)
+        return w_energy * le + w_force * lf
+    return loss_fn
+
+
 def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.0, batch_size=None,
-        lbfgs_steps=0, verbose=False, scale=None):
+        lbfgs_steps=0, verbose=False, scale=None, lbfgs_chunk=48):
     """train one model; returns (params, info)."""
     key = jax.random.PRNGKey(seed)
     scale = scale or energy_scale(structures)
@@ -65,12 +91,13 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
             if verbose:
                 print(f"    step {it:5d}  loss {float(l):.3e}  (E {float(parts[0]):.2e}, F {float(parts[1]):.2e})  [{time.time() - t0:.0f} s]", flush=True)
     if lbfgs_steps > 0:
-        params = polish_lbfgs(params, loss_fn, data, lbfgs_steps, verbose)
+        f = make_chunked_loss(rung, scale, data, w_energy, w_force, chunk=lbfgs_chunk)
+        params = polish_lbfgs(params, f, lbfgs_steps, verbose)
     return params, {"scale": scale, "history": hist, "time": time.time() - t0}
 
 
-def polish_lbfgs(params, loss_fn, data, steps, verbose=False):
-    f = lambda p: loss_fn(p, data)[0]
+def polish_lbfgs(params, f, steps, verbose=False):
+    """f(params) -> scalar loss over the whole data set."""
     opt = optax.lbfgs()
     state = opt.init(params)
     vg = optax.value_and_grad_from_state(f)
