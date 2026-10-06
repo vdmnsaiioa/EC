@@ -151,8 +151,10 @@ def energy_single(params, rung: Rung, b):
         E = E + Eg; aux["E_G"] = Eg
     if rung.band_fields >= 0:
         assert q is not None, "band-field inputs need the charge channel"
-        assert not rung.periodic, "band-field inputs under periodic boundary conditions: not implemented yet (Ewald potential gradients)"
-        Ef, gE, ggE = BF.band_field_tensors(pos, q, pmask, rung.l1, rung.band_fields)
+        if rung.periodic:
+            Ef, gE, ggE = BF.band_field_tensors_pbc(pos, q, mask, b["cell"], rung.l1, rung.band_fields, rung.ewald_n_max, rung.ewald_b_max)
+        else:
+            Ef, gE, ggE = BF.band_field_tensors(pos, q, pmask, rung.l1, rung.band_fields)
         if rung.readout == "pair":
             eps_bf = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s, r, D, pmask, mask, Ef, gE, ggE, rung.l1)
         else:

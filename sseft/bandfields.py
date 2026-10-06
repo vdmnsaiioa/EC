@@ -114,6 +114,36 @@ def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l):
 
 
 # ---------------------------------------------------------------- node read-out (L <= 2 variant) --------------
+def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.0):
+    """the same tensors for a periodic cell: the Ewald potential V(x) = (4 pi / V) sum_{k != 0} e^{-k^2 l^2/4} / k^2
+    Re[S(k) e^{-i k.x}] (tin-foil, neutral), differentiated in x, with the own charge's contribution removed
+    analytically (its field at its own centre is zero; its gradient is -q_i grad grad g(0) = q_i (4 / 3 sqrt(pi) l^3) I;
+    its third derivative at the centre vanishes)."""
+    import math
+    from .ewald import k_vectors, _volume
+    k = k_vectors(cell, n_max)
+    k2 = jnp.sum(k * k, axis=-1)
+    live = (k2 > 1e-12) & (k2 <= (2.0 * b_max / l) ** 2)
+    k2s = jnp.where(live, k2, 1.0)
+    qm = q * mask
+    phase = k @ positions.T                                                   # (M,N)
+    S_re = jnp.sum(qm[None, :] * jnp.cos(phase), axis=1); S_im = jnp.sum(qm[None, :] * jnp.sin(phase), axis=1)
+    pref = jnp.where(live, 4.0 * math.pi / _volume(cell) * jnp.exp(-0.25 * k2s * l * l) / k2s, 0.0)
+    def V(x):
+        kx = k @ x
+        return jnp.sum(pref * (S_re * jnp.cos(kx) + S_im * jnp.sin(kx)))     # Re[S e^{-ikx}] = S_re cos + S_im sin
+    def E(x):
+        return -jax.grad(V)(x)
+    Ef = jax.vmap(E)(positions) * mask[:, None]
+    gE = ggE = None
+    if order >= 1:
+        gE = jax.vmap(jax.jacfwd(E))(positions)
+        gE = (gE - (qm * 4.0 / (3.0 * math.sqrt(math.pi) * l ** 3))[:, None, None] * jnp.eye(3)[None]) * mask[:, None, None]
+    if order >= 2:
+        ggE = jax.vmap(jax.jacfwd(jax.jacfwd(E)))(positions) * mask[:, None, None, None]
+    return Ef, gE, ggE
+
+
 def _slices(F, order):
     """(name, size) of the coefficient blocks, in the order the read-out consumes them."""
     out = [("a", 1), ("b", F), ("bp", F)]

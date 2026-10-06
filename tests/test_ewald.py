@@ -136,3 +136,62 @@ def test_periodic_rungs_against_explicit_images():
     for (i, c) in [(0, 0), (3, 2)]:
         fd = -(-E_at(i, c, 2 * h) + 8 * E_at(i, c, h) - 8 * E_at(i, c, -h) + E_at(i, c, -2 * h)) / (12 * h)
         assert abs(fd - float(F[i, c])) < 1e-6 * abs(fd) + 1e-10, (i, c, fd, float(F[i, c]))
+
+
+def test_band_field_tensors_pbc_against_images():
+    """E, grad E, grad grad E at the atoms of a periodic quadrupolar charge set = the open-cluster tensors summed over
+    an explicit block of images (absolutely convergent: the field of a quadrupole falls as r^-4)."""
+    import jax
+    from sseft import bandfields as BF
+    a = 14.0; l = 2.0
+    pos = np.array([[2, 2, 2], [9, 2, 2], [2, 9, 2], [9, 9, 2.5]], float) + np.array([[0.1, -0.2, 0.3], [0, 0.1, -0.1], [0.2, 0, 0], [-0.1, 0.1, 0.2]])
+    q = np.array([0.4, -0.4, -0.4, 0.4])
+    N = len(q)
+    Ef, gE, ggE = BF.band_field_tensors_pbc(jnp.asarray(pos), jnp.asarray(q), jnp.ones(N, bool), jnp.asarray(np.eye(3) * a), l, 2, n_max=14, b_max=5.0)
+    # explicit images: potential at x from every charge and image except the own charge at L = 0
+    n = 8
+    Ls = _images(n) * a; Ls = Ls[np.linalg.norm(Ls, axis=1) <= n * a + 1e-9]
+    P = (pos[None, :, :] + Ls[:, None, :]).reshape(-1, 3); Q = np.tile(q, len(Ls))
+    own = np.where(np.all(Ls == 0, axis=1))[0][0] * N                      # index of the L = 0 copy of atom 0
+    def V(x, i):
+        w = jnp.arange(len(Q)) != own + i
+        d = jnp.where(w[:, None], x[None, :] - jnp.asarray(P), 1.0)        # the own charge gets a dummy vector before the sqrt
+        rr = jnp.sqrt(jnp.sum(d * d, axis=-1))
+        return jnp.sum(w * jnp.asarray(Q) * kn.g_long(rr, l))
+    E = lambda x, i: -jax.grad(V)(x, i)
+    # the charge set carries a small net dipole M, so the spherically summed field differs from the tin-foil
+    # (Ewald) field by the uniform depolarisation field -(4 pi / 3V) M; the gradients are unaffected
+    Mdip = q @ pos; depol = -(4 * math.pi / (3 * a ** 3)) * Mdip
+    for i in range(N):
+        x = jnp.asarray(pos[i])
+        E_ref = np.array(E(x, i)) - depol; gE_ref = np.array(jax.jacfwd(E)(x, i)); ggE_ref = np.array(jax.jacfwd(jax.jacfwd(E))(x, i))
+        # the explicit sums converge as 1/R (field of a quadrupole), 1/R^2, 1/R^3 for the three tensors
+        assert np.allclose(np.array(Ef[i]), E_ref, rtol=3e-3, atol=2e-6), (i, np.array(Ef[i]), E_ref)
+        assert np.allclose(np.array(gE[i]), gE_ref, rtol=1e-3, atol=2e-7), (i, np.array(gE[i]), gE_ref)
+        assert np.allclose(np.array(ggE[i]), ggE_ref, rtol=3e-4, atol=2e-8), (i, np.array(ggE[i]), ggE_ref)
+
+
+def test_periodic_band_field_rung_forces():
+    """M_S2 under periodic boundary conditions (Ewald bands + Ewald band-field tensors + pair read-out): forces
+    against finite differences."""
+    import jax
+    from sseft import model as M, structure as S
+    a = 14.0; N = 4
+    pos = np.array([[2, 2, 2], [9, 2, 2], [2, 9, 2], [9, 9, 2.5]], float) + np.array([[0.1, -0.2, 0.3], [0, 0.1, -0.1], [0.2, 0, 0], [-0.1, 0.1, 0.2]])
+    q = np.array([0.4, -0.4, -0.4, 0.4])
+    om, w = kn.casimir_polder_grid(8)
+    alpha = np.array([11.1 / (1 + (np.array(om) / 0.7) ** 2)] * N)
+    st = S.Structure(pos, np.full(N, 18), cell=np.eye(3) * a, pbc=True, pinned={"q": q, "alpha": alpha})
+    b = {k: v[0] for k, v in S.pad_batch([st], n_freq=8).items()}
+    rung = M.with_rung(M.RUNGS["M_S2"], periodic=True, ewald_n_max=10, e0={**M.RUNGS["M_S2"].e0, "r_cut": 6.0, "F": 8})
+    params = M.init_params(jax.random.PRNGKey(0), rung)
+    # switch the higher orders on (they start at zero) so that the test exercises them
+    last = params["readout"]["theta"][-1]
+    params["readout"]["theta"][-1] = {"w": last["w"] + 0.05 * jax.random.normal(jax.random.PRNGKey(1), last["w"].shape), "b": last["b"]}
+    _, F = M.energy_forces_single(params, rung, b)
+    def E_at(i, c, dx):
+        return float(M.energy_single(params, rung, {**b, "positions": b["positions"].at[i, c].add(dx)})[0])
+    h = 3e-5
+    for (i, c) in [(0, 1), (2, 2)]:
+        fd = -(-E_at(i, c, 2 * h) + 8 * E_at(i, c, h) - 8 * E_at(i, c, -h) + E_at(i, c, -2 * h)) / (12 * h)
+        assert abs(fd - float(F[i, c])) < 1e-6 * abs(fd) + 1e-10, (i, c, fd, float(F[i, c]))
