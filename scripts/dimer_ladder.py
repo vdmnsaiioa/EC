@@ -116,7 +116,10 @@ def main():
             slope = ME.plateau_slope(bohr_to_ang(R_eval), relW, 30, 300)
             print(f"  {name} / {s}: slope of log(W/|f*|) vs log R on [30, 300] A = {slope:+.2f}  "
                   f"(branch 2: 0; branch 1: p* - p_min; branch 3: -> -inf)", flush=True)
-            results[name][s] = dict(rows=rows, slope=slope)
+            results[name][s] = dict(rows=rows, slope=slope,
+                                    grid=dict(R_A=bohr_to_ang(R_eval).tolist(), f_true=f_true.tolist(), mean=mean.tolist(),
+                                              W=np.nan_to_num(W, nan=0.0).tolist(), q=np.nan_to_num(q, nan=0.0).tolist(),
+                                              preds=P.tolist()))
         if alphas[species[0]]:
             # E2: learned alpha(i omega) of the free atom, Casimir-Polder C6 of every pair vs DOSD
             e2 = {}

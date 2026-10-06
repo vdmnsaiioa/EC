@@ -74,3 +74,24 @@ The node read-out's failure is informative: the order-2 operators F_a T_{abcd} �
 Σ_j w(r_ij) n̂_ij^{⊗4}, an L = 4 environment tensor, which scalar / vector / rank-2 node channels cannot
 represent — the body-ordered pair read-out (radial functions times powers of the pair direction, the
 Taylor class on the physical structure of `x2-protocol.md` §1.3) is the right implementation of F_s.
+
+## v0.0.2 — E1 / E2 on the published Ar₂ and Ne₂ potentials (K = 4)
+
+`scripts/dimer_ladder.py --truth published --seeds 4 --steps 1500 --lbfgs 300`; logs and json in `results/`
+(`e1_Ar2_published_K4`, `e1_Ne2_published_K4`, `e2_NeAr_joint_M6_freeK`, `e2_NeAr_joint_M6_oneosc`).  Full
+discussion against the pre-registration in the project note `e1-e2-results.md`.
+
+| rung | Ar₂: rel. err 20 / 300 Å, W/\|f*\| 20 Å, q 20 / 300 Å, slope | Ne₂: the same | branch |
+|---|---|---|---|
+| M_inf | 1.000 / 1.000, 0, –, – | 1.000 / 1.000, 0, –, – | 3 ✓ |
+| M_G | 1.5e4 / 1e13, 3.6e3, −4.0 / −1.03, +7.4 | 1.2e4 / 5e12, 3.5e3, −2.7 / −0.92, +7.6 | 1, q → −1 ✓ |
+| M_A (4 Å, N = 4) | 0.998 / 1.000, 1.4e-4, 38.7 / float floor | 1.000 / 1.000, 3.9e-4, 43.4 / floor | 3 after the burst ✓; dq/dR′² = 0.131 (Ar₂), 0.129 (Ne₂) vs 2/ℓ² = 0.125 |
+| M_6 | 0.241 / 0.265, 6.2e-4, 6.00 / –, +0.00 | 0.153 / 0.163, 5.9e-2, 6.00 / 6.00, +0.00 | 2 ✓; Ĉ₆/C₆ = 1.265, 1.163 (predicted 1.21, 1.10 ± 0.05: +5 % systematic ✗) |
+| M_16 | identical to M_6 seed by seed; max\|q_i\| = 0 | – | ≡ M_6 ✓ (Coulomb channel dead on homonuclear dimers) |
+| M_16p (q = 0, α from static α₀ + DOSD C₆) | 0.0126 / 0.0068, 0 | 0.0050 / 0.0039, 0 | 2 with zero fibre ✓ |
+
+E2 (joint Ne₂ + Ar₂ fit of M_6; Casimir–Polder C₆ from the learned free-atom α(iω)):
+free K = 8: Ne–Ne 7.36 ± 0.37, Ar–Ar 81.70 ± 0.79, **Ne–Ar (unseen) 18.78 ± 3.18** (DOSD 6.383, 64.30, 19.50);
+one-oscillator: 7.21 ± 0.14, 81.13 ± 0.10, **21.30 ± 1.00**.  The cross C₆'s seed spread (17 % free, 5 %
+one-oscillator) is the measured gauge freedom; α₀ is not identified from dimer energies (Ne 2.66, Ar 5.28
+against 2.67, 11.08 with the one-oscillator prior).
