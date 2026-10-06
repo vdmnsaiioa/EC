@@ -100,5 +100,7 @@ against 2.67, 11.08 with the one-oscillator prior).
 = 1.372 / 1.265 / 1.186 (two seeds agree to four digits).  A scan of the training loss with α pinned puts its
 minimum at 1.37 / 1.26 / 1.18 — the energies + forces objective — while the energies-only minimum is at
 1.31 / 1.21 / 1.15, the numbers the pre-registration quoted.  The forces (∝ R⁻⁷) weight the inner window where
-C₈/C₆R² is largest; at r_c = 5.0 Å E₀ sees no pair in the window, so nothing else is involved.  Linear-class
-predictions must be computed under the training objective, forces included.
+C₈/C₆R² is largest; at r_c = 5.0 Å E₀ sees no pair in the window, so nothing else is involved.  Ne₂: objective
+minimum 1.125 (energies only 1.105); seeds at 1.120, 1.133, 1.149 and one unconverged seed at 1.251.
+Linear-class predictions must be computed under the training objective, forces included, and seeds need a
+convergence criterion before averaging.
