@@ -10,6 +10,9 @@ for sys in Ar2 Ne2; do
       --seeds $K --steps 1500 --lbfgs 300 --lA 4.0 --out results/e1_${sys}_published_K${K}.json \
       > results/e1_${sys}_published_K${K}.log 2>&1
 done
+# Ne2 at the reduced cutoff r_c = 4.9 A = 1.165 R- (the same 30 nodes beyond r_c as Ar2 has at 6 A)
+python3 scripts/dimer_ladder.py --system Ne2 --truth published --rungs M_6,M_68 --seeds $K --steps 1500 --lbfgs 300 \
+    --rcut 4.9 --out results/e1_Ne2_published_rcut4.9_K${K}.json > results/e1_Ne2_published_rcut4.9_K${K}.log 2>&1
 python3 scripts/dimer_ladder.py --system Ne2,Ar2 --truth published --rungs M_6,M_68 --seeds $K --steps 1500 --lbfgs 300 \
     --out results/e2_NeAr_joint_K${K}_freeK.json > results/e2_NeAr_joint_K${K}_freeK.log 2>&1
 python3 scripts/dimer_ladder.py --system Ne2,Ar2 --truth published --rungs M_6,M_68 --seeds $K --steps 1500 --lbfgs 300 \
