@@ -16,7 +16,7 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
 ## Install
 
     pip install -e .            # jax, optax, numpy, scipy (tested with jax 0.10, optax 0.2.8, numpy 2.4, scipy 1.17)
-    pytest -q tests/            # 22 tests, ~2.5 min on a CPU
+    pytest -q tests/            # 26 tests, ~3 min on a CPU
 
 For GPUs install the matching `jax[cuda]` wheel first.
 
@@ -52,7 +52,12 @@ Pieces (one module each):
   `p = 8` long parts `[1 − e^{−x}P(x)]/r^p` with their small-`x` series, the Gaussian Laplacian family
   `(−l²∇²)ⁿ e^{−r²/l²}` (exact rational recursion; used column-normalised, since the raw family's
   window Gram matrix has condition number ~10¹⁰) for `M_A`, the Casimir–Polder quadrature.
-* `bands.py` — the band energies for open systems (direct pair sums; Ewald versions are the week-2 item).
+* `bands.py` — the band energies for open systems (direct pair sums).
+* `ewald.py` — the same bands under periodic boundary conditions: the long parts of the p = 1 (charges and
+  dipoles), 6 and 8 kernels summed over all images in reciprocal space with the band edge as the Ewald width
+  (no real-space sum: the short remainders are E₀'s); tin-foil boundary conditions.  Checked against the
+  Madelung constant of NaCl (1e-9), the simple-cubic lattice sums of r⁻⁶ and r⁻⁸ (1e-8), the point-charge
+  limit of the dipole terms, and finite-difference forces.  Switched on per rung with `periodic=True`.
 * `bandfields.py` — band-field tensors at the atom by nested forward-mode differentiation of the band
   potential (own charge excluded), and the degree-2 equivariant read-out with environment-dependent
   coefficients from `E_0`.

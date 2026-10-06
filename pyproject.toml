@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sseft"
-version = "0.0.3"
+version = "0.0.4"
 description = "Scale-separated EFT model: E_0 + IR bands on learned sources (JAX harness)"
 readme = "README.md"
 license = {file = "LICENSE"}
