@@ -67,8 +67,12 @@ The node read-out's failure is informative: the order-2 operators F_a T_{abcd} �
 Σ_j w(r_ij) n̂_ij^{⊗4}, an L = 4 environment tensor, which scalar / vector / rank-2 node channels cannot
 represent — the body-ordered pair read-out (radial functions times powers of the pair direction, the
 Taylor class on the physical structure of `x2-protocol.md` §1.3) is the right implementation of F_s.
-Open item: a longer polish of the order-2 model (≥ 1000 L-BFGS steps, or a second-order method on the
-read-out alone) to reach the order-2 ceiling; the GPU makes this cheap.
+With a 900-step polish (`results/x2b_toy_pair_48clusters_order2_lbfgs900`, the memory-bounded L-BFGS): order 2
+**train 6.31e-4 (ceiling 6.25e-4), test 1.63e-3 (ceiling 7.69e-4)** — the training error reaches the exact class's,
+the test error is 2.1× it with a gain of 2.3 over order 0 (the exact class gains 5.2).  The band-field path is
+wired correctly; what remains is a generalisation gap of the learned coefficient functions (7 LECs in the exact
+class against ~10⁴ parameters here, 48 training clusters), which more clusters or weight decay would close.
+The loss was still falling (9.2e-7 at step 899, halving every ~250 steps).
 
 The node read-out's failure is informative: the order-2 operators F_a T_{abcd} ∂_c∂_d F_b need
 Σ_j w(r_ij) n̂_ij^{⊗4}, an L = 4 environment tensor, which scalar / vector / rank-2 node channels cannot
