@@ -50,4 +50,7 @@ def test_water_truth_and_fragments():
     assert abs(fd - F[1, 2]) < 1e-7 * abs(fd)
     rung = M.RUNGS["M_1"]; params = M.init_params(jax.random.PRNGKey(0), rung, 1e-3)
     far = W.dimer_scan(np.array([300.0])); E, _ = T.predict(params, rung, far)
-    assert abs(E[0]) < 1e-9      # the learned charges' dipole-dipole tail at 300 A is ~1e-9 at most; no constant offset
+    aux = T.predict_aux(params, rung, far)
+    # beyond r_c the interaction energy is the Coulomb band of the learned charges and nothing else: E_0's part and
+    # the intramolecular band cancel exactly against the fragment references (no constant offset)
+    assert abs(E[0] - float(aux["E0"][0] + aux["E_coul"][0] - np.sum(aux["E_frag"][0]))) < 1e-12 and abs(E[0]) < 1e-8
