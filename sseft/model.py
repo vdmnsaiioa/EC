@@ -28,6 +28,7 @@ class Rung:
     dispersion8: bool = False              # the C8 band on a learned (or pinned) quadrupole polarisability: L6b
     analytic: bool = False
     band_fields: int = -1                  # -1: off; k: field tensors through order k at the atom
+    bf_rs: float = 0.0                     # near-source exclusion radius of the band-field input (bohr; 0 = off; molecules: ~l_1)
     readout: str = "pair"                  # band-field read-out: "pair" (Taylor class on the structure) or "node" (L <= 2)
     pin_q: bool = False
     pin_mu: bool = False
@@ -40,6 +41,7 @@ class Rung:
     omega0: float = 0.3
     one_oscillator: bool = False
     site_energies: bool = True             # E_0's site energies (off only for toy regressions of the band-field path)
+    fragments: bool = True                 # subtract the model's own fragment energies when the structures carry fragments
     coulomb_energy: bool = True            # the bare Coulomb band energy (off: charges only source the band fields)
     global_block: bool = False             # M_G: sum_{i != j} MLP([s_i, s_j, r_ij / r_G]) with no cutoff and no envelope
     periodic: bool = False                 # bands by Ewald over the structure's cell (E_0 by minimum image)
@@ -100,16 +102,34 @@ def isolated_energy(params, rung: Rung, Z):
 
 
 def energy_single(params, rung: Rung, b):
-    """b: one (unbatched) element of a padded batch.  Returns the interaction (atomisation) energy in hartree
-    -- total minus the isolated-atom energies of the model -- and an aux dict."""
+    """b: one (unbatched) element of a padded batch.  Returns the interaction energy in hartree and an aux dict:
+    the total energy minus the model's own energies of the non-interacting references -- the isolated atoms, or,
+    when the structure carries fragments (b["frag_mask"], e.g. the molecules of a cluster), each fragment alone
+    at its own geometry.  Either way the energy vanishes identically for non-interacting references, which is
+    what the asymptotic measurements need (a learned reference would leave a constant that swamps any tail)."""
+    E, aux = _total_energy(params, rung, b, b["mask"], subtract_atoms=True)
+    if "frag_mask" in b and rung.fragments:
+        # E_int = E(all) - sum_f E(fragment f alone); the atom references cancel in the difference
+        E_all, aux = _total_energy(params, rung, b, b["mask"], subtract_atoms=False)
+        E_frag = jax.vmap(lambda fm: _total_energy(params, rung, b, fm, subtract_atoms=False)[0])(b["frag_mask"])
+        valid = jnp.any(b["frag_mask"], axis=1)
+        E = E_all - jnp.sum(jnp.where(valid, E_frag, 0.0))
+        aux["E_frag"] = E_frag
+    return E, aux
+
+
+def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
     cfg = rung.e0
-    pos, Z, mask = b["positions"], b["numbers"], b["mask"]
+    pos, Z = b["positions"], b["numbers"]
     s, v, t, (D, r, pmask) = E0.apply_e0(params["e0"], cfg, pos, Z, mask, b["cell"], b["pbc"])
     hp = params["heads"]
     if rung.site_energies:
         eps = H.site_energy(hp, s, Z, mask)
-        e_iso = jax.vmap(lambda z: isolated_energy(params, rung, z))(Z) * mask
-        E = jnp.sum(eps - e_iso)
+        if subtract_atoms:
+            e_iso = jax.vmap(lambda z: isolated_energy(params, rung, z))(Z) * mask
+            E = jnp.sum(eps - e_iso)
+        else:
+            E = jnp.sum(eps)
     else:
         E = jnp.zeros(())
     aux = {"E0": E}
@@ -154,9 +174,10 @@ def energy_single(params, rung: Rung, b):
     if rung.band_fields >= 0:
         assert q is not None, "band-field inputs need the charge channel"
         if rung.periodic:
-            Ef, gE, ggE = BF.band_field_tensors_pbc(pos, q, mask, b["cell"], rung.l1, rung.band_fields, rung.ewald_n_max, rung.ewald_b_max)
+            Ef, gE, ggE = BF.band_field_tensors_pbc(pos, q, mask, b["cell"], rung.l1, rung.band_fields, rung.ewald_n_max,
+                                                    rung.ewald_b_max, rung.bf_rs, D, pmask)
         else:
-            Ef, gE, ggE = BF.band_field_tensors(pos, q, pmask, rung.l1, rung.band_fields)
+            Ef, gE, ggE = BF.band_field_tensors(pos, q, pmask, rung.l1, rung.band_fields, rung.bf_rs)
         if rung.readout == "pair":
             eps_bf = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s, r, D, pmask, mask, Ef, gE, ggE, rung.l1)
         else:

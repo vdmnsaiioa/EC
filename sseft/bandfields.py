@@ -26,12 +26,27 @@ from . import kernels as kn
 from .e0 import _mlp_init, mlp
 
 
-def band_field_tensors(positions, q, pmask, l, order):
-    """E (N,3), gE (N,3,3), ggE (N,3,3,3) of the charge-channel band potential at each atom (own charge excluded)."""
+def near_weight(r, rs):
+    """the weight of a source at distance r in the band-field input: 1 - exp(-(r / r_s)^10), a smooth switch that
+    removes the sources closer than r_s (the near field is E_0's) and is 1 beyond ~1.3 r_s; rs <= 0 switches it off.
+
+    Why: a term quadratic in the band field, |E_near + E_far|^2, contains 2 E_near . E_far, a term LINEAR in the far
+    field with an environment-dependent coefficient -- exactly the operator class the degree-2 rule excludes,
+    because it is degenerate with a dipole source (x2-protocol.md 2.1).  For a molecule the near field of its own
+    charges (smeared at l_1) is a fixed vector in the molecular frame, and the spurious term is -alpha E_intra . E_ext,
+    of order 0.5 kcal/mol for water at 3 A: the near sources must not enter the band-field input."""
+    if rs <= 0:
+        return jnp.ones_like(r)
+    return 1.0 - jnp.exp(-(r / rs) ** 10)
+
+
+def band_field_tensors(positions, q, pmask, l, order, rs=0.0):
+    """E (N,3), gE (N,3,3), ggE (N,3,3,3) of the charge-channel band potential at each atom (own charge excluded,
+    sources closer than rs switched off smoothly)."""
     def V(x, i):
         d = jnp.where(pmask[i][:, None], x[None, :] - positions, 1.0)    # excluded pairs get a finite dummy vector
         rr = jnp.sqrt(jnp.sum(d * d, axis=-1))                              # so that no derivative is taken at r = 0
-        w = pmask[i].astype(x.dtype)
+        w = pmask[i].astype(x.dtype) * near_weight(rr, rs)
         return jnp.sum(w * q * kn.g_long(rr, l))
     def E(x, i):
         return -jax.grad(V)(x, i)
@@ -114,7 +129,7 @@ def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l):
 
 
 # ---------------------------------------------------------------- node read-out (L <= 2 variant) --------------
-def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.0):
+def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.0, rs=0.0, D=None, pmask=None):
     """the same tensors for a periodic cell: the Ewald potential V(x) = (4 pi / V) sum_{k != 0} e^{-k^2 l^2/4} / k^2
     Re[S(k) e^{-i k.x}] (tin-foil, neutral), differentiated in x, with the own charge's contribution removed
     analytically (its field at its own centre is zero; its gradient is -q_i grad grad g(0) = q_i (4 / 3 sqrt(pi) l^3) I;
@@ -141,6 +156,22 @@ def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.
         gE = (gE - (qm * 4.0 / (3.0 * math.sqrt(math.pi) * l ** 3))[:, None, None] * jnp.eye(3)[None]) * mask[:, None, None]
     if order >= 2:
         ggE = jax.vmap(jax.jacfwd(jax.jacfwd(E)))(positions) * mask[:, None, None, None]
+    if rs > 0:
+        # remove the near sources (their minimum images) with the complementary weight exp(-(r/rs)^10), in real space
+        assert D is not None and pmask is not None
+        def Vn(x, i):
+            img = positions[i] - D[i]                                            # nearest images of the sources
+            d = jnp.where(pmask[i][:, None], x[None, :] - img, 1.0)
+            rr = jnp.sqrt(jnp.sum(d * d, axis=-1))
+            w = pmask[i].astype(x.dtype) * (1.0 - near_weight(rr, rs))
+            return jnp.sum(w * q * kn.g_long(rr, l))
+        En = lambda x, i: -jax.grad(Vn)(x, i)
+        idx = jnp.arange(positions.shape[0])
+        Ef = Ef - jax.vmap(En)(positions, idx) * mask[:, None]
+        if order >= 1:
+            gE = gE - jax.vmap(jax.jacfwd(En))(positions, idx) * mask[:, None, None]
+        if order >= 2:
+            ggE = ggE - jax.vmap(jax.jacfwd(jax.jacfwd(En)))(positions, idx) * mask[:, None, None, None]
     return Ef, gE, ggE
 
 

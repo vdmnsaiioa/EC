@@ -34,3 +34,20 @@ def test_tt_ar2_well():
     res = minimize_scalar(V, bracket=(ang_to_bohr(3.0), ang_to_bohr(3.75), ang_to_bohr(5.0)))
     assert abs(bohr_to_ang(res.x) - 3.7565) < 2e-3
     assert abs(-res.fun * 219474.63 - 99.55) < 0.3          # D_e in cm^-1
+
+
+def test_water_truth_and_fragments():
+    """the synthetic water truth: dipole 1.855 D by construction, E R^3 -> -0.652 at phi = 0, forces against finite
+    differences; the fragment reference makes two far monomers exactly non-interacting in the model."""
+    import math, jax
+    from sseft import water as W, model as M, train as T
+    assert abs(2 * W.Q_H * W.R_OH * math.cos(W.THETA / 2) * W.DEBYE_PER_E_ANG - 1.855) < 1e-9
+    E200 = W.pw_energy_forces(W.dimer_positions(200.0), 2)[0]
+    assert abs(E200 * ang_to_bohr(200.0) ** 3 + 0.652) < 0.01
+    pos = W.dimer_positions(3.0); E0, F = W.pw_energy_forces(pos, 2); h = 1e-4
+    p1 = pos.copy(); p1[1, 2] += h; p2 = pos.copy(); p2[1, 2] -= h
+    fd = -(W.pw_energy_forces(p1, 2)[0] - W.pw_energy_forces(p2, 2)[0]) / (2 * h) * bohr_to_ang(1.0)
+    assert abs(fd - F[1, 2]) < 1e-7 * abs(fd)
+    rung = M.RUNGS["M_1"]; params = M.init_params(jax.random.PRNGKey(0), rung, 1e-3)
+    far = W.dimer_scan(np.array([300.0])); E, _ = T.predict(params, rung, far)
+    assert abs(E[0]) < 1e-9      # the learned charges' dipole-dipole tail at 300 A is ~1e-9 at most; no constant offset
