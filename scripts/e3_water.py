@@ -58,6 +58,15 @@ def monomer_dipole(params, rung):
     return float(np.linalg.norm(d) * W.DEBYE_PER_E_ANG), q
 
 
+def _save(a, results):
+    old = {}
+    if os.path.exists(a.out):
+        try: old = json.load(open(a.out))
+        except Exception: old = {}
+    old.update(results)
+    json.dump(old, open(a.out, "w"), indent=1)
+
+
 def run_dimer(a):
     R_train = bohr_to_ang(D.window_design(*WINDOW, 40))
     R_eval = bohr_to_ang(D.eval_grid(WINDOW[1], 500.0, 61))
@@ -101,6 +110,7 @@ def run_dimer(a):
               + (f";  monomer dipole {np.mean(dipoles):.3f} +- {np.std(dipoles, ddof=1) if len(dipoles) > 1 else 0:.3f} D" if dipoles else "") + f"  [{time.time() - t0:.0f} s]", flush=True)
         results[name] = dict(rows=rows, slope=slope, window_rmse=rm.tolist(), converged=conv.tolist(), dipoles=dipoles,
                              grid=dict(R_A=R_eval.tolist(), f_true=f_true.tolist(), mean=mean.tolist(), W=np.nan_to_num(Wsp).tolist(), preds=P.tolist()))
+        _save(a, results)
     return results
 
 
@@ -137,6 +147,7 @@ def run_clusters(a):
             print(f"  {name} seed {seed}: hexamer rmse {r6 * 627.5:.3f} kcal/mol, dimer rmse {r2 * 627.5:.3f}, non-additive rmse {rN * 627.5:.3f} "
                   f"({rN / np.sqrt(np.mean(nadd6 ** 2)) * 100:.0f} % of the non-additive energy); {info['time']:.0f} s", flush=True)
         results[name] = dict(hexamer=errs6, dimer=errs2, nonadditive=errsN)
+        _save(a, results)
         print(f"  {name}: hexamer {np.mean(errs6) * 627.5:.3f}, dimer {np.mean(errs2) * 627.5:.3f}, non-additive {np.mean(errsN) * 627.5:.3f} kcal/mol (means over seeds)  [{time.time() - t1:.0f} s]", flush=True)
     return results
 
@@ -152,7 +163,7 @@ def main():
     ap.add_argument("--out", default="e3_water_results.json")
     a = ap.parse_args()
     res = run_dimer(a) if a.part == "dimer" else run_clusters(a)
-    json.dump(res, open(a.out, "w"), indent=1)
+    _save(a, res)
 
 
 if __name__ == "__main__":

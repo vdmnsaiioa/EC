@@ -28,7 +28,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from .structure import Structure
-from .units import ang_to_bohr
+from .units import ang_to_bohr, bohr_to_ang
 from . import kernels as kn
 
 R_OH = 0.9572
@@ -243,3 +243,20 @@ def pair_additive_energy(pos_ang, n_mol):
             p = np.concatenate([pos[3 * a:3 * a + 3], pos[3 * b:3 * b + 3]])
             tot += pw_energy_forces(p, 2)[0]
     return tot
+
+
+# ---------------------------------------------------------------- real data ---------------------------------
+def read_extxyz(path, energy_key="energy", forces_key="forces", energy_unit="hartree", length_unit="angstrom"):
+    """water clusters from an extended-XYZ file: frames of 3n atoms ordered O, H, H per molecule, a comment line
+    with `energy=...` (interaction energy) and optional per-atom forces columns 5-7 (`forces` property).
+    Units converted to hartree / bohr; fragments assigned per triple.  The monomer's point charges are pinned."""
+    import ase.io  # noqa: F401 -- only if ASE is available
+    frames = ase.io.read(path, index=":")
+    eu = {"hartree": 1.0, "ev": 1.0 / 27.211386245988, "kcal/mol": 1.0 / 627.5094740631}[energy_unit.lower()]
+    out = []
+    for fr in frames:
+        n = len(fr) // 3
+        E = float(fr.info[energy_key]) * eu if energy_key in fr.info else None
+        F = fr.arrays[forces_key] * eu * bohr_to_ang(1.0) if forces_key in fr.arrays else None    # per A -> per bohr
+        out.append(water_structure(fr.get_positions(), energy=E, forces=F, info=dict(fr.info)))
+    return out
