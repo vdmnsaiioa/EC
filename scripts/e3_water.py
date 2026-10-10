@@ -48,6 +48,12 @@ RUNGS = {
     "M_S0pemb": M.with_rung(M.RUNGS["M_1"], pin_q=True, dipoles=True, pin_mu=True, band_fields=0),
     "M_16pemb": M.with_rung(M.RUNGS["M_1"], pin_q=True, dipoles=True, pin_mu=True, dispersion=True, pin_alpha=True),   # + the
     # dispersion band on a pinned one-oscillator alpha_O(i w) with the truth's static alpha and C6 (zero on H)
+    # the band-field response test (E3-R): PERMANENT sources (the isolated monomer's charges, the ion's charge) pinned, the
+    # dispersion band on the pinned alpha, and the read-out carrying the induction -- first order in the band field of the
+    # permanent sources: the pairwise induction and the first-order many-body cross terms -- against the dagger without it
+    "M_16p": M.with_rung(M.RUNGS["M_1"], pin_q=True, dispersion=True, pin_alpha=True),
+    "M_16S0p": M.with_rung(M.RUNGS["M_1"], pin_q=True, dispersion=True, pin_alpha=True, band_fields=0),
+    "M_16S2p": M.with_rung(M.RUNGS["M_1"], pin_q=True, dispersion=True, pin_alpha=True, band_fields=2),
 }
 C6_OO_TRUTH = 45.4
 
@@ -60,12 +66,35 @@ def pinned_alpha_oscillator(numbers, K=8):
     return np.array([aO if int(z) == 8 else np.zeros(K) for z in numbers])
 
 
+def pin_dispersion(structs):
+    """pin the one-oscillator alpha(i w) on every structure (the dispersion band of the permanent-source daggers)."""
+    for s in structs:
+        s.pinned = {**s.pinned, "alpha": pinned_alpha_oscillator(s.numbers)}
+    return structs
+
+
+def needs(a, key):
+    return any(key in name for name in a.rungs.split(","))
+
+
+def pin_sources(a, *sets, n_core=None):
+    """apply the pins the requested rungs need to the given structure lists: embedded sources for "emb" rungs, the
+    dispersion alpha for "16" rungs."""
+    for structs in sets:
+        if needs(a, "emb"): pin_embedded(structs, n_core=n_core)
+        elif needs(a, "16"): pin_dispersion(structs)
+    return sets
+
+
 def pin_embedded(structs, n_core=None, self_energy=True):
     """pin each structure's atomic dipoles to the truth's induced dipoles of the molecules embedded in their own cluster:
     the whole structure, or, for probe configurations, the core alone (atoms before 3 n_core) with zeros on the probe."""
     for s in structs:
-        pos = bohr_to_ang(s.positions); n = len(pos) // 3
-        if n_core is not None and n > n_core:
+        pos = bohr_to_ang(s.positions); n_ion = int(np.sum(s.numbers == W.ION["Z"])); n = (len(pos) - n_ion) // 3
+        if n_ion > 0:
+            # the ion is the probe: the molecules carry their induced dipoles of the core alone, the ion nothing
+            mu = np.zeros((len(pos), 3)); mu[:3 * n] = W.pw_components(pos[:3 * n], n)["mu_ind"] if n > 1 else 0.0
+        elif n_core is not None and n > n_core:
             mu = np.zeros((3 * n, 3)); mu[:3 * n_core] = W.pw_components(pos[:3 * n_core], n_core)["mu_ind"]
         else:
             mu = W.pw_components(pos, n)["mu_ind"] if n > 1 else np.zeros((3, 3))
@@ -109,8 +138,7 @@ def run_dimer(a):
     rng = np.random.default_rng(0)
     train = W.dimer_scan(R_train, sigma=a.sigma, rng=rng) + [W.monomer_structure()] * 4
     test = W.dimer_scan(R_eval)
-    if any("emb" in name for name in a.rungs.split(",")):
-        pin_embedded(train); pin_embedded(test)
+    pin_sources(a, train, test)
     f_true = np.array([s.energy for s in test])
     print(f"water dimer (PW truth, phi = 0): window [{WINDOW[0]:.2f}, {WINDOW[1]:.2f}] A, 40 nodes, sigma = {a.sigma:g}; "
           f"|f*| at R+ = {abs(test[0].energy):.2e} E_h; E R^3 at 300 A = {f_true[-1] * ang_to_bohr(R_eval[-1]) ** 3:+.4f} (dipole-dipole -0.652)", flush=True)
@@ -175,8 +203,7 @@ def run_far(a):
         if a.cache:
             with open(a.cache, "wb") as fh: pickle.dump((base, far_train, E_core_tr, test, E_core), fh)
     for s in far_train: s.weight = a.w_far                                             # --w_far: weight of the far-field training structures
-    if any("emb" in name for name in a.rungs.split(",")):
-        pin_embedded(base); pin_embedded(far_train, n_core=3); pin_embedded(test, n_core=3)
+    pin_sources(a, base); pin_sources(a, far_train, test, n_core=3)
     train = base + far_train
     clusters = [s for s in base if s.n_atoms > 6]
 
@@ -203,6 +230,7 @@ def run_far(a):
         Et, _ = T.predict(params, rung, structs)
         cores = [W.water_structure(bohr_to_ang(s.positions)[:9]) for s in structs]
         if rung.pin_mu: pin_embedded(cores)
+        elif rung.pin_alpha: pin_dispersion(cores)
         Ec, _ = T.predict(params, rung, cores)
         return (Et - Ec) - yy
     for name in a.rungs.split(","):
@@ -239,9 +267,7 @@ def run_clusters(a):
         test2 = W.cluster_dataset((2,), a.n_test, seed=200, mc_steps=a.mc_steps)
         if a.cache:
             with open(a.cache, "wb") as fh: pickle.dump((train, test6, test2), fh)
-    embedded = any("emb" in name for name in a.rungs.split(","))
-    if embedded:
-        pin_embedded(train); pin_embedded(test6); pin_embedded(test2)
+    pin_sources(a, train, test6, test2)
     y_tr = np.array([s.energy for s in train if s.n_atoms > 3])
     nadd6 = np.array([s.energy - W.pair_additive_energy(bohr_to_ang(s.positions), 6) for s in test6])
     print(f"clusters: {len(train) - 4} training (n = 3, 4, 5), {len(test6)} hexamers and {len(test2)} dimers held out; "
@@ -262,6 +288,7 @@ def run_clusters(a):
                     for j in range(i + 1, 6):
                         dims.append(W.water_structure(np.concatenate([pos[3 * i:3 * i + 3], pos[3 * j:3 * j + 3]])))
                 if rung.pin_mu: pin_embedded(dims)
+                elif rung.pin_alpha: pin_dispersion(dims)
                 Ed, _ = T.predict(params, rung, dims)
                 nadd_model.append(e - np.sum(Ed))
             nadd_model = np.array(nadd_model)
@@ -276,9 +303,88 @@ def run_clusters(a):
     return results
 
 
+def response_coefficient(params, rung):
+    """the model's band-field energy for a monomer with the ion at 20 A (every pair beyond r_c, so the band-field
+    read-out is the only term beyond electrostatics) against the truth's exact one-site response -1/2 alpha |E|^2:
+    returns a_eff / alpha."""
+    pos = np.vstack([W.monomer_positions(), [[0.0, 0.0, 20.0]]])
+    st = W.ion_structure(pos, 1); pin_dispersion([st])
+    aux = T.predict_aux(params, rung, [st])
+    truth = W.pw_components(pos, 1, n_ion=1)["ind"]
+    return float(aux["E_bf"][0]) / truth if "E_bf" in aux else float("nan")
+
+
+def run_ion(a):
+    """the band-field response test (E3-R): a unit charge at d from a relaxed trimer.  Beyond r_c the ion's interaction
+    with the core, minus its point-charge electrostatics with the pinned permanent charges, is the induction -- the
+    core's embedded induced dipoles against the ion's field plus the core's response to it -- of which 86-98 % is first
+    order in the band field of the permanent sources (scratch/first_order_share.py), i.e. the order-0 operator's."""
+    t0 = time.time()
+    dists_tr = (4.0, 5.0, 6.0, 7.0, 8.0, 10.0); dists = (6.0, 7.0, 8.0, 10.0, 12.0)
+    if a.cache and os.path.exists(a.cache):
+        with open(a.cache, "rb") as fh: base, ion_mono, ion_train, test, E_core = pickle.load(fh)
+        print(f"data from {a.cache}", flush=True)
+    else:
+        if a.base_cache and os.path.exists(a.base_cache):
+            with open(a.base_cache, "rb") as fh: base = pickle.load(fh)[0]
+            print(f"base data (dimer window + clusters) from {a.base_cache}", flush=True)
+        else:
+            R_train = bohr_to_ang(D.window_design(*WINDOW, 40)); rng = np.random.default_rng(0)
+            base = (W.dimer_scan(R_train, sigma=a.sigma, rng=rng) + W.cluster_dataset((3, 4, 5), a.n_train, seed=0, sigma=a.sigma, mc_steps=a.mc_steps)
+                    + [W.monomer_structure()] * 4)
+        ion_mono = W.ion_monomer_scan((2.0, 2.3, 2.6, 3.0, 3.5, 4.0, 5.0, 6.0, 8.0), 6, seed=0)
+        ion_train, _ = W.ion_configurations(3, dists_tr, a.train_far, seed=400, mc_steps=a.mc_steps, n_cores=a.train_far_cores)
+        test, E_core = W.ion_configurations(3, dists, a.n_test, seed=300, mc_steps=a.mc_steps, n_cores=a.test_cores)
+        if a.cache:
+            with open(a.cache, "wb") as fh: pickle.dump((base, ion_mono, ion_train, test, E_core), fh)
+    for st in ion_train: st.weight = a.w_far
+    pin_sources(a, base, ion_mono); pin_sources(a, ion_train, test, n_core=3)
+    train = base + ion_mono + ion_train
+    clusters = [s for s in base if s.n_atoms > 6]
+    dec = [W.ion_response_decomposition(st) for st in test]; dec_tr = [W.ion_response_decomposition(st) for st in ion_train]
+    y = np.array([d["y"] for d in dec]); ind = np.array([d["y"] - d["es"] for d in dec]); resp = np.array([d["response"] for d in dec])
+    y_tr = np.array([d["y"] for d in dec_tr]); ind_tr = np.array([d["y"] - d["es"] for d in dec_tr])
+    dd = np.array([s.info["d"] for s in test]); K = 627.5
+    rms = lambda v: np.sqrt(np.mean(v ** 2))
+    print(f"band-field response test: {len(test)} ion configurations from {a.test_cores} trimer cores at d = {dists} A; ion interaction rms "
+          f"{rms(y) * K:.4f} kcal/mol, induction (embedded dipoles x ion field + response) rms {rms(ind) * K:.4f} ({rms(ind) / rms(y) * 100:.1f} %), "
+          f"of which the response {rms(resp) * K:.4f}; per distance induction " + ", ".join(f"{d:.0f} A {rms(ind[dd == d]) * K:.4f}" for d in dists)
+          + f"  [{time.time() - t0:.0f} s]", flush=True)
+    print(f"  training: {len(base)} base + {len(ion_mono)} ion-monomer + {len(ion_train)} ion-core configurations ({a.train_far_cores} cores, d = {dists_tr}, weight {a.w_far:g}); "
+          f"their induction rms {rms(ind_tr) * K:.4f} kcal/mol", flush=True)
+    results = {"d": dd.tolist(), "ion_interaction": y.tolist(), "induction": ind.tolist(), "response": resp.tolist()}
+
+    def ion_rmse(params, rung, structs, yy):
+        Et, _ = T.predict(params, rung, structs)
+        cores = [W.water_structure(bohr_to_ang(s.positions)[:-1]) for s in structs]
+        if rung.pin_mu: pin_embedded(cores)
+        elif rung.pin_alpha: pin_dispersion(cores)
+        Ec, _ = T.predict(params, rung, cores)
+        return (Et - Ec) - yy
+    for name in a.rungs.split(","):
+        rung = configure(RUNGS[name], a); t1 = time.time(); errs = []; train_errs = []; coefs = []
+        for seed in range(a.seeds):
+            params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0, batch_size=a.batch, lbfgs_chunk=a.lbfgs_chunk)
+            res = ion_rmse(params, rung, test, y); r = rms(res); errs.append(float(r))
+            print(f"  {name} seed {seed}: ion-interaction rmse {r * K:.4f} kcal/mol = {r / rms(ind) * 100:.0f} % of the induction "
+                  f"(per distance: " + ", ".join(f"{d:.0f} A {rms(res[dd == d]) / rms(ind[dd == d]) * 100:.0f} %" for d in dists)
+                  + f"; of the response alone {r / rms(resp) * 100:.0f} %); {info['time']:.0f} s", flush=True)
+            Ecl, _ = T.predict(params, rung, clusters); r_cl = rms(Ecl - np.array([s.energy for s in clusters]))
+            res_tr = ion_rmse(params, rung, ion_train, y_tr); r_tr = rms(res_tr)
+            far = np.array([s.info["d"] for s in ion_train]) >= 6.0
+            r_far = rms(res_tr[far]); ind_far = rms(ind_tr[far])
+            coef = response_coefficient(params, rung); coefs.append(coef)
+            print(f"      training residuals: clusters {r_cl * K:.4f} kcal/mol; ion-core configurations {r_tr * K:.4f} = {r_tr / rms(ind_tr) * 100:.0f} % of their induction "
+                  f"(d >= 6 A: {r_far / ind_far * 100:.0f} %); response coefficient a_eff / alpha from a monomer + ion at 20 A: {coef:.3f}", flush=True)
+            train_errs.append(dict(clusters=float(r_cl), ion=float(r_tr), ion_far=float(r_far)))
+        results[name] = dict(rmse=errs, train=train_errs, a_eff_over_alpha=coefs, w_far=a.w_far)
+        _save(a, results)
+    return results
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--part", default="dimer", choices=["dimer", "clusters", "far"])
+    ap.add_argument("--part", default="dimer", choices=["dimer", "clusters", "far", "ion"])
     ap.add_argument("--rungs", default="M_inf,M_G,M_A,M_1,M_1mu,M_1p")
     ap.add_argument("--seeds", type=int, default=4); ap.add_argument("--steps", type=int, default=1500); ap.add_argument("--lbfgs", type=int, default=300)
     ap.add_argument("--sigma", type=float, default=1e-9); ap.add_argument("--rcut", type=float, default=6.0); ap.add_argument("--lA", type=float, default=4.0)
@@ -290,10 +396,11 @@ def main():
     ap.add_argument("--test_cores", type=int, default=1)
     ap.add_argument("--l1", type=float, default=0.0, help="band edge l_1 in A (0: the rung's default, 1.5 A)")
     ap.add_argument("--w_far", type=float, default=1.0, help="training weight of the far-field configurations (energies and forces)")
-    ap.add_argument("--cache", default="", help="pickle of the generated far-field data sets (written if absent, read if present)")
+    ap.add_argument("--cache", default="", help="pickle of the generated data sets of the part (written if absent, read if present)")
+    ap.add_argument("--base_cache", default="", help="ion part: a far-part cache whose base (dimer window + clusters) is reused")
     ap.add_argument("--out", default="e3_water_results.json")
     a = ap.parse_args()
-    res = {"dimer": run_dimer, "clusters": run_clusters, "far": run_far}[a.part](a)
+    res = {"dimer": run_dimer, "clusters": run_clusters, "far": run_far, "ion": run_ion}[a.part](a)
     _save(a, res)
 
 

@@ -40,13 +40,16 @@ def near_weight(r, rs):
     return 1.0 - jnp.exp(-(r / rs) ** 10)
 
 
-def band_field_tensors(positions, q, pmask, l, order, rs=0.0):
+def band_field_tensors(positions, q, pmask, l, order, rs=0.0, src_mask=None):
     """E (N,3), gE (N,3,3), ggE (N,3,3,3) of the charge-channel band potential at each atom (own charge excluded,
-    sources closer than rs switched off smoothly)."""
+    sources closer than rs switched off smoothly, and only the sources selected by src_mask (N,N) -- by default
+    every other atom; for molecules the atoms of other fragments: the field that polarises a fragment is the
+    field of the others, and the own fragment's near field is E_0's)."""
+    src = pmask if src_mask is None else (pmask & src_mask)
     def V(x, i):
-        d = jnp.where(pmask[i][:, None], x[None, :] - positions, 1.0)    # excluded pairs get a finite dummy vector
+        d = jnp.where(src[i][:, None], x[None, :] - positions, 1.0)      # excluded pairs get a finite dummy vector
         rr = jnp.sqrt(jnp.sum(d * d, axis=-1))                              # so that no derivative is taken at r = 0
-        w = pmask[i].astype(x.dtype) * near_weight(rr, rs)
+        w = src[i].astype(x.dtype) * near_weight(rr, rs)
         return jnp.sum(w * q * kn.g_long(rr, l))
     def E(x, i):
         return -jax.grad(V)(x, i)
@@ -129,7 +132,7 @@ def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l):
 
 
 # ---------------------------------------------------------------- node read-out (L <= 2 variant) --------------
-def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.0, rs=0.0, D=None, pmask=None):
+def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.0, rs=0.0, D=None, pmask=None, excl_mask=None):
     """the same tensors for a periodic cell: the Ewald potential V(x) = (4 pi / V) sum_{k != 0} e^{-k^2 l^2/4} / k^2
     Re[S(k) e^{-i k.x}] (tin-foil, neutral), differentiated in x, with the own charge's contribution removed
     analytically (its field at its own centre is zero; its gradient is -q_i grad grad g(0) = q_i (4 / 3 sqrt(pi) l^3) I;
@@ -156,14 +159,18 @@ def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.
         gE = (gE - (qm * 4.0 / (3.0 * math.sqrt(math.pi) * l ** 3))[:, None, None] * jnp.eye(3)[None]) * mask[:, None, None]
     if order >= 2:
         ggE = jax.vmap(jax.jacfwd(jax.jacfwd(E)))(positions) * mask[:, None, None, None]
-    if rs > 0:
-        # remove the near sources (their minimum images) with the complementary weight exp(-(r/rs)^10), in real space
+    if rs > 0 or excl_mask is not None:
+        # remove the near sources (their minimum images) with the complementary weight exp(-(r/rs)^10), and the
+        # excluded sources (the own fragment's atoms, excl_mask (N,N)) completely, in real space
         assert D is not None and pmask is not None
         def Vn(x, i):
             img = positions[i] - D[i]                                            # nearest images of the sources
             d = jnp.where(pmask[i][:, None], x[None, :] - img, 1.0)
             rr = jnp.sqrt(jnp.sum(d * d, axis=-1))
-            w = pmask[i].astype(x.dtype) * (1.0 - near_weight(rr, rs))
+            w = 1.0 - near_weight(rr, rs)
+            if excl_mask is not None:
+                w = jnp.where(excl_mask[i], 1.0, w)
+            w = pmask[i].astype(x.dtype) * w
             return jnp.sum(w * q * kn.g_long(rr, l))
         En = lambda x, i: -jax.grad(Vn)(x, i)
         idx = jnp.arange(positions.shape[0])

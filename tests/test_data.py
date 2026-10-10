@@ -74,3 +74,31 @@ def test_embedded_dagger_identity():
     # i.e. by more than the many-body energy itself
     E3.pin_embedded([st], self_energy=False); E0, _ = T.predict(params, rung, [st])
     assert abs(E0[0] - (c["es"] + c["ind"])) > abs(c["ind"] - c["ind1"])
+
+
+def test_ion_truth_and_fragment_exclusion_forces():
+    """the truth with an ion: forces against finite differences; the band-field rung with the own-fragment exclusion
+    (pinned permanent charges, order 0) on a water dimer + ion: autodiff forces against finite differences."""
+    import jax, sys, os
+    from sseft import water as W, model as M, train as T
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts")); import e3_water as E3
+    pos = np.vstack([W.dimer_positions(3.0), [[2.0, 1.5, -2.5]]])
+    E0, F = W.pw_energy_forces(pos, 2, n_ion=1); h = 1e-4
+    for (i, c) in [(6, 0), (0, 2), (4, 1)]:
+        p1 = pos.copy(); p1[i, c] += h; p2 = pos.copy(); p2[i, c] -= h
+        fd = -(W.pw_energy_forces(p1, 2, n_ion=1)[0] - W.pw_energy_forces(p2, 2, n_ion=1)[0]) / (2 * h) * bohr_to_ang(1.0)
+        assert abs(fd - F[i, c]) < 1e-7 * abs(fd) + 1e-10, (i, c, fd, F[i, c])
+    st = W.ion_structure(pos, 2); E3.pin_dispersion([st])
+    rung = M.with_rung(E3.RUNGS["M_16S0p"], l1=ang_to_bohr(0.75), e0={**M.RUNGS["M_1"].e0, "r_cut": ang_to_bohr(6.0), "F": 8, "n_rbf_readout": 8})
+    params = M.init_params(jax.random.PRNGKey(1), rung, 1e-3)
+    # make the read-out non-trivial (orders >= 1 start at zero; order 0 is random): scale it up
+    params["readout"] = jax.tree_util.tree_map(lambda x: 50.0 * x, params["readout"])
+    E, Fm = T.predict(params, rung, [st]); Fm = np.array(Fm)[0]
+    hb = 3e-5
+    for (i, c) in [(6, 0), (0, 2), (3, 1)]:
+        p1 = np.array(st.positions); p1[i, c] += hb; p2 = np.array(st.positions); p2[i, c] -= hb
+        s1 = W.ion_structure(bohr_to_ang(p1), 2); s2 = W.ion_structure(bohr_to_ang(p2), 2); E3.pin_dispersion([s1, s2])
+        fd = -(T.predict(params, rung, [s1])[0][0] - T.predict(params, rung, [s2])[0][0]) / (2 * hb)
+        assert abs(fd - Fm[i, c]) < 1e-6 * abs(fd) + 1e-10, (i, c, fd, Fm[i, c])
+    aux = T.predict_aux(params, rung, [st])
+    assert abs(float(aux["E_bf"][0])) > 1e-8          # the read-out is live

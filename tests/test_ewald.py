@@ -242,3 +242,41 @@ def test_near_source_exclusion_open_vs_pbc():
         assert np.allclose(np.array(Ef[i]), np.array(E(x, i)) - depol, rtol=3e-3, atol=2e-6), i
         assert np.allclose(np.array(gE[i]), np.array(jax.jacfwd(E)(x, i)), rtol=1e-3, atol=2e-7), i
         assert np.allclose(np.array(ggE[i]), np.array(jax.jacfwd(jax.jacfwd(E))(x, i)), rtol=3e-4, atol=2e-8), i
+
+
+def test_fragment_exclusion_open_vs_pbc():
+    """with the own fragment's sources excluded (molecules), the open band-field tensors equal the explicit field of
+    the other fragments' charges, and the periodic version (Ewald minus the excluded sources in real space) equals the
+    open version summed over images -- on the quadrupolar set with the near pair declared one fragment."""
+    import jax
+    from sseft import bandfields as BF, structure as S
+    a = 14.0; l = 2.0
+    pos = np.array([[2, 2, 2], [4.0, 2.5, 2], [2, 9, 2], [9, 9, 2.5]], float)
+    q = np.array([0.4, -0.4, -0.4, 0.4]); N = 4
+    frag = np.array([0, 0, 1, 2]); same = frag[:, None] == frag[None, :]
+    D, r, pmask = S.pair_geometry(jnp.asarray(pos), jnp.ones(N, bool), jnp.asarray(np.eye(3) * a))
+    # open: against the explicit sum over the other fragments
+    E_o, gE_o, ggE_o = BF.band_field_tensors(jnp.asarray(pos), jnp.asarray(q), pmask, l, 2, src_mask=jnp.asarray(~same))
+    for i in range(N):
+        d = pos[i] - pos; rr = np.linalg.norm(d, axis=1); keep = ~same[i]
+        E_ref = np.sum([-q[j] * float(kn.dg_long(jnp.asarray(rr[j]), l)) * d[j] / rr[j] for j in range(N) if keep[j]], axis=0)
+        assert np.allclose(np.array(E_o[i]), E_ref, rtol=1e-10, atol=1e-14), i
+    # periodic against images of the open version
+    E_p, gE_p, ggE_p = BF.band_field_tensors_pbc(jnp.asarray(pos), jnp.asarray(q), jnp.ones(N, bool), jnp.asarray(np.eye(3) * a), l, 2,
+                                                 n_max=14, b_max=5.0, rs=0.0, D=D, pmask=pmask, excl_mask=jnp.asarray(same))
+    n = 8
+    Ls = _images(n) * a; Ls = Ls[np.linalg.norm(Ls, axis=1) <= n * a + 1e-9]
+    P = (pos[None, :, :] + Ls[:, None, :]).reshape(-1, 3); Q = np.tile(q, len(Ls)); FR = np.tile(frag, len(Ls))
+    own_img = np.repeat(np.all(Ls == 0, axis=1), N)
+    def V(x, i):
+        w = ~(own_img & (FR == frag[i]))                   # the own fragment's atoms in the home cell are not sources
+        d = jnp.where(jnp.asarray(w)[:, None], x[None, :] - jnp.asarray(P), 1.0)
+        rr = jnp.sqrt(jnp.sum(d * d, axis=-1))
+        return jnp.sum(jnp.asarray(w) * jnp.asarray(Q) * kn.g_long(rr, l))
+    E = lambda x, i: -jax.grad(V)(x, i)
+    Mdip = q @ pos; depol = -(4 * math.pi / (3 * a ** 3)) * Mdip
+    for i in range(N):
+        x = jnp.asarray(pos[i])
+        assert np.allclose(np.array(E_p[i]), np.array(E(x, i)) - depol, rtol=3e-3, atol=2e-6), i
+        assert np.allclose(np.array(gE_p[i]), np.array(jax.jacfwd(E)(x, i)), rtol=1e-3, atol=2e-7), i
+        assert np.allclose(np.array(ggE_p[i]), np.array(jax.jacfwd(jax.jacfwd(E))(x, i)), rtol=3e-4, atol=2e-8), i
