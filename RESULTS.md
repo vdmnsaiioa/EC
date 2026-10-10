@@ -130,11 +130,12 @@ valley), so the spread |δC₆/R⁶ + δC₈/R⁸| is partially cancelled at sho
 Window rmse 50× below M_6's (the C₈ term absorbs the L6a misfit); the plateau level 2.6e-3 on Ar₂ is 4× M_6's,
 the wider two-parameter fibre.
 
-## v0.0.5 — E3 rehearsed without data: the synthetic polarisable water truth (`scripts/e3_water.py`, `sseft/water.py`)
+## v0.0.5 → v0.0.6 — E3 rehearsed without data: the synthetic polarisable water truth (`scripts/e3_water.py`, `sseft/water.py`)
 
 Pre-registered in `notes/e3-water-preregistration.md` (§3; §6–§9 are the addenda of the far-field sequence,
-each written before the run it predicts); the results note is `notes/e3-rehearsal-results.md`.  Tests: 30
-(`pytest -q tests/`; the water truth, the fragment references and the near-source exclusion added).  Two
+each written before the run it predicts); the results note is `notes/e3-rehearsal-results.md`.  Tests: 32
+(`pytest -q tests/`; the water truth, the fragment references, the near-source exclusion and the embedded dagger's
+identity added).  Two
 design changes the molecular case forced, both in the package: fragment references (`E_int = E(all) −
 Σ_f E(f)`, the model's own fragment energies at their own geometries; without them a learned monomer energy
 left a flat 10⁻³ E_h tail under every rung) and the near-source switch in the band-field input
@@ -179,7 +180,8 @@ electrostatics — is 13.9 % of the interaction at every distance; the reading i
 | C (§8) | 16 from one core | – | – | – | 120, 79 % (pred. ≤ 30 % ✗) | 117, 65 % (pred. ≤ 15 % ✗) |
 | D (§9) | 32 from eight cores | 98, 114 % | – | – | 86, 116 % (pred. ≤ 50 % ✗) | 80, 108 % |
 | E (§10) | 32 from eight cores, weight ×10 | – | – | – | 124, 90 % | – |
-| F (§11) | 32 from eight cores | M_1†ᵉᵐᵇ RESULT_F_ROW |
+| F (§11) | 32 from eight cores | M_1†ᵉᵐᵇ (embedded dipoles, no self energy): 140, 162 % (6 / 7 / 8 / 10 Å: 174–202 / 64–65 / 53–56 / 17 %) | – | – | – | M_S0†ᵉᵐᵇ 149, 158 % |
+| G (§12) | 32 from eight cores | M_1†ᵉᵐᵇ + self energy: 48, 39 % (49 / 46 / 50 / 17; 39 / 37 / 49 / 17); **M_16†ᵉᵐᵇ: 21, 18 % (25 / 13 / 16 / 5; 20 / 16 / 9 / 5)** | – | – | – | – |
 
 The constant 13.9 % share identifies what this "induction" is: not the probe's R⁻⁶ response to the core's
 field but, dominantly, the interaction of the core's *pre-existing* induced dipoles (0.1–0.3 a.u. per oxygen
@@ -192,4 +194,19 @@ residual diagnostic shows: the learned-source rungs' residual on the far-field *
 far-field signal (0.03–0.08 kcal/mol on a 0.1–0.6 kcal/mol interaction) sits below a floor of ~0.05 kcal/mol that
 the learned-source class does not get under here, weighting or not.  The exact decomposition
 (`scratch/far_decomposition.py`): piece (2) is 91 / 100 / 93 / 98 % of the induction rms at 6 / 7 / 8 / 10 Å, the
-mutual response 40 / 16 / 14 / 5 %.  RESULT_F_SUMMARY
+mutual response 40 / 16 / 14 / 5 %.  The embedded dagger (q and atomic dipoles pinned to the truth's
+self-consistent induced dipoles of each molecule in its own cluster) reproduces the band's share exactly — beyond
+r_c its probe interaction equals electrostatics + piece (2) to 1e-6 kcal/mol with untrained parameters
+(`scratch/emb_check.py`) — but needs two more pinned inputs to be a dagger: the polarisation work ½|μ|²/α per atom
+(`pin_eself`; without it the band double counts the induction inside the cluster and the 6 Å error is 174–202 %),
+and the dispersion band on a pinned α_O(iω) (without it 12.5 % of the induction at 10 Å is missing).  With all three,
+M_16†ᵉᵐᵇ's error is the mutual response alone: 5 % at 10 Å (computed 4.6), 9–16 % at 7–8 Å, 20–25 % at 6 Å.
+
+**The embedded dagger on the dimer and the clusters, and the band edge** (`results/e3_pw_dimer_embself_K2.log`,
+`results/e3_pw_clusters_embself*_K2.log`): dimer window rmse 9.5e-7 E_h (10× below every other rung), relative
+error beyond r_c 8.4e-7 at 8 Å, 5.9e-8 at 20 Å, 9e-10 at 98 Å, spread 0.  Clusters at ℓ₁ = 1.5 Å: non-additive
+rmse 80–81 % of the non-additive energy (pre-registered ≤ 25 % ✗) with dimer rmse 0.05 kcal/mol — the
+hydrogen-bond partner's field at 1.9 Å is only 64 % long-range at that band edge, so the cluster's induction is
+E₀'s and unlearned; **at ℓ₁ = 0.75 Å (pre-registered ≤ 25 %): non-additive rmse 9 and 4 %, hexamer rmse 0.078 /
+0.061 kcal/mol (every rung at ℓ₁ = 1.5 Å: 0.50–0.88), dimer rmse 0.02 / 0.01.**  The band edge of a
+hydrogen-bonded system sits below the hydrogen bond; the real E3 runs at ℓ₁ = 0.75 Å.

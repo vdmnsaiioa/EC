@@ -78,6 +78,8 @@ def pin_embedded(structs, n_core=None, self_energy=True):
 
 def configure(rung, a):
     kw = dict(lA=ang_to_bohr(a.lA), e0={**rung.e0, "r_cut": ang_to_bohr(a.rcut), "F": a.F, "n_rbf_readout": 8})
+    if a.l1 > 0:
+        kw["l1"] = ang_to_bohr(a.l1)                                                   # the band edge (default 1.5 A)
     if rung.band_fields >= 0:
         kw["bf_rs"] = rung.l1 * a.rs_over_l1
     return M.with_rung(rung, **kw)
@@ -286,6 +288,7 @@ def main():
     ap.add_argument("--train_far", type=int, default=0, help="far-field probe configurations per distance and core added to the training set")
     ap.add_argument("--train_far_cores", type=int, default=8, help="number of different core trimers in the far-field training set")
     ap.add_argument("--test_cores", type=int, default=1)
+    ap.add_argument("--l1", type=float, default=0.0, help="band edge l_1 in A (0: the rung's default, 1.5 A)")
     ap.add_argument("--w_far", type=float, default=1.0, help="training weight of the far-field configurations (energies and forces)")
     ap.add_argument("--cache", default="", help="pickle of the generated far-field data sets (written if absent, read if present)")
     ap.add_argument("--out", default="e3_water_results.json")

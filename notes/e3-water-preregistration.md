@@ -327,3 +327,31 @@ induction and dispersion of the dimer exactly up to the kernel's short part; M_1
 0, q undefined (no fibre). A failure of the 10 Å numbers would be an implementation error; a failure
 of the cluster number would mean the short-range remainder of the induction is not E₀-learnable from
 36 clusters, which is a statement about ℓ₁.
+
+## 13. Eighth addendum (after run G's far-field and cluster parts; before the band-edge run)
+
+**Run G, far field: as computed.** M_1†ᵉᵐᵇ with the self energy 48 / 39 % (17 % at 10 Å both seeds, the
+computed 16.8); **M_16†ᵉᵐᵇ 21 / 18 %, with 5 % at 10 Å (computed 4.6), 13–16 % at 7 Å, 9–16 % at 8 Å,
+20–25 % at 6 Å** — the far-field many-body energy is carried by the three pinned inputs to within the
+mutual response. **Run G, clusters: the prediction failed** — M_16†ᵉᵐᵇ's non-additive rmse is 80–81 % of
+the non-additive energy (predicted ≤ 25 %), hexamer rmse 0.75–0.77 kcal/mol (predicted ≤ 0.3), while its
+dimer rmse is 0.05 kcal/mol (the others 0.10–0.22: the pair part is now nearly exact). The error in the
+prediction was the "7 % at the hydrogen-bond distance": that is the short part of the *potential*
+(1 − erf(1.27)); the induction runs on the *field*, whose long part at r/ℓ₁ = 1.27 is
+erf(x) − (2x/√π)e^{−x²} = 0.64 (§6 had this number), and on the field gradient for the dipole–dipole
+coupling, less still. With ℓ₁ = 1.5 Å, 36 % of the hydrogen-bond partner's field and most of the
+induced-dipole couplings inside a compact hexamer are short-range by the band's own definition, so the
+self-consistent induction of a hydrogen-bonded cluster — and its non-additive part with it — is largely
+E₀'s even with exact embedded sources, and E₀ does not learn it from 36 clusters. The cluster reading is a
+statement about ℓ₁ relative to the hydrogen bond.
+
+**Pre-registered (run H): M_16†ᵉᵐᵇ on the clusters with ℓ₁ = 0.75 Å** (`--l1 0.75`; cached data, K = 2). At
+1.9 Å the field's long part is then 99.5 % and the dipole–dipole coupling's ≳ 98 %, so band + self
+carries the self-consistent induction of the cluster to a few per cent and E₀ is left with repulsion and
+the dispersion damping. Prediction: **non-additive rmse ≤ 25 % of the non-additive energy, hexamer rmse
+≤ 0.3 kcal/mol, dimer rmse ≤ 0.06** (the dimer part does not move). If the non-additive error stays
+above 50 % the diagnosis is wrong and something else in the cluster part is unlearned. The consequence
+for the real E3, if it holds: the band edge of a hydrogen-bonded system has to sit below the hydrogen-bond
+length — the IR band is then ordinary damped point-multipole electrostatics plus dispersion, and E₀'s
+share of the induction is what the damping leaves — at the price of a k-space cutoff 2× larger in the
+periodic case (8× the k-vectors).

@@ -41,7 +41,11 @@ asymptotic measurements are never contaminated by a constant.  Structures that c
 molecules of a cluster, `Structure.frag`) subtract instead the model's own energy of each fragment alone at
 its own geometry, `E_int = E(all) − Σ_f E(f)` — the atomic case is one atom per fragment — so that a
 learned monomer energy never leaves a constant at infinity either.  The E3 script adds learned-source
-variants of the band-field rungs (`M_S0mu`, `M_S2mu`: learned `q_i`, `μ_i` and the read-out).
+variants of the band-field rungs (`M_S0mu`, `M_S2mu`: learned `q_i`, `μ_i` and the read-out) and the
+*embedded daggers* (`M_1pemb`, `M_16pemb`): charges, atomic dipoles and `α(iω)` pinned to the monomer's values
+*in its cluster*, plus a pinned per-atom self energy (`Structure.pinned["eself"]`, the polarisation work
+`½|μ_ind|²/α`), without which a Coulomb band double counts the induction of pinned induced dipoles (the
+identity band + self = E_es + E_ind is a test).
 
 Pieces (one module each):
 
@@ -131,9 +135,12 @@ CCSD(T) data when they exist.  Every part saves its json after each rung.
   the L6b item of the build plan.
 * E1 / E2 on the published Ar₂ and Ne₂ potentials (every branch assignment as pre-registered; the unseen
   Ne–Ar C₆ from the learned α(iω); the C₆ bias computed under the training objective), the L6b rung M_68,
-  and the E3 rehearsal on the synthetic water truth (the dimer ladder with p⋆ = 3 and the learned monomer
-  dipole, the clusters, and the far-field induction test with its four pre-registered runs): `RESULTS.md`,
-  with the pre-registration and result notes in `notes/`.
+  and the E3 rehearsal on the synthetic water truth — the dimer ladder with p⋆ = 3 and the learned monomer
+  dipole (1.861 ± 0.003 D against 1.855 once the identifying nodes are defined by the smallest intermolecular
+  pair), the clusters, and the far-field induction test with eight pre-registered runs, ending with the
+  embedded dagger `M_16pemb` reproducing the dimer tail to 6e-8 at 20 Å, the far field to the mutual response
+  (5 % at 10 Å) and, at a band edge of 0.75 Å, the hexamers' non-additive energy to 4–9 %: `RESULTS.md`, with
+  the pre-registration and result notes in `notes/`.
 * The X2-B toy and the numbers behind the lines above: `RESULTS.md`.
 
 ## Layout
