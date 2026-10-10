@@ -170,3 +170,28 @@ at zero, so that training begins from the model without the response and the rea
 data ask — the same rule the orders ≥ 1 already followed. Forces of every rung with random output layers
 against finite differences, unchanged. Predictions as in §6, unchanged; the runs restart from the cached
 data (R2's M_16S0†, then R1's two read-out rungs, R2's learned-source tier, R3).
+
+## 8. Third addendum (after the first seed of the second re-run; before the third)
+
+**Zero initialisation was not enough.** M_16S0† seed 0: 86 % of the induction, a_eff/α = 0.02, and the
+clusters' training residual 1.9 kcal/mol (0.4 for the same model without the read-out). The diagnosis of §7
+was incomplete: the trouble is not the starting point but Adam's fixed-size steps on the read-out's
+coefficients. A quadratic read-out in the band field spans four orders of magnitude in |E|² across a
+training set that holds an ion at 2 Å (|E| ~ 0.1–0.3 a.u.) and at 10 Å (10⁻³), so a step that moves the
+far-field response by a useful amount moves the near configurations' energies by ~10 kcal/mol, and the
+shared E₀ features are dragged along — the collapse of the cluster fit. In physical units the same steps
+were harmless and useless (§6); in O(1) units they are destructive. Adam normalises per parameter, not per
+direction in energy space; the stiff directions need curvature.
+
+**The fix (one change to the training schedule):** the read-out is held at zero during the Adam stage and
+switched on in the L-BFGS polish, which is curvature-aware and takes the small far-field gradient at its
+proper scale; the polish is now mandatory for band-field rungs, 300 steps here (the baselines were
+polished for 150; M_16† is re-run at 300 at the end of the chain for parity). This is the "always polish"
+rule of M_A again (RESULTS.md v0): the read-out, like the analytic kernel, is a linear-in-coefficients
+problem inside a non-linear model, and Adam does not solve those.
+
+**Predictions unchanged** (§6). The reading of the claim is void until the training residual on the far
+ion configurations is below 30 % of their induction; three successive floors — units, initialisation,
+optimiser — are now on record, and a fourth would say that the response coefficient is not identifiable
+by gradient training at all on this data, which would be a finding about the architecture's trainability
+rather than its class.

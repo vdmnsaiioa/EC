@@ -73,8 +73,14 @@ def make_chunked_loss(rung, scale, data, w_energy=1.0, w_force=10.0, chunk=48):
 
 
 def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.0, batch_size=None,
-        lbfgs_steps=0, verbose=False, scale=None, lbfgs_chunk=48):
-    """train one model; returns (params, info)."""
+        lbfgs_steps=0, verbose=False, scale=None, lbfgs_chunk=48, readout_adam=False):
+    """train one model; returns (params, info).  The band-field read-out (when the rung has one) is held at its
+    zero initialisation during the Adam stage unless readout_adam=True, and switched on in the L-BFGS polish: a
+    quadratic read-out in the band field spans four orders of magnitude in |E|^2 across a training set with near and
+    far sources, so that Adam's fixed-size steps on its coefficients either do nothing in the far field (coefficients
+    in physical units) or wreck the near configurations (coefficients O(1)); L-BFGS, being curvature-aware, handles
+    the stiff directions (e3r-bandfield-response-preregistration.md section 8).  The polish is therefore mandatory
+    for the band-field rungs."""
     key = jax.random.PRNGKey(seed)
     scale = scale or energy_scale(structures)
     params = M.init_params(key, rung, energy_scale=scale)
@@ -86,9 +92,13 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     opt = optax.adam(sched)
     state = opt.init(params)
 
+    freeze_readout = ("readout" in params) and not readout_adam
+
     @jax.jit
     def step(params, state, batch):
         (l, parts), g = jax.value_and_grad(loss_fn, has_aux=True)(params, batch)
+        if freeze_readout:
+            g = {**g, "readout": jax.tree_util.tree_map(jnp.zeros_like, g["readout"])}
         upd, state = opt.update(g, state, params)
         return optax.apply_updates(params, upd), state, l, parts
 
@@ -105,6 +115,8 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     if lbfgs_steps > 0:
         f = make_chunked_loss(rung, scale, data, w_energy, w_force, chunk=lbfgs_chunk)
         params = polish_lbfgs(params, f, lbfgs_steps, verbose)
+    elif freeze_readout:
+        raise ValueError("a band-field rung needs the L-BFGS polish (lbfgs_steps > 0): the read-out is frozen during Adam")
     return params, {"scale": scale, "history": hist, "time": time.time() - t0}
 
 
