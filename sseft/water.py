@@ -235,6 +235,27 @@ def cluster_dataset(sizes, n_per_size, seed=0, sigma=0.0, **kw):
     return out
 
 
+def probe_configurations(n_core, distances_ang, n_per_distance, seed=0, mc_steps=300):
+    """a relaxed core cluster of n_core molecules plus one probe monomer at a distance d (A, O to the core's centre
+    of mass) in a random direction and orientation: the far-field induction test.  Beyond E_0's cutoff the probe's
+    interaction with the core is electrostatics (which pinned charges give exactly) plus induction (which only a
+    response to the band field can give).  Returns (structures, core_energies, probe_only) with the core's own
+    interaction energy so that E - E_core is the probe's interaction."""
+    rng = np.random.default_rng(seed); out = []; cores = []
+    core = random_cluster(n_core, rng, mc_steps=mc_steps)
+    com = core[0::3].mean(axis=0)
+    E_core = pw_energy_forces(core, n_core)[0]
+    for d in distances_ang:
+        for k in range(n_per_distance):
+            u = rng.normal(size=3); u /= np.linalg.norm(u)
+            probe = com + d * u + monomer_positions() @ random_rotation(rng).T
+            pos = np.concatenate([core, probe])
+            E, F = pw_energy_forces(pos, n_core + 1)
+            out.append(water_structure(pos, energy=E, forces=F, info={"d": float(d), "k": k, "E_core": E_core}))
+            cores.append(E_core)
+    return out, np.array(cores)
+
+
 def pair_additive_energy(pos_ang, n_mol):
     """sum over molecule pairs of the truth's dimer energies (for the non-additive energy E - E_pairs)."""
     pos = np.asarray(pos_ang, float); tot = 0.0

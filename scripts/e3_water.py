@@ -114,6 +114,44 @@ def run_dimer(a):
     return results
 
 
+def run_far(a):
+    """the far-field induction test: training = the dimer window (its nodes beyond r_c teach the response to the band
+    field) + the clusters; test = a probe monomer at 6-10 A from a trimer.  The probe's interaction energy minus its
+    electrostatics with the pinned charges is the induction; v1 cannot represent it beyond r_c, v1.5 can."""
+    t0 = time.time()
+    R_train = bohr_to_ang(D.window_design(*WINDOW, 40)); rng = np.random.default_rng(0)
+    train = (W.dimer_scan(R_train, sigma=a.sigma, rng=rng) + W.cluster_dataset((3, 4, 5), a.n_train, seed=0, sigma=a.sigma, mc_steps=a.mc_steps)
+             + [W.monomer_structure()] * 4)
+    dists = (6.0, 7.0, 8.0, 10.0)
+    test, E_core = W.probe_configurations(3, dists, a.n_test, seed=300, mc_steps=a.mc_steps)
+    y = np.array([s.energy for s in test]) - E_core                                   # the probe's interaction with the core
+    # the probe's induction: total minus the pure electrostatics of the point charges (smeared as in the truth) --
+    # computed from the truth's components
+    es = []
+    for s in test:
+        pos = bohr_to_ang(s.positions); c_all = W.pw_components(pos, 4); c_core = W.pw_components(pos[:9], 3)
+        es.append((c_all["es"] - c_core["es"]) + (c_all["rep"] - c_core["rep"]) + (c_all["disp"] - c_core["disp"]))
+    ind = y - np.array(es)
+    print(f"far-field induction test: {len(test)} probe configurations at d = {dists} A from a trimer; probe interaction rms "
+          f"{np.sqrt(np.mean(y ** 2)) * 627.5:.4f} kcal/mol, of which induction rms {np.sqrt(np.mean(ind ** 2)) * 627.5:.4f} "
+          f"({np.sqrt(np.mean(ind ** 2)) / np.sqrt(np.mean(y ** 2)) * 100:.1f} %)  [{time.time() - t0:.0f} s]", flush=True)
+    results = {"d": [s.info["d"] for s in test], "probe_interaction": y.tolist(), "induction": ind.tolist()}
+    for name in a.rungs.split(","):
+        rung = configure(RUNGS[name], a); t1 = time.time(); errs = []; errs_ind = []
+        for seed in range(a.seeds):
+            params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0, batch_size=a.batch, lbfgs_chunk=a.lbfgs_chunk)
+            Et, _ = T.predict(params, rung, test)
+            cores = [W.water_structure(bohr_to_ang(s.positions)[:9]) for s in test]
+            Ec, _ = T.predict(params, rung, cores)
+            yp = Et - Ec
+            r = np.sqrt(np.mean((yp - y) ** 2)); errs.append(r)
+            print(f"  {name} seed {seed}: probe-interaction rmse {r * 627.5:.4f} kcal/mol = {r / np.sqrt(np.mean(ind ** 2)) * 100:.0f} % of the induction "
+                  f"(per distance: " + ", ".join(f"{d:.0f} A {np.sqrt(np.mean((yp - y)[np.array(results['d']) == d] ** 2)) / np.sqrt(np.mean(ind[np.array(results['d']) == d] ** 2)) * 100:.0f} %" for d in dists) + f"); {info['time']:.0f} s", flush=True)
+        results[name] = dict(rmse=errs)
+        _save(a, results)
+    return results
+
+
 def run_clusters(a):
     t0 = time.time()
     train = W.cluster_dataset((3, 4, 5), a.n_train, seed=0, sigma=a.sigma, mc_steps=a.mc_steps) + [W.monomer_structure()] * 4
@@ -129,7 +167,7 @@ def run_clusters(a):
         rung = configure(RUNGS[name], a); t1 = time.time()
         errs6, errs2, errsN = [], [], []
         for seed in range(a.seeds):
-            params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0, batch_size=24)
+            params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0, batch_size=a.batch, lbfgs_chunk=a.lbfgs_chunk)
             E6, _ = T.predict(params, rung, test6); E2, _ = T.predict(params, rung, test2)
             # the model's own non-additive energy: E(hexamer) - sum over its 15 dimers
             nadd_model = []
@@ -154,15 +192,16 @@ def run_clusters(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--part", default="dimer", choices=["dimer", "clusters"])
+    ap.add_argument("--part", default="dimer", choices=["dimer", "clusters", "far"])
     ap.add_argument("--rungs", default="M_inf,M_G,M_A,M_1,M_1mu,M_1p")
     ap.add_argument("--seeds", type=int, default=4); ap.add_argument("--steps", type=int, default=1500); ap.add_argument("--lbfgs", type=int, default=300)
     ap.add_argument("--sigma", type=float, default=1e-9); ap.add_argument("--rcut", type=float, default=6.0); ap.add_argument("--lA", type=float, default=4.0)
     ap.add_argument("--F", type=int, default=16); ap.add_argument("--rs_over_l1", type=float, default=1.0)
     ap.add_argument("--n_train", type=int, default=12); ap.add_argument("--n_test", type=int, default=8); ap.add_argument("--mc_steps", type=int, default=300)
+    ap.add_argument("--batch", type=int, default=12); ap.add_argument("--lbfgs_chunk", type=int, default=6)
     ap.add_argument("--out", default="e3_water_results.json")
     a = ap.parse_args()
-    res = run_dimer(a) if a.part == "dimer" else run_clusters(a)
+    res = {"dimer": run_dimer, "clusters": run_clusters, "far": run_far}[a.part](a)
     _save(a, res)
 
 
