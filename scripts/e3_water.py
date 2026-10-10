@@ -39,6 +39,9 @@ RUNGS = {
     "M_S2p": M.with_rung(M.RUNGS["M_1"], pin_q=True, band_fields=2),
     "M_S0": M.with_rung(M.RUNGS["M_1"], band_fields=0),
     "M_S2": M.with_rung(M.RUNGS["M_1"], band_fields=2),
+    "M_S0mu": M.with_rung(M.RUNGS["M_1"], dipoles=True, band_fields=0),       # learned q and mu (environment-dependent sources) + band fields
+    "M_S2mu": M.with_rung(M.RUNGS["M_1"], dipoles=True, band_fields=2),
+    "M_S0pmu": M.with_rung(M.RUNGS["M_1"], pin_q=True, dipoles=True, band_fields=0),   # pinned q, learned mu + band fields
 }
 
 
