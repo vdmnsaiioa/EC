@@ -91,8 +91,12 @@ def test_ion_truth_and_fragment_exclusion_forces():
     st = W.ion_structure(pos, 2); E3.pin_dispersion([st])
     rung = M.with_rung(E3.RUNGS["M_16S0p"], l1=ang_to_bohr(0.75), e0={**M.RUNGS["M_1"].e0, "r_cut": ang_to_bohr(6.0), "F": 8, "n_rbf_readout": 8})
     params = M.init_params(jax.random.PRNGKey(1), rung, 1e-3)
-    # make the read-out non-trivial (orders >= 1 start at zero; order 0 is random): scale it up
-    params["readout"] = jax.tree_util.tree_map(lambda x: 50.0 * x, params["readout"])
+    # make the read-out non-trivial (it starts at zero): random output layers
+    kk = jax.random.split(jax.random.PRNGKey(7), 4)
+    params["readout"]["theta"][-1] = {"w": 0.3 * jax.random.normal(kk[0], params["readout"]["theta"][-1]["w"].shape),
+                                      "b": 0.3 * jax.random.normal(kk[1], params["readout"]["theta"][-1]["b"].shape)}
+    params["readout"]["iso"][-1] = {"w": 0.3 * jax.random.normal(kk[2], params["readout"]["iso"][-1]["w"].shape),
+                                    "b": 0.3 * jax.random.normal(kk[3], params["readout"]["iso"][-1]["b"].shape)}
     E, Fm = T.predict(params, rung, [st]); Fm = np.array(Fm)[0]
     hb = 3e-5
     for (i, c) in [(6, 0), (0, 2), (3, 1)]:

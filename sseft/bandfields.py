@@ -17,8 +17,10 @@ Response read-out, bilinear in the field (no terms linear in the band field: tho
               + sum_f [ g_f E_d v_b v_c H_bcd + g'_f (E.v_f) (lap E).v_f + g''_f E_d t_bc H_bcd
                         + h_f v_f.G.G.v_f + h'_f t_f : (G.G) ]
 with every coefficient an output of an MLP of the invariant features s_i (environment-dependent).  The
-coefficients of the orders >= 1 start at zero, so that training begins from the order-0 model and the
-higher orders switch on as the data ask for them.
+coefficients of the read-out start at zero (every order), so that training begins from the model without the
+response and the read-out switches on as the data ask for it: with the field tensors in units of E_ref, a random
+initialisation produced energies of the order of 10^2 e_scale on configurations with strong fields (an ion at 2 A)
+and the fit collapsed (e3r-bandfield-response-preregistration.md section 7).
 """
 import jax
 import jax.numpy as jnp
@@ -103,11 +105,11 @@ def init_readout_pair(key, cfg, order):
     k = jax.random.split(key, 3)
     nr = cfg.get("n_rbf_readout", cfg["n_rbf"])
     theta = _mlp_init(k[0], [2 * F, F, m * nr], scale=0.1)                           # radial coefficients per invariant from (s_i, s_j)
-    n0 = 2 * nr                                                                      # the order-0 invariants' columns
     last = theta[-1]
-    theta[-1] = {"w": last["w"].at[:, n0:].set(0.0), "b": last["b"].at[n0:].set(0.0)}   # orders >= 1 start at zero
-    return {"theta": theta,
-            "iso": _mlp_init(k[1], [F, F, 1], scale=0.1)}                           # node-level a(s_i) |E_i|^2
+    theta[-1] = {"w": jnp.zeros_like(last["w"]), "b": jnp.zeros_like(last["b"])}      # the read-out starts at zero (every order)
+    iso = _mlp_init(k[1], [F, F, 1], scale=0.1)
+    iso[-1] = {"w": jnp.zeros_like(iso[-1]["w"]), "b": jnp.zeros_like(iso[-1]["b"])}
+    return {"theta": theta, "iso": iso}                                              # node-level a(s_i) |E_i|^2
 
 
 def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l, E_ref=1.0, e_scale=1.0):

@@ -154,3 +154,19 @@ the ion numbers stay above 50 % with the training residual below 30 %, the claim
 harness; if the training residual stays above 50 %, the optimiser is still the limit and the next step is
 the loss weighting of the far-field configurations (`--w_far`), which is now a legitimate knob because the
 signal is above the floor.
+
+## 7. Second addendum (after the first seed of the re-run; before the second re-run)
+
+**The scaled read-out at its random initialisation broke the fit.** With the field tensors in units of
+E_ref = 0.01 a.u., the ion–monomer configurations at 2–3 Å (fields up to 0.1–0.3 a.u., (E/E_ref)² up to
+~10³) gave the randomly initialised read-out energies of order 10² e_scale ≈ 0.5 E_h; the optimiser spent its
+budget on those and the clusters were left at a training residual of 3.3 kcal/mol (0.36–0.45 before); the
+seed's test number (107 %, a_eff/α = 0.12) is void. The unscaled parametrisation had the same random start
+but inputs 10⁴ times smaller, so it was harmless there and slow in the far field — the two problems are the
+two sides of one coin: a parametrisation whose coefficients are O(1) needs to start at zero.
+
+**The fix:** the read-out's output layers (the pair coefficients of every order and the node term) start
+at zero, so that training begins from the model without the response and the read-out switches on as the
+data ask — the same rule the orders ≥ 1 already followed. Forces of every rung with random output layers
+against finite differences, unchanged. Predictions as in §6, unchanged; the runs restart from the cached
+data (R2's M_16S0†, then R1's two read-out rungs, R2's learned-source tier, R3).

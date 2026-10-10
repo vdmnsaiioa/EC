@@ -70,6 +70,12 @@ def test_forces_finite_difference(name):
     b = _cluster()
     rung = M.with_rung(M.RUNGS[name], dipoles=M.RUNGS[name].charges and not M.RUNGS[name].pin_q)
     params = M.init_params(jax.random.PRNGKey(1), rung)
+    if "readout" in params:
+        # the read-out starts at zero; give its output layers random values so that every order's forces are tested
+        kk = jax.random.split(jax.random.PRNGKey(7), 4)
+        for key_, kw, kb in (("theta", kk[0], kk[1]), ("iso", kk[2], kk[3])):
+            last = params["readout"][key_][-1]
+            params["readout"][key_][-1] = {"w": 0.3 * jax.random.normal(kw, last["w"].shape), "b": 0.3 * jax.random.normal(kb, last["b"].shape)}
     _, F = M.energy_forces_single(params, rung, b)
     def E_at(i, a, dx):
         return float(M.energy_single(params, rung, {**b, "positions": b["positions"].at[i, a].add(dx)})[0])
