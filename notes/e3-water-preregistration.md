@@ -244,3 +244,42 @@ explanation and the map is simply not generalising); (b) at weight 10 that resid
 far-field configurations with a weight, not matching targets; **≥ 70 %** means it is not, and the
 real E3 needs the embedded-monomer multipoles as matching targets (§9's conclusion, now earned).
 Between the two the question stays open and K = 4 decides.
+
+## 11. Sixth addendum (after the completed §9 run and the first seed of the weighted run; before the embedded dagger)
+
+**§10's prediction (a) held and (b) failed.** Completed eight-core run: M_1† 98 / 114 %, M_1μ 86 / 116 %,
+M_S0μ 80 / 108 % of the induction; the residual on the far-field *training* configurations is 134–163 %
+of their own induction for every seed of every learned-source rung — the far-field signal was indeed
+never fitted (a). But with the far-field configurations weighted ×10 the residual does not move
+(170 % for the first seed; test 124 %): the floor is not the weighting. Something in the model class
+or the optimisation leaves ~0.05 kcal/mol on a probe configuration whose electrostatics is 0.35 and
+whose induction 0.03–0.08 kcal/mol — the learned sources' far field is wrong by about the induction
+itself (a learned charge-plus-dipole monomer has a free quadrupole that nothing in the training set
+pins, is the candidate), and no reweighting of a signal the class cannot fit helps.
+
+**The decomposition, computed exactly** (`scratch/far_decomposition.py`, on the cached test set):
+piece (2), the core's pre-existing induced dipoles against the probe's charges, is 91 / 100 / 93 /
+98 % of the induction rms at 6 / 7 / 8 / 10 Å; the remainder (1) + (3), the mutual response, is
+**40 / 16 / 14 / 5 %** (0.031 / 0.008 / 0.004 / 0.0008 kcal/mol), 33 % overall, dominated by 6 Å
+where the probe's nearest atoms sit 3–4.5 Å from the core.
+
+**Pre-registered: the embedded dagger M_1†ᵉᵐᵇ** (`M_1pemb`: q pinned to the monomer charges, atomic
+dipoles pinned to the truth's self-consistent induced dipoles of each molecule *in its own cluster*;
+a probe outside the cluster carries the isolated monomer's zero; the core's dipoles are the same in
+E(core + probe) and E(core), so the core's internal band cancels in the difference). Beyond r_c its
+probe interaction is electrostatics + piece (2) with no training involved, so its error is the
+remainder: **4.6 % ± 0.5 at 10 Å** (every probe–core pair beyond r_c there: a test of the
+implementation to the digit), **≈ 14 % at 8 Å and ≈ 16 % at 7 Å** (E₀ sees a few pairs; ± 5), and
+**≤ 40 % at 6 Å** (E₀ can fit part of the response there). Same training set as §9 (dimer window,
+36 clusters, 32 far-field configurations, all with embedded dipoles pinned), K = 2. Control:
+M_S0†ᵉᵐᵇ (the same plus the order-0 read-out), predicted equal to M_1†ᵉᵐᵇ within the seed spread —
+the response coefficient is still unidentified at this floor, and the remainder it would have to
+carry (0.016 kcal/mol overall) is below it.
+
+**What this settles for the real E3, whichever way the learned-source question goes:** the far-field
+many-body energy of a hydrogen-bonded cluster at 6–10 Å is, to 85–95 %, the field of its embedded
+induced dipoles. A dagger with embedded multipoles (distributed multipoles of each monomer in its
+cluster, from the CCSD(T) or a DFT density) carries it with no fitting; learned sources have to
+recover the same map from energies and forces, and on the synthetic truth they do not at this data
+scale. The real E3 should run both and read the gap between them as the price of learning the
+sources.

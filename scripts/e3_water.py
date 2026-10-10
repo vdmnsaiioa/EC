@@ -42,7 +42,24 @@ RUNGS = {
     "M_S0mu": M.with_rung(M.RUNGS["M_1"], dipoles=True, band_fields=0),       # learned q and mu (environment-dependent sources) + band fields
     "M_S2mu": M.with_rung(M.RUNGS["M_1"], dipoles=True, band_fields=2),
     "M_S0pmu": M.with_rung(M.RUNGS["M_1"], pin_q=True, dipoles=True, band_fields=0),   # pinned q, learned mu + band fields
+    "M_1pemb": M.with_rung(M.RUNGS["M_1"], pin_q=True, dipoles=True, pin_mu=True),     # the embedded dagger: q and mu pinned to the
+    # monomer's multipoles *in its own cluster* (the truth's self-consistent induced dipoles; a probe outside the cluster carries
+    # the isolated monomer's)
+    "M_S0pemb": M.with_rung(M.RUNGS["M_1"], pin_q=True, dipoles=True, pin_mu=True, band_fields=0),
 }
+
+
+def pin_embedded(structs, n_core=None):
+    """pin each structure's atomic dipoles to the truth's induced dipoles of the molecules embedded in their own cluster:
+    the whole structure, or, for probe configurations, the core alone (atoms before 3 n_core) with zeros on the probe."""
+    for s in structs:
+        pos = bohr_to_ang(s.positions); n = len(pos) // 3
+        if n_core is not None and n > n_core:
+            mu = np.zeros((3 * n, 3)); mu[:3 * n_core] = W.pw_components(pos[:3 * n_core], n_core)["mu_ind"]
+        else:
+            mu = W.pw_components(pos, n)["mu_ind"] if n > 1 else np.zeros((3, 3))
+        s.pinned = {**s.pinned, "mu": mu}
+    return structs
 
 
 def configure(rung, a):
@@ -139,6 +156,8 @@ def run_far(a):
         if a.cache:
             with open(a.cache, "wb") as fh: pickle.dump((base, far_train, E_core_tr, test, E_core), fh)
     for s in far_train: s.weight = a.w_far                                             # --w_far: weight of the far-field training structures
+    if any("emb" in name for name in a.rungs.split(",")):
+        pin_embedded(base); pin_embedded(far_train, n_core=3); pin_embedded(test, n_core=3)
     train = base + far_train
     clusters = [s for s in base if s.n_atoms > 6]
 
@@ -163,7 +182,9 @@ def run_far(a):
 
     def probe_rmse(params, rung, structs, yy):
         Et, _ = T.predict(params, rung, structs)
-        Ec, _ = T.predict(params, rung, [W.water_structure(bohr_to_ang(s.positions)[:9]) for s in structs])
+        cores = [W.water_structure(bohr_to_ang(s.positions)[:9]) for s in structs]
+        if rung.pin_mu: pin_embedded(cores)
+        Ec, _ = T.predict(params, rung, cores)
         return (Et - Ec) - yy
     for name in a.rungs.split(","):
         rung = configure(RUNGS[name], a); t1 = time.time(); errs = []; train_errs = []

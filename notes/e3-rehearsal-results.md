@@ -96,11 +96,23 @@ induction, per distance: 100 % means "electrostatics only".
 | | | M_S2† | 297, 370 % (349 / 224 / 102 / 115) | ≤ 1.5 × M_S0† **✗** |
 | C (§8) | 16, one core | M_1μ | 120, 79 % (88 / 58 / 66 / 98) | ≤ 30 % **✗** (test at fault, §9) |
 | | | M_S0μ | 117, 65 % (72 / 53 / 46 / 68) | ≤ 15 % **✗** (same) |
-| D (§9) | 32, eight cores | M_1† | RESULT_D_M1P | ~100 % |
-| | | M_1μ | RESULT_D_M1MU | ≤ 50 % |
-| | | M_S0μ | RESULT_D_MS0MU | below M_1μ by the R⁻⁶ share: a gap at 6–7 Å, none at 10 Å |
+| D (§9) | 32, eight cores | M_1† | 98, 114 % (86 / 111 / 124 / 106) | ~100 % ✓ |
+| | | M_1μ | 86, 116 % (94 / 67 / 73 / 90) | ≤ 50 % **✗** (the floor, §10) |
+| | | M_S0μ | 80, 108 % (90 / 56 / 65 / 81) | below M_1μ with a gap at 6–7 Å only → lower at every distance by 4–11 points, both at the floor: **not read** |
+| E (§10) | 32, eight cores, **weight 10** | M_1μ | RESULT_E_M1MU | far-field training residual < 30 % of its induction; test ≤ 50 % → learnable, ≥ 70 % → not |
 
-RESULT_D_TEXT
+**Run D's training residuals** (the diagnostic added in §10; `results/e3_pw_far_8cores_K2_part2.log`): on the
+training clusters 0.23 / 0.33 kcal/mol (M_1μ), 0.22 / 0.36 (M_S0μ); on the 32 far-field *training*
+configurations 0.055 / 0.045 kcal/mol (M_1μ) and 0.046 / 0.054 (M_S0μ) = **134–163 % of their own induction**
+(0.0336 kcal/mol rms). The far-field signal was never fitted: with every structure weighted alike, the
+optimiser trades a 0.05 kcal/mol residual on a far-field configuration against the same residual on a cluster
+whose interaction energy is 8 kcal/mol, and the cluster floor of 0.2–0.4 kcal/mol is where both end up. Runs
+A–D therefore measured the fit's floor at the far-field configurations, not the generalisation of anything,
+and §9's prediction was wrong for a third reason, below the two it named. (The run itself had to be restarted
+from cached data after the container's memory limit killed it half-way; the restarted seeds reproduce the
+first run's numbers to the digit.)
+
+RESULT_E_TEXT
 
 **What the "induction" of this test is** (§8, verified by the constant 13.9 % share from 6 to 10 Å): the
 probe's interaction minus point-charge electrostatics contains (1) the probe's own response to the core's
