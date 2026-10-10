@@ -8,3 +8,4 @@ dist/
 /*.json
 results/*.out
 results/*.pkl
+results/*.params.pkl

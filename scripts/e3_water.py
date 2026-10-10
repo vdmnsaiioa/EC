@@ -22,6 +22,7 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
 """
 import argparse, time, json, sys, os, pickle
 import numpy as np
+import jax
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import sseft
 from sseft import water as W, model as M, train as T, measure as ME, data as D, kernels as kn
@@ -337,9 +338,23 @@ def run_ion(a):
         test, E_core = W.ion_configurations(3, dists, a.n_test, seed=300, mc_steps=a.mc_steps, n_cores=a.test_cores)
         if a.cache:
             with open(a.cache, "wb") as fh: pickle.dump((base, ion_mono, ion_train, test, E_core), fh)
+    extra = []
+    if a.extra_far > 0:
+        # pure far-field identification data: the ion beyond r_c of every atom (d >= 10 A from a trimer's centre of mass,
+        # 8-14 A from a monomer's oxygen), from other cores -- the only configurations in which the band-field coefficient
+        # is not shared with E_0 (e3r-bandfield-response-preregistration.md section 10)
+        if a.extra_cache and os.path.exists(a.extra_cache):
+            with open(a.extra_cache, "rb") as fh: extra = pickle.load(fh)
+        else:
+            far_cores, _ = W.ion_configurations(3, (10.0, 12.0, 14.0), a.extra_far, seed=500, mc_steps=a.mc_steps, n_cores=a.train_far_cores)
+            far_mono = W.ion_monomer_scan((8.0, 10.0, 12.0, 14.0), 3 * a.extra_far, seed=1)
+            extra = far_cores + far_mono
+            if a.extra_cache:
+                with open(a.extra_cache, "wb") as fh: pickle.dump(extra, fh)
+        for st in extra: st.weight = a.w_far
     for st in ion_train: st.weight = a.w_far
-    pin_sources(a, base, ion_mono); pin_sources(a, ion_train, test, n_core=3)
-    train = base + ion_mono + ion_train
+    pin_sources(a, base, ion_mono); pin_sources(a, ion_train, test, n_core=3); pin_sources(a, extra, n_core=3)
+    train = base + ion_mono + ion_train + extra
     clusters = [s for s in base if s.n_atoms > 6]
     dec = [W.ion_response_decomposition(st) for st in test]; dec_tr = [W.ion_response_decomposition(st) for st in ion_train]
     y = np.array([d["y"] for d in dec]); ind = np.array([d["y"] - d["es"] for d in dec]); resp = np.array([d["response"] for d in dec])
@@ -350,8 +365,8 @@ def run_ion(a):
           f"{rms(y) * K:.4f} kcal/mol, induction (embedded dipoles x ion field + response) rms {rms(ind) * K:.4f} ({rms(ind) / rms(y) * 100:.1f} %), "
           f"of which the response {rms(resp) * K:.4f}; per distance induction " + ", ".join(f"{d:.0f} A {rms(ind[dd == d]) * K:.4f}" for d in dists)
           + f"  [{time.time() - t0:.0f} s]", flush=True)
-    print(f"  training: {len(base)} base + {len(ion_mono)} ion-monomer + {len(ion_train)} ion-core configurations ({a.train_far_cores} cores, d = {dists_tr}, weight {a.w_far:g}); "
-          f"their induction rms {rms(ind_tr) * K:.4f} kcal/mol", flush=True)
+    print(f"  training: {len(base)} base + {len(ion_mono)} ion-monomer + {len(ion_train)} ion-core configurations ({a.train_far_cores} cores, d = {dists_tr}, weight {a.w_far:g})"
+          + (f" + {len(extra)} pure far-field configurations (ion beyond r_c of every atom)" if extra else "") + f"; the ion-core configurations' induction rms {rms(ind_tr) * K:.4f} kcal/mol", flush=True)
     results = {"d": dd.tolist(), "ion_interaction": y.tolist(), "induction": ind.tolist(), "response": resp.tolist()}
 
     def ion_rmse(params, rung, structs, yy):
@@ -371,12 +386,20 @@ def run_ion(a):
                   + f"; of the response alone {r / rms(resp) * 100:.0f} %); {info['time']:.0f} s", flush=True)
             Ecl, _ = T.predict(params, rung, clusters); r_cl = rms(Ecl - np.array([s.energy for s in clusters]))
             res_tr = ion_rmse(params, rung, ion_train, y_tr); r_tr = rms(res_tr)
-            far = np.array([s.info["d"] for s in ion_train]) >= 6.0
+            d_tr = np.array([s.info["d"] for s in ion_train]); far = d_tr >= 6.0
             r_far = rms(res_tr[far]); ind_far = rms(ind_tr[far])
+            per_d = ", ".join(f"{d:.0f} A {rms(res_tr[d_tr == d]) / rms(ind_tr[d_tr == d]) * 100:.0f} %" for d in dists_tr)
             coef = response_coefficient(params, rung); coefs.append(coef)
-            print(f"      training residuals: clusters {r_cl * K:.4f} kcal/mol; ion-core configurations {r_tr * K:.4f} = {r_tr / rms(ind_tr) * 100:.0f} % of their induction "
-                  f"(d >= 6 A: {r_far / ind_far * 100:.0f} %); response coefficient a_eff / alpha from a monomer + ion at 20 A: {coef:.3f}", flush=True)
+            msg = (f"      training residuals: clusters {r_cl * K:.4f} kcal/mol; ion-core configurations {r_tr * K:.4f} = {r_tr / rms(ind_tr) * 100:.0f} % of their induction "
+                   f"(d >= 6 A: {r_far / ind_far * 100:.0f} %; per distance {per_d})")
+            if extra:
+                cores_x = [s for s in extra if s.n_atoms > 4]; dec_x = [W.ion_response_decomposition(st) for st in cores_x]
+                y_x = np.array([d["y"] for d in dec_x]); ind_x = np.array([d["y"] - d["es"] for d in dec_x])
+                r_x = rms(ion_rmse(params, rung, cores_x, y_x)); msg += f"; pure far-field configurations {r_x / rms(ind_x) * 100:.0f} %"
+            print(msg + f"; response coefficient a_eff / alpha from a monomer + ion at 20 A: {coef:.3f}", flush=True)
             train_errs.append(dict(clusters=float(r_cl), ion=float(r_tr), ion_far=float(r_far)))
+            with open(a.out.replace(".json", f"_{name}_seed{seed}.params.pkl"), "wb") as fh:
+                pickle.dump(jax.tree_util.tree_map(np.asarray, params), fh)
         results[name] = dict(rmse=errs, train=train_errs, a_eff_over_alpha=coefs, w_far=a.w_far)
         _save(a, results)
     return results
@@ -398,6 +421,8 @@ def main():
     ap.add_argument("--w_far", type=float, default=1.0, help="training weight of the far-field configurations (energies and forces)")
     ap.add_argument("--cache", default="", help="pickle of the generated data sets of the part (written if absent, read if present)")
     ap.add_argument("--base_cache", default="", help="ion part: a far-part cache whose base (dimer window + clusters) is reused")
+    ap.add_argument("--extra_far", type=int, default=0, help="ion part: pure far-field configurations per distance and core (d = 10, 12, 14 A) added to the training set")
+    ap.add_argument("--extra_cache", default="", help="ion part: cache of the pure far-field configurations")
     ap.add_argument("--out", default="e3_water_results.json")
     a = ap.parse_args()
     res = {"dimer": run_dimer, "clusters": run_clusters, "far": run_far, "ion": run_ion}[a.part](a)

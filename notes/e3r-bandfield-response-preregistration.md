@@ -219,3 +219,28 @@ linear solve, never by gradient descent**.
 the far ion training residual below 30 % of its induction and a_eff/α within 0.75–1.25, the polish then
 moving them little. Every rung of the test — the baselines included, for parity of the L-BFGS budget — is
 re-run on the final schedule from the cached data.
+
+## 10. Fifth addendum (after the first seed of the final schedule; before the identification run)
+
+**The signal is now fitted and the coefficient is still two thirds.** Final schedule, M_16S0† seed 0: the
+training residual on the ion–core configurations at d ≥ 6 Å is **30 %** of their induction (the
+pre-registered bound), the clusters' residual 0.40 kcal/mol (the baseline's), the linear solve halving
+the objective after Adam (3.1e-2 → 1.7e-2) — and the test error is **42 %** (36 / 54 / 43 / 63 / 54 % at
+6–12 Å) with **a_eff/α = 0.648**. The fit is no longer the limit; the read-out's coefficient is identified
+to two thirds, and the error is largest where only the band carries the ion (10–12 Å).
+
+**Diagnosis: the identification data.** The band-field coefficient is shared with E₀ wherever the ion is
+within r_c of an atom — which is every training configuration except the eight at d = 10 Å (and six
+ion–monomer configurations at 8 Å): the near ones let E₀ take part of the induction, and the pure
+far-field constraint on a(s) rests on fourteen structures. The first rehearsal's lesson (§9 there:
+far-field configurations from many cores) has a sharper form for the response: **the configurations that
+identify the band-field coefficient are those in which the source is beyond r_c of every atom.**
+
+**Pre-registered run (R2b):** the same test and schedule with 72 pure far-field configurations added to
+the training set — 8 new relaxed cores (seed 500) × d = 10, 12, 14 Å × 2 placements, and 24 ion–monomer
+configurations at 8–14 Å — weight 1, K = 2. Predictions: the pure far-field training residual **≤ 25 %**
+of its induction, **a_eff/α = 1.00 ± 0.15**, test **≤ 25 % at 6–8 Å, ≤ 30 % at 10–12 Å** (§6). If the
+coefficient stays near 0.65 with the pure far-field residual below 25 %, the model is fitting those
+configurations with something other than the response coefficient (E₀ cannot, beyond r_c; the band's
+pinned sources cannot) and the read-out's parametrisation is the suspect; the saved parameters allow the
+per-atom read-out energies to be inspected.
