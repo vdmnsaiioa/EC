@@ -129,9 +129,9 @@ def run_far(a):
     if a.train_far > 0:
         # far-field configurations in the training set (another core, other seeds): the only data in which the
         # response to the band field is resolvable above the fit's floor
-        far_train, _ = W.probe_configurations(3, dists, a.train_far, seed=400, mc_steps=a.mc_steps)
+        far_train, _ = W.probe_configurations(3, dists, a.train_far, seed=400, mc_steps=a.mc_steps, n_cores=a.train_far_cores)
         train = train + far_train
-    test, E_core = W.probe_configurations(3, dists, a.n_test, seed=300, mc_steps=a.mc_steps)
+    test, E_core = W.probe_configurations(3, dists, a.n_test, seed=300, mc_steps=a.mc_steps, n_cores=a.test_cores)
     y = np.array([s.energy for s in test]) - E_core                                   # the probe's interaction with the core
     # the probe's induction: total minus the pure electrostatics of the point charges (smeared as in the truth) --
     # computed from the truth's components
@@ -207,7 +207,9 @@ def main():
     ap.add_argument("--F", type=int, default=16); ap.add_argument("--rs_over_l1", type=float, default=1.0)
     ap.add_argument("--n_train", type=int, default=12); ap.add_argument("--n_test", type=int, default=8); ap.add_argument("--mc_steps", type=int, default=300)
     ap.add_argument("--batch", type=int, default=12); ap.add_argument("--lbfgs_chunk", type=int, default=6)
-    ap.add_argument("--train_far", type=int, default=0, help="far-field probe configurations per distance added to the training set")
+    ap.add_argument("--train_far", type=int, default=0, help="far-field probe configurations per distance and core added to the training set")
+    ap.add_argument("--train_far_cores", type=int, default=8, help="number of different core trimers in the far-field training set")
+    ap.add_argument("--test_cores", type=int, default=1)
     ap.add_argument("--out", default="e3_water_results.json")
     a = ap.parse_args()
     res = {"dimer": run_dimer, "clusters": run_clusters, "far": run_far}[a.part](a)
