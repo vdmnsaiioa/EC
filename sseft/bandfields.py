@@ -110,10 +110,17 @@ def init_readout_pair(key, cfg, order):
             "iso": _mlp_init(k[1], [F, F, 1], scale=0.1)}                           # node-level a(s_i) |E_i|^2
 
 
-def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l):
-    """per-atom response energies (N,) of the pair read-out."""
+def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l, E_ref=1.0, e_scale=1.0):
+    """per-atom response energies (N,) of the pair read-out.  The field tensors enter in units of E_ref and the
+    output in units of e_scale (the data-derived site-energy scale), so that the learned coefficients are O(1):
+    a physical polarisability alpha is the coefficient alpha E_ref^2 / e_scale -- with E_ref = 0.01 a.u. and
+    e_scale ~ 5e-3 E_h that is 0.2 for alpha = 9.72 a.u., against 9.72 without the scales (which Adam does not reach
+    from an O(0.1) initialisation in fields of 1e-3 a.u.: e3r-bandfield-response-preregistration.md section 6)."""
     from .e0 import rbf
     N, F = s.shape
+    E = E / E_ref
+    gE = gE / E_ref if gE is not None else None
+    ggE = ggE / E_ref if ggE is not None else None
     m = n_pair_invariants(order)
     within = pmask & (r < cfg["r_cut"])
     n = D / r[..., None]
@@ -128,7 +135,7 @@ def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l):
     inv = pair_invariants(n, E, G, H, order)                                            # (N,N,m)
     eps = jnp.sum(w * inv * within[..., None], axis=(1, 2))
     eps = eps - 0.5 * mlp(p["iso"], s)[..., 0] * jnp.sum(E * E, axis=-1)
-    return eps * mask
+    return eps * mask * e_scale
 
 
 # ---------------------------------------------------------------- node read-out (L <= 2 variant) --------------

@@ -119,3 +119,38 @@ it cannot be resolved against the order-0 floor, and inside r_c it is E₀'s. Th
 order 0's ceiling on a truth with a finite-range response) stands as the evidence for the order-2
 operators; here order 2 is a control. The periodic version of the read-out (Ewald band fields with the
 fragment exclusion) is wired and tested but not exercised.
+
+## 6. Addendum (after R1 and the first seed of R2's order-0 rung; before the re-run)
+
+**R1 met its predictions.** At ℓ₁ = 0.75 Å with permanent sources: M_16† 106 / 90 % of the hexamers'
+non-additive energy (hexamer rmse 0.66 / 0.59 kcal/mol), **M_16S0† 36 / 15 %** (0.21 / 0.16), M_16S2†
+22 / 19 % (0.15 / 0.14) — the read-out carries the many-body induction, and one seed sits below the
+30 % "floor" of §3, which was a floor for a *fixed* coefficient α; the class has environment-dependent
+coefficients and represents part of the self-consistent enhancement too (noted as a conservative
+mis-prediction).
+
+**R2's first order-0 seed failed on the floor criterion, and the floor has a name.** M_16† 95 / 89 %
+(100 % at 8, 10, 12 Å in both seeds, as computed); M_16S0† seed 0: **69 %** of the induction (67 / 75 / 72 /
+70 / 69 % at 6–12 Å), the training residual on the ion–core configurations at d ≥ 6 Å **76 % of their
+induction** (predicted ≤ 30 %), and **a_eff/α = 0.21**. The signal is 10–60× the fit floors of the
+rehearsal and was still not fitted: the read-out's coefficient must reach α = 9.72 a.u. from an O(0.1)
+initialisation while its inputs |E_band|² are 10⁻⁴–10⁻⁶ a.u., and after 1000 Adam steps at lr 3e-3 plus
+150 L-BFGS steps it had reached a fifth of the way. In the clusters the fields are ten times larger
+(rms |E_band| 0.011 a.u. against 0.001–0.003 at the ion test's distances), which is why R1 could succeed
+with the same parametrisation. This is conditioning, not representability, and it is the same mistake
+the site energies avoided from the start with their data-derived output scale.
+
+**The fix (one change, pre-registered before the re-run):** the read-out now takes the field tensors in
+units of a reference field E_ref = 0.01 a.u. (`Rung.bf_E_ref`; an intermolecular field) and returns its
+energies in units of the site-energy scale e_scale (data-derived, 4.9e-3 E_h here), so that a physical
+polarisability α corresponds to a coefficient α E_ref²/e_scale = 0.2 — O(1). Same function class; the
+X2-B toy keeps E_ref = 1 (its fields are O(1) in its own units). Forces, equivariance and the band-field
+tests pass unchanged. The baselines (M_16†, no read-out) are unaffected and are kept.
+
+**Predictions for the re-run, same data (cached), K = 2:** R2 **M_16S0† ≤ 25 % at 6, 7, 8 Å and ≤ 30 %
+at 10, 12 Å**, training residual at d ≥ 6 Å **≤ 30 %**, **a_eff/α = 1.00 ± 0.15**; R1 M_16S0† ≤ 30 % on
+both seeds (hexamer ≤ 0.25 kcal/mol), M_16S2† within 1.3×; R3 and the learned-source tier as in §4. If
+the ion numbers stay above 50 % with the training residual below 30 %, the claim fails on the molecular
+harness; if the training residual stays above 50 %, the optimiser is still the limit and the next step is
+the loss weighting of the far-field configurations (`--w_far`), which is now a legitimate knob because the
+signal is above the floor.

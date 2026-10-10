@@ -30,6 +30,7 @@ class Rung:
     band_fields: int = -1                  # -1: off; k: field tensors through order k at the atom
     bf_rs: float = 0.0                     # near-source exclusion radius of the band-field input (bohr; 0 = off; molecules: ~l_1)
     bf_fragments: bool = True              # exclude the own fragment's sources from the band-field input (structures with fragments)
+    bf_E_ref: float = 0.01                 # unit of the field tensors in the read-out (a.u.; ~ an intermolecular field), see bandfields
     readout: str = "pair"                  # band-field read-out: "pair" (Taylor class on the structure) or "node" (L <= 2)
     pin_q: bool = False
     pin_mu: bool = False
@@ -191,7 +192,8 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
             Ef, gE, ggE = BF.band_field_tensors(pos, q, pmask, rung.l1, rung.band_fields, rung.bf_rs,
                                                 src_mask=None if same_frag is None else ~same_frag)
         if rung.readout == "pair":
-            eps_bf = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s, r, D, pmask, mask, Ef, gE, ggE, rung.l1)
+            eps_bf = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s, r, D, pmask, mask, Ef, gE, ggE, rung.l1,
+                                             E_ref=rung.bf_E_ref, e_scale=hp["e_scale"])
         else:
             eps_bf = BF.response_energy(params["readout"], cfg, rung.band_fields, s, v, t, mask, Ef, gE, ggE, rung.l1)
         E = E + jnp.sum(eps_bf); aux["E_bf"] = jnp.sum(eps_bf); aux["eps_bf"] = eps_bf; aux["Efield"] = Ef

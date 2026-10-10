@@ -33,7 +33,8 @@ def main():
     res = {"ceiling": ceil}
     for order in [int(x) for x in a.orders.split(",")]:
         rung = M.with_rung(M.RUNGS["M_S%d" % order], dispersion=False, pin_alpha=False, site_energies=False,
-                           coulomb_energy=False, l1=2.0, e0={**M.RUNGS["M_S0"].e0, "r_cut": a.rcut, "F": a.F, "n_rbf_readout": a.n_rbf_readout})
+                           coulomb_energy=False, l1=2.0, bf_E_ref=1.0,    # the toy's fields are O(1) in its own units
+                           e0={**M.RUNGS["M_S0"].e0, "r_cut": a.rcut, "F": a.F, "n_rbf_readout": a.n_rbf_readout})
         t = time.time()
         params, info = T.fit(rung, train, seed=a.seed, steps=a.steps, lr=3e-3, w_force=0.0, batch_size=48,
                              lbfgs_steps=a.lbfgs, verbose=True)
