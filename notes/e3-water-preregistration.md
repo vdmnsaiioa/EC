@@ -355,3 +355,7 @@ for the real E3, if it holds: the band edge of a hydrogen-bonded system has to s
 length — the IR band is then ordinary damped point-multipole electrostatics plus dispersion, and E₀'s
 share of the induction is what the damping leaves — at the price of a k-space cutoff 2× larger in the
 periodic case (8× the k-vectors).
+
+*Result of run H (added after the run; the full account is in `e3-rehearsal-results.md`): non-additive rmse
+9 / 4 % of the non-additive energy, hexamer rmse 0.078 / 0.061 kcal/mol, dimer rmse 0.021 / 0.011 — every
+number inside its bound. The band edge of a hydrogen-bonded system sits below the hydrogen bond.*
