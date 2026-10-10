@@ -1,0 +1,22 @@
+480 training / 80 test structures; rms E_band train 1.228e+00  [0 s]
+exact Taylor class, order 0: train rel rms 4.042e-03, test 4.007e-03  [170 s]
+exact Taylor class, order 1: train rel rms 1.818e-03, test 2.083e-03  [170 s]
+exact Taylor class, order 2: train rel rms 6.250e-04, test 7.686e-04  [170 s]
+    step     0  loss 1.287e+00  (E 1.29e+00, F 0.00e+00)  [7 s]
+    step   100  loss 4.783e-03  (E 4.78e-03, F 0.00e+00)  [92 s]
+    step   200  loss 6.989e-04  (E 6.99e-04, F 0.00e+00)  [167 s]
+    step   300  loss 1.762e-04  (E 1.76e-04, F 0.00e+00)  [241 s]
+    step   400  loss 1.415e-04  (E 1.42e-04, F 0.00e+00)  [318 s]
+    step   500  loss 8.869e-05  (E 8.87e-05, F 0.00e+00)  [394 s]
+    step   600  loss 7.204e-05  (E 7.20e-05, F 0.00e+00)  [472 s]
+    step   700  loss 7.275e-05  (E 7.28e-05, F 0.00e+00)  [548 s]
+    step   800  loss 2.939e-05  (E 2.94e-05, F 0.00e+00)  [625 s]
+    step   900  loss 2.141e-05  (E 2.14e-05, F 0.00e+00)  [703 s]
+    step   999  loss 3.394e-05  (E 3.39e-05, F 0.00e+00)  [779 s]
+    lbfgs    0  loss 3.516e-05
+    lbfgs  180  loss 8.666e-06
+    lbfgs  360  loss 3.546e-06
+    lbfgs  540  loss 1.806e-06
+    lbfgs  720  loss 1.253e-06
+    lbfgs  899  loss 9.229e-07
+order 2: train rel rms 6.309e-04, test rel rms 1.631e-03  (exact-class ceiling 6.25e-04 / 7.69e-04)  [9061 s]

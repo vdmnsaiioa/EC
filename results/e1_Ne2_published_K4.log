@@ -1,0 +1,78 @@
+Ne2 (published): window [4.22, 7.59] A, 40 nodes, sigma = 1e-09; |f*| at R+ = 7.82e-07 E_h
+  M_inf seed 0: Ne2 window rmse 2.01e-06; 101 s
+  M_inf seed 1: Ne2 window rmse 1.94e-06; 99 s
+  M_inf seed 2: Ne2 window rmse 1.78e-06; 97 s
+  M_inf seed 3: Ne2 window rmse 1.84e-06; 96 s
+  M_inf / Ne2:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+                  10.2  1.27e-07  +2.39e-21  1.00e+00       nan       nan     nan
+                  11.7  5.47e-08  +2.39e-21  1.00e+00       nan       nan     nan
+                  15.5  1.02e-08  +2.39e-21  1.00e+00       nan       nan     nan
+                  20.5  1.91e-09  +2.39e-21  1.00e+00       nan       nan     nan
+                  29.0  2.37e-10  +2.39e-21  1.00e+00       nan       nan     nan
+                  50.5  8.41e-12  +2.39e-21  1.00e+00       nan       nan     nan
+                 101.2  1.30e-13  +2.39e-21  1.00e+00       nan       nan     nan
+                 307.5  1.65e-16  +2.39e-21  1.00e+00       nan       nan     nan
+  M_inf / Ne2: slope of log(W/|f*|) vs log R on [30, 300] A = +nan  (branch 2: 0; branch 1: p* - p_min; branch 3: -> -inf)
+  M_inf: 422 s total
+  M_G seed 0: Ne2 window rmse 2.53e-07; 107 s
+  M_G seed 1: Ne2 window rmse 5.18e-07; 106 s
+  M_G seed 2: Ne2 window rmse 2.41e-07; 110 s
+  M_G seed 3: Ne2 window rmse 1.87e-07; 106 s
+  M_G / Ne2:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+                  10.2  1.27e-07  +4.17e-06  3.39e+01  5.31e-07  4.19e+00   -5.38
+                  11.7  5.47e-08  +6.79e-06  1.25e+02  1.03e-06  1.89e+01   -4.36
+                  15.5  1.02e-08  +1.32e-05  1.30e+03  2.94e-06  2.88e+02   -3.30
+                  20.5  1.91e-09  +2.19e-05  1.15e+04  6.73e-06  3.52e+03   -2.71
+                  29.0  2.37e-10  +3.81e-05  1.61e+05  1.57e-05  6.64e+04   -2.21
+                  50.5  8.41e-12  +9.27e-05  1.10e+07  4.75e-05  5.64e+06   -1.88
+                 101.2  1.30e-13  +2.65e-04  2.04e+09  1.66e-04  1.28e+09   -1.66
+                 307.5  1.65e-16  +8.72e-04  5.28e+12  6.81e-04  4.12e+12   -0.92
+  M_G / Ne2: slope of log(W/|f*|) vs log R on [30, 300] A = +7.63  (branch 2: 0; branch 1: p* - p_min; branch 3: -> -inf)
+  M_G: 457 s total
+  M_A seed 0: Ne2 window rmse 1.63e-07; 104 s
+  M_A seed 1: Ne2 window rmse 6.74e-08; 105 s
+  M_A seed 2: Ne2 window rmse 1.90e-06; 104 s
+  M_A seed 3: Ne2 window rmse 6.01e-08; 106 s
+  M_A / Ne2:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+                  10.2  1.27e-07  +1.84e-09  1.01e+00  2.29e-07  1.80e+00    1.95
+                  11.7  5.47e-08  +3.89e-08  1.71e+00  1.28e-07  2.33e+00    6.63
+                  15.5  1.02e-08  +1.61e-09  1.16e+00  3.75e-09  3.68e-01   20.18
+                  20.5  1.91e-09  +3.05e-13  1.00e+00  7.51e-13  3.93e-04   43.40
+                  29.0  2.37e-10  +2.35e-23  1.00e+00       nan       nan     nan
+                  50.5  8.41e-12  +7.77e-68  1.00e+00       nan       nan     nan
+                 101.2  1.30e-13 +5.15e-274  1.00e+00       nan       nan     nan
+                 307.5  1.65e-16  +0.00e+00  1.00e+00       nan       nan     nan
+  M_A / Ne2: slope of log(W/|f*|) vs log R on [30, 300] A = +nan  (branch 2: 0; branch 1: p* - p_min; branch 3: -> -inf)
+  M_A: 447 s total
+  M_6 seed 0: Ne2 window rmse 4.09e-08; 103 s
+  M_6 seed 1: Ne2 window rmse 6.61e-08; 106 s
+  M_6 seed 2: Ne2 window rmse 3.73e-07; 106 s
+  M_6 seed 3: Ne2 window rmse 6.52e-08; 105 s
+  M_6 / Ne2:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+                  10.2  1.27e-07  -1.42e-07  1.21e-01  7.30e-09  5.75e-02    6.00
+                  11.7  5.47e-08  -6.18e-08  1.31e-01  3.17e-09  5.80e-02    6.00
+                  15.5  1.02e-08  -1.17e-08  1.45e-01  5.99e-10  5.87e-02    6.00
+                  20.5  1.91e-09  -2.20e-09  1.53e-01  1.13e-10  5.91e-02    6.00
+                  29.0  2.37e-10  -2.74e-10  1.58e-01  1.41e-11  5.94e-02    6.00
+                  50.5  8.41e-12  -9.77e-12  1.62e-01  5.01e-13  5.96e-02    6.00
+                 101.2  1.30e-13  -1.51e-13  1.63e-01  7.76e-15  5.96e-02    6.00
+                 307.5  1.65e-16  -1.92e-16  1.63e-01  9.85e-18  5.96e-02    6.00
+  M_6 / Ne2: slope of log(W/|f*|) vs log R on [30, 300] A = +0.00  (branch 2: 0; branch 1: p* - p_min; branch 3: -> -inf)
+  M_6 E2 Ne: alpha(i w) mean over seeds [0.165 0.782 1.76  1.603 1.041 1.767 1.447 1.35 ]  spread [0.105 0.271 0.415 0.245 0.707 1.033 0.521 0.425]  [alpha_0 ref 2.669]
+  M_6 E2 C6(Ne-Ne): CP from learned alpha 7.39 +- 0.38  vs DOSD 6.38  (ratio 1.158; seen)
+  M_6: 454 s total
+  M_16p seed 0: Ne2 window rmse 2.42e-07; 103 s
+  M_16p seed 1: Ne2 window rmse 2.06e-07; 97 s
+  M_16p seed 2: Ne2 window rmse 1.92e-07; 101 s
+  M_16p seed 3: Ne2 window rmse 2.00e-07; 102 s
+  M_16p / Ne2:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+                  10.2  1.27e-07  -1.23e-07  3.24e-02       nan       nan     nan
+                  11.7  5.47e-08  -5.34e-08  2.35e-02       nan       nan     nan
+                  15.5  1.02e-08  -1.01e-08  1.17e-02       nan       nan     nan
+                  20.5  1.91e-09  -1.90e-09  5.04e-03       nan       nan     nan
+                  29.0  2.37e-10  -2.37e-10  5.33e-04       nan       nan     nan
+                  50.5  8.41e-12  -8.43e-12  2.47e-03       nan       nan     nan
+                 101.2  1.30e-13  -1.31e-13  3.58e-03       nan       nan     nan
+                 307.5  1.65e-16  -1.66e-16  3.86e-03       nan       nan     nan
+  M_16p / Ne2: slope of log(W/|f*|) vs log R on [30, 300] A = +nan  (branch 2: 0; branch 1: p* - p_min; branch 3: -> -inf)
+  M_16p: 429 s total

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+# experiment outputs are committed under results/ only
+/*.json
+results/*.out
+results/*.pkl

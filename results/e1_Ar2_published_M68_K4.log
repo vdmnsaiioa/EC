@@ -1,0 +1,19 @@
+Ar2 (published): window [5.15, 9.26] A, 40 nodes, sigma = 1e-09; |f*| at R+ = 2.43e-06 E_h
+  M_68 seed 0: Ar2 window rmse 1.57e-08; 215 s
+  M_68 seed 1: Ar2 window rmse 1.24e-08; 165 s
+  M_68 seed 2: Ar2 window rmse 1.29e-08; 165 s
+  M_68 seed 3: Ar2 window rmse 1.67e-08; 141 s
+  M_68 / Ar2:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+                  10.1  1.43e-06  -1.41e-06  1.22e-02  2.24e-09  1.57e-03    4.84
+                  12.3  4.24e-07  -4.16e-07  1.95e-02  8.10e-10  1.91e-03    5.35
+                  15.0  1.27e-07  -1.24e-07  2.53e-02  2.72e-10  2.15e-03    5.60
+                  19.6  2.56e-08  -2.48e-08  3.08e-02  6.02e-11  2.35e-03    5.78
+                  29.1  2.34e-09  -2.26e-09  3.55e-02  5.89e-12  2.52e-03    5.91
+                  49.4  9.72e-11  -9.35e-11  3.82e-02  2.54e-13  2.61e-03    5.97
+                 102.2  1.23e-12  -1.18e-12  3.93e-02  3.26e-15  2.65e-03    5.99
+                 294.5  2.15e-15  -2.06e-15  3.96e-02  5.71e-18  2.66e-03    6.00
+  M_68 / Ar2: slope of log(W/|f*|) vs log R on [30, 300] A = +0.02  (branch 2: 0; branch 1: p* - p_min; branch 3: -> -inf)
+  M_68 E2 Ar: alpha(i w) mean over seeds [1.203 1.351 1.345 1.209 1.38  1.444 1.248 1.316]  spread [0.014 0.117 0.102 0.205 0.165 0.247 0.199 0.199]  [alpha_0 ref 11.083]
+  M_68 E2 C6(Ar-Ar): CP from learned alpha 61.33 +- 0.17  vs DOSD 64.30  (ratio 0.954; seen)
+  M_68 E2 C8(Ar-Ar): CP from learned alpha1, alpha2 2431.6 +- 22.5  vs DOSD 1623.0  (ratio 1.498; seen)
+  M_68: 739 s total

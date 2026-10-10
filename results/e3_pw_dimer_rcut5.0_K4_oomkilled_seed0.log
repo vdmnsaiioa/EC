@@ -1,0 +1,2 @@
+water dimer (PW truth, phi = 0): window [3.86, 6.95] A, 40 nodes, sigma = 1e-09; |f*| at R+ = 3.33e-04 E_h; E R^3 at 300 A = -0.6533 (dipole-dipole -0.652)
+  M_1 seed 0: window rmse 1.83e-05; monomer dipole 1.864 D (truth 1.855), q_O = +0.662 (truth -0.659); 542 s

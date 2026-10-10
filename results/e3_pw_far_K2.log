@@ -1,0 +1,7 @@
+far-field induction test: 32 probe configurations at d = (6.0, 7.0, 8.0, 10.0) A from a trimer; probe interaction rms 0.3516 kcal/mol, of which induction rms 0.0488 (13.9 %)  [713 s]
+  M_1p seed 0: probe-interaction rmse 0.0545 kcal/mol = 112 % of the induction (per distance: 6 A 111 %, 7 A 109 %, 8 A 123 %, 10 A 106 %); 357 s
+  M_1p seed 1: probe-interaction rmse 0.0544 kcal/mol = 111 % of the induction (per distance: 6 A 114 %, 7 A 103 %, 8 A 121 %, 10 A 106 %); 385 s
+  M_S0p seed 0: probe-interaction rmse 0.0388 kcal/mol = 80 % of the induction (per distance: 6 A 81 %, 7 A 69 %, 8 A 88 %, 10 A 96 %); 448 s
+  M_S0p seed 1: probe-interaction rmse 0.0435 kcal/mol = 89 % of the induction (per distance: 6 A 94 %, 7 A 72 %, 8 A 92 %, 10 A 103 %); 435 s
+  M_S2p seed 0: probe-interaction rmse 0.1160 kcal/mol = 238 % of the induction (per distance: 6 A 261 %, 7 A 224 %, 8 A 126 %, 10 A 118 %); 903 s
+  M_S2p seed 1: probe-interaction rmse 0.1462 kcal/mol = 299 % of the induction (per distance: 6 A 335 %, 7 A 276 %, 8 A 122 %, 10 A 127 %); 910 s

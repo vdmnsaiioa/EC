@@ -1,0 +1,32 @@
+water dimer (PW truth, phi = 0): window [3.86, 6.95] A, 40 nodes, sigma = 1e-09; |f*| at R+ = 3.33e-04 E_h; E R^3 at 300 A = -0.6533 (dipole-dipole -0.652)
+  M_inf seed 0: window rmse 1.51e-04; 210 s
+  M_inf seed 1: window rmse 1.50e-04; 201 s
+  M_inf seed 2: window rmse 1.51e-04; 202 s
+  M_inf seed 3: window rmse 1.54e-04; 195 s
+  M_inf:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+             8.2  2.10e-04  -8.46e-18  1.00e+00       nan       nan     nan
+            10.1  1.06e-04  -8.46e-18  1.00e+00       nan       nan     nan
+            11.6  6.80e-05  +7.16e-18  1.00e+00       nan       nan     nan
+            15.5  2.82e-05  +7.16e-18  1.00e+00       nan       nan     nan
+            20.5  1.18e-05  +7.16e-18  1.00e+00       nan       nan     nan
+            29.3  3.99e-06  +7.16e-18  1.00e+00       nan       nan     nan
+            51.7  7.15e-07  +7.16e-18  1.00e+00       nan       nan     nan
+            97.8  1.04e-07  +7.16e-18  1.00e+00       nan       nan     nan
+           304.3  3.44e-09  +1.95e-18  1.00e+00       nan       nan     nan
+  M_inf: slope of log(W/|f*|) vs log R on [30, 300] A = +nan  (branch 2: 0; branch 1: p* - p_min = 3 - 1 = 2 for a monopole leak; branch 3: -> -inf)  [859 s]
+  M_G seed 0: window rmse 5.57e-06; 208 s
+  M_G seed 1: window rmse 2.05e-05; 199 s
+  M_G seed 2: window rmse 1.64e-05; 203 s
+  M_G seed 3: window rmse 1.10e-05; 202 s
+  M_G: 2 unconverged seeds excluded (window rmse [2.05113305e-05 1.63908020e-05] vs best 5.57e-06)
+  M_G:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+             8.2  2.10e-04  -8.62e-05  5.89e-01  1.26e-04  6.00e-01  -12.19
+            10.1  1.06e-04  +1.00e-04  1.94e+00  7.52e-04  7.07e+00   -6.36
+            11.6  6.80e-05  +1.82e-05  1.27e+00  1.66e-03  2.44e+01   -5.02
+            15.5  2.82e-05  -1.17e-03  4.07e+01  5.56e-03  1.98e+02   -3.68
+            20.5  1.18e-05  -4.90e-03  4.15e+02  1.40e-02  1.19e+03   -2.90
+            29.3  3.99e-06  -1.53e-02  3.83e+03  3.41e-02  8.54e+03   -2.12
+            51.7  7.15e-07  -4.69e-02  6.56e+04  8.64e-02  1.21e+05   -1.26
+            97.8  1.04e-07  -1.09e-01  1.04e+06  1.72e-01  1.65e+06   -1.01
+           304.3  3.44e-09  -3.84e-01  1.12e+08  5.54e-01  1.61e+08   -1.04
+  M_G: slope of log(W/|f*|) vs log R on [30, 300] A = +4.12  (branch 2: 0; branch 1: p* - p_min = 3 - 1 = 2 for a monopole leak; branch 3: -> -inf)  [861 s]

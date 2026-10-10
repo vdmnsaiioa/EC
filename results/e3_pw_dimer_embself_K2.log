@@ -1,0 +1,14 @@
+water dimer (PW truth, phi = 0): window [3.86, 6.95] A, 40 nodes, sigma = 1e-09; |f*| at R+ = 3.33e-04 E_h; E R^3 at 300 A = -0.6533 (dipole-dipole -0.652)
+  M_16pemb seed 0: window rmse 9.68e-07; 226 s
+  M_16pemb seed 1: window rmse 9.34e-07; 225 s
+  M_16pemb:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+             8.2  2.10e-04  -2.10e-04  8.35e-07       nan       nan     nan
+            10.1  1.06e-04  -1.06e-04  4.59e-07       nan       nan     nan
+            11.6  6.80e-05  -6.80e-05  3.06e-07       nan       nan     nan
+            15.5  2.82e-05  -2.82e-05  1.35e-07       nan       nan     nan
+            20.5  1.18e-05  -1.18e-05  5.89e-08       nan       nan     nan
+            29.3  3.99e-06  -3.99e-06  2.07e-08       nan       nan     nan
+            51.7  7.15e-07  -7.15e-07  3.83e-09       nan       nan     nan
+            97.8  1.04e-07  -1.04e-07  9.20e-10       nan       nan     nan
+           304.3  3.44e-09  -3.44e-09  3.91e-09       nan       nan     nan
+  M_16pemb: slope of log(W/|f*|) vs log R on [30, 300] A = +nan  (branch 2: 0; branch 1: p* - p_min = 3 - 1 = 2 for a monopole leak; branch 3: -> -inf)  [484 s]

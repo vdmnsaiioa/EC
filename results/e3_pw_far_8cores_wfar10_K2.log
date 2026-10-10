@@ -1,0 +1,7 @@
+data from results/cache_far_8cores.pkl
+far-field induction test: 32 probe configurations at d = (6.0, 7.0, 8.0, 10.0) A from a trimer; probe interaction rms 0.3516 kcal/mol, of which induction rms 0.0488 (13.9 %)  [7 s]
+  32 far-field training configurations from 8 cores (weight 10); their induction rms 0.0336 kcal/mol (15.3 % of the interaction)
+  M_1mu seed 0: probe-interaction rmse 0.0606 kcal/mol = 124 % of the induction (per distance: 6 A 145 %, 7 A 75 %, 8 A 83 %, 10 A 115 %); 431 s
+      training residuals: clusters 0.3791 kcal/mol; far-field configurations 0.0570 kcal/mol = 170 % of their induction
+  M_1mu seed 1: probe-interaction rmse 0.0437 kcal/mol = 90 % of the induction (per distance: 6 A 102 %, 7 A 54 %, 8 A 72 %, 10 A 111 %); 472 s
+      training residuals: clusters 0.3688 kcal/mol; far-field configurations 0.0381 kcal/mol = 113 % of their induction
