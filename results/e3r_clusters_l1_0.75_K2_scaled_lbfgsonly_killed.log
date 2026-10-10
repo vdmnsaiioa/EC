@@ -1,0 +1,2 @@
+data from results/cache_clusters.pkl
+clusters: 36 training (n = 3, 4, 5), 8 hexamers and 8 dimers held out; rms E_int train 8.30 kcal/mol; hexamer non-additive energy rms 1.287 kcal/mol (9.1 % of the interaction energy)  [24 s]

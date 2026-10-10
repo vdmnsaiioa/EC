@@ -112,12 +112,19 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
             hist.append((it, float(l), float(parts[0]), float(parts[1])))
             if verbose:
                 print(f"    step {it:5d}  loss {float(l):.3e}  (E {float(parts[0]):.2e}, F {float(parts[1]):.2e})  [{time.time() - t0:.0f} s]", flush=True)
+    solve = None
+    if freeze_readout:
+        # the read-out's output layers are linear in the energies and forces: set them to the weighted least-squares
+        # optimum of the objective given the Adam-trained rest of the model (sseft.linear), then polish everything
+        from .linear import solve_readout
+        params, solve = solve_readout(params, rung, data, scale, w_force=w_force, chunk=lbfgs_chunk)
+        print(f"    read-out linear solve: objective {solve[0]:.3e} -> {solve[1]:.3e}  [{time.time() - t0:.0f} s]", flush=True)
     if lbfgs_steps > 0:
         f = make_chunked_loss(rung, scale, data, w_energy, w_force, chunk=lbfgs_chunk)
         params = polish_lbfgs(params, f, lbfgs_steps, verbose)
     elif freeze_readout:
         raise ValueError("a band-field rung needs the L-BFGS polish (lbfgs_steps > 0): the read-out is frozen during Adam")
-    return params, {"scale": scale, "history": hist, "time": time.time() - t0}
+    return params, {"scale": scale, "history": hist, "time": time.time() - t0, "readout_solve": solve}
 
 
 def polish_lbfgs(params, f, steps, verbose=False):

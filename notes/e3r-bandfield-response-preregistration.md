@@ -195,3 +195,27 @@ ion configurations is below 30 % of their induction; three successive floors —
 optimiser — are now on record, and a fourth would say that the response coefficient is not identifiable
 by gradient training at all on this data, which would be a finding about the architecture's trainability
 rather than its class.
+
+## 9. Fourth addendum (after the first seed of the third re-run; before the final schedule)
+
+**The frozen-Adam + L-BFGS schedule moves, and is not converged.** M_16S0† seed 0: **46 %** of the
+induction (46 / 46 / 43 / 52 / 47 % at 6–12 Å, from 95 % without the read-out), a_eff/α = **0.655**, the
+far ion training residual 40 % (predicted ≤ 30 %), and the clusters' residual 0.90 kcal/mol (0.41–0.45
+for the baseline): 300 L-BFGS steps take the coefficient two thirds of the way. (The second seed was lost
+to the container's memory limit when a test of the next step ran beside it — the fourth such loss; nothing
+runs beside a chain from here on.)
+
+**The final schedule: the linear solve.** The read-out's output layers are linear in the energies and
+forces with the rest of the model fixed, so their optimum under the training objective — energies per
+atom, forces, per-structure weights, exactly as `train.make_loss_sums` — is a weighted linear least-squares
+problem (`sseft.linear.solve_readout`: the Jacobian by forward-mode slices, the normal equations with a
+ridge of 10⁻⁸ × tr/n). The schedule is now Adam with the read-out frozen at zero → the linear solve → the
+L-BFGS polish of everything (300 steps). On a test set the solve reproduces `train.make_chunked_loss`
+before and after to all digits. This is exactly how M_A was made to work (column-normalised linear family
++ L-BFGS): the lesson, now a rule — **a linear-in-coefficients term inside the model is initialised by its
+linear solve, never by gradient descent**.
+
+**Predictions unchanged** (§6), with one addition: the linear solve alone (before the polish) should bring
+the far ion training residual below 30 % of its induction and a_eff/α within 0.75–1.25, the polish then
+moving them little. Every rung of the test — the baselines included, for parity of the L-BFGS budget — is
+re-run on the final schedule from the cached data.
