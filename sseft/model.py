@@ -115,6 +115,12 @@ def energy_single(params, rung: Rung, b):
         valid = jnp.any(b["frag_mask"], axis=1)
         E = E_all - jnp.sum(jnp.where(valid, E_frag, 0.0))
         aux["E_frag"] = E_frag
+    if "pin_eself" in b:
+        # a pinned per-atom interaction-energy term: the polarisation work 1/2 |mu_ind|^2 / alpha of embedded (induced)
+        # pinned dipoles, which makes the Coulomb band with pinned self-consistent dipoles reproduce the induction energy
+        # exactly (band(q-mu) + band(mu-mu) + self = -1/2 sum mu.E_q at the stationary point); zero unless pinned
+        E_self = jnp.sum(b["pin_eself"] * b["mask"])
+        E = E + E_self; aux["E_self"] = E_self
     return E, aux
 
 

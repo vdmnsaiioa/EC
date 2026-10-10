@@ -21,7 +21,7 @@ class Structure:
     energy: Optional[float] = None        # hartree
     forces: Optional[np.ndarray] = None   # (N,3) hartree/bohr
     total_charge: float = 0.0
-    pinned: Dict[str, np.ndarray] = field(default_factory=dict)   # e.g. {"q": (N,), "mu": (N,3), "alpha": (N,K)}
+    pinned: Dict[str, np.ndarray] = field(default_factory=dict)   # e.g. {"q": (N,), "mu": (N,3), "alpha": (N,K), "eself": (N,)}
     info: Dict[str, Any] = field(default_factory=dict)
     frag: Optional[np.ndarray] = None     # (N,) fragment index per atom (the molecules); None: every atom its own fragment
     weight: float = 1.0                   # weight of this structure's energy and forces in the training loss
@@ -50,7 +50,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         "mask": np.zeros((B, n_max), dtype=bool), "cell": np.tile(np.eye(3) * 1e6, (B, 1, 1)),
         "pbc": np.zeros(B, dtype=bool), "total_charge": np.zeros(B),
         "energy": np.zeros(B), "forces": np.zeros((B, n_max, 3)), "has_energy": np.zeros(B, dtype=bool),
-        "has_forces": np.zeros(B, dtype=bool), "weight": np.ones(B),
+        "has_forces": np.zeros(B, dtype=bool), "weight": np.ones(B), "pin_eself": np.zeros((B, n_max)),
         "pin_q": np.zeros((B, n_max)), "pin_mu": np.zeros((B, n_max, 3)), "pin_alpha": np.zeros((B, n_max, n_freq)),
         "pin_alpha2": np.zeros((B, n_max, n_freq)),
     }
@@ -65,6 +65,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         if "mu" in s.pinned: out["pin_mu"][b, :n] = s.pinned["mu"]
         if "alpha" in s.pinned: out["pin_alpha"][b, :n] = s.pinned["alpha"]
         if "alpha2" in s.pinned: out["pin_alpha2"][b, :n] = s.pinned["alpha2"]
+        if "eself" in s.pinned: out["pin_eself"][b, :n] = s.pinned["eself"]
     if with_frag:
         out["frag_mask"] = frag_mask
     return {k: jnp.asarray(v) for k, v in out.items()}

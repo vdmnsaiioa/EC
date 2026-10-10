@@ -54,3 +54,23 @@ def test_water_truth_and_fragments():
     # beyond r_c the interaction energy is the Coulomb band of the learned charges and nothing else: E_0's part and
     # the intramolecular band cancel exactly against the fragment references (no constant offset)
     assert abs(E[0] - float(aux["E0"][0] + aux["E_coul"][0] - np.sum(aux["E_frag"][0]))) < 1e-12 and abs(E[0]) < 1e-8
+
+
+def test_embedded_dagger_identity():
+    """pinned self-consistent induced dipoles + the pinned polarisation work 1/2 |mu|^2 / alpha make the Coulomb band
+    reproduce the truth's electrostatics + induction exactly when the band's kernel is the truth's (l_1 = lambda)."""
+    import jax, sys, os
+    from sseft import water as W, model as M, train as T
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts")); import e3_water as E3
+    rng = np.random.default_rng(3)
+    pos = W.random_cluster(3, rng, mc_steps=5)                                   # a relaxed trimer, A
+    st = W.water_structure(pos, energy=W.pw_energy_forces(pos, 3)[0]); E3.pin_embedded([st])
+    c = W.pw_components(pos, 3)
+    rung = M.with_rung(E3.RUNGS["M_1pemb"], l1=W.PW["lam"], site_energies=False)        # PW["lam"] is in bohr
+    params = M.init_params(jax.random.PRNGKey(0), rung, 1e-3)
+    E, _ = T.predict(params, rung, [st])
+    assert abs(E[0] - (c["es"] + c["ind"])) < 1e-10, (E[0], c["es"] + c["ind"])
+    # without the self energy the band double counts the polarisation work: off by exactly 1/2 sum mu^2 / alpha - 2 sum_{i<j} mu T mu,
+    # i.e. by more than the many-body energy itself
+    E3.pin_embedded([st], self_energy=False); E0, _ = T.predict(params, rung, [st])
+    assert abs(E0[0] - (c["es"] + c["ind"])) > abs(c["ind"] - c["ind1"])

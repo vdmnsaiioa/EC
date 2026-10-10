@@ -283,3 +283,47 @@ cluster, from the CCSD(T) or a DFT density) carries it with no fitting; learned 
 recover the same map from energies and forces, and on the synthetic truth they do not at this data
 scale. The real E3 should run both and read the gap between them as the price of learning the
 sources.
+
+## 12. Seventh addendum (after the first seed of the §11 run; before the corrected embedded dagger)
+
+**§11's prediction failed, for two reasons that are both bookkeeping, and the implementation is exact.**
+M_1†ᵉᵐᵇ, first seed: 174 / 64 / 53 / 17 % at 6 / 7 / 8 / 10 Å (140 % overall), against the predicted
+≤ 40 / 16 / 14 / 4.6 %. At 10 Å every probe–core pair is beyond r_c (nearest 6.35–8.71 Å), so the
+model's probe interaction there is the band alone and training-independent; evaluated with untrained
+parameters (`scratch/emb_check.py`) it equals electrostatics + piece (2) to **10⁻⁶ kcal/mol** on all
+eight configurations. The 17 % is the remainder (4.6 %) plus **the dispersion** the M_1 family does not
+carry — three O–O pairs at 17–20 bohr, 0.002 kcal/mol, 12.5 % of the induction rms, which the test's
+definition of "induction" subtracts from the truth but which no M_1-type rung has beyond r_c; the two
+add to 16.8 %, the measured number to the digit. The same bookkeeping holds at 7 and 8 Å (band-only
+errors 64 % and 54 %, of which dispersion 49 % and 41 %) — the trained E₀ added nothing there. (The
+same omission sits in §3's M_1† item: its 1.53e-3 at 20 Å was called "the induction"; two thirds of it
+is the dimer's dispersion, −C₆/R⁶ against −0.652/R³ gives 1.14e-3 at 20.5 Å.)
+
+**The second reason is physical and inside r_c.** Pinning *induced* dipoles into a Coulomb band treats
+them as permanent: band(q–μ) + band(μ–μ) = −Σμ·E_q − Σ_{i<j}μTμ, whereas the self-consistent induction
+energy is −½Σμ·E_q. The difference, +½Σ|μ|²/α — the polarisation work, ~1 kcal/mol per molecule in a
+hydrogen-bonded cluster — has to be learned by E₀, which made the near-field fit *worse* than with
+learned sources (cluster training residual 0.48 kcal/mol against 0.23–0.37) and the 6 Å test worse
+than M_1†'s (174 % against 86–114 %). With the pinned per-atom self energy e_i = ½|μ_i|²/α_i added as
+an interaction-energy term (`pin_eself`, new in `energy_single`), band + self reproduces E_es + E_ind
+of the truth **exactly** when the band's kernel is the truth's — a test now in `tests/test_data.py`
+(10⁻¹⁰ E_h on a relaxed trimer; without the self term the error exceeds the many-body energy). For the
+real E3 the embedded dagger therefore needs three matching inputs per fragment: the embedded
+multipoles, the polarisation work (the induction energy's first-order part, which SAPT gives), and the
+dispersion coefficients — M_16†ᵉᵐᵇ, not M_1†ᵉᵐᵇ.
+
+**Pre-registered (run G): M_1†ᵉᵐᵇ and M_16†ᵉᵐᵇ, both with the self energy** (M_16†ᵉᵐᵇ: the dispersion
+band on a pinned one-oscillator α_O(iω) through the truth's α₀ = 9.72 and C₆ = 45.4 — the quadrature
+gives 45.398 at K = 8 — and zero on H), same training set, K = 2; then M_16†ᵉᵐᵇ on the clusters and on
+the dimer. Predictions, computed: far-field test — M_1†ᵉᵐᵇ **16.8 ± 0.3 % at 10 Å** (unchanged by the
+self energy), ≤ 54 % at 8 Å, ≤ 64 % at 7 Å, and at 6 Å below the 174 % of the uncorrected run, with
+the cluster training residual below 0.3 kcal/mol; **M_16†ᵉᵐᵇ 4.6 ± 0.5 % at 10 Å, ≤ 14 % at 8 Å,
+≤ 16 % at 7 Å** (the remainder (1) + (3) alone beyond r_c; E₀ can only lower these), ≤ 60 % at 6 Å.
+Clusters — M_16†ᵉᵐᵇ's non-additive rmse **≤ 25 % of the non-additive energy** (every other rung sits at
+73–120 %; what remains for E₀ is the short-range part of the ℓ₁-split kernels, 7 % of a source's field
+at the hydrogen-bond distance, plus the pairwise repulsion), hexamer rmse ≤ 0.3 kcal/mol. Dimer —
+M_16†ᵉᵐᵇ's relative error beyond r_c **≤ 1e-4 at 20 Å and falling** (the band carries electrostatics,
+induction and dispersion of the dimer exactly up to the kernel's short part; M_1† had 1.53e-3), spread
+0, q undefined (no fibre). A failure of the 10 Å numbers would be an implementation error; a failure
+of the cluster number would mean the short-range remainder of the induction is not E₀-learnable from
+36 clusters, which is a statement about ℓ₁.

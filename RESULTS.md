@@ -156,7 +156,10 @@ The wrong sign of M_1's dipole bias (measured λ = 0.982, class minimum under th
 `scratch/lambda_hat.py`) has a verified cause: at every window node an intermolecular atom pair (the donor
 H to the acceptor O, at R_OO − 0.96 Å) is inside r_c = 6 Å, so E₀ is silent at no node and absorbs part of
 the band's R⁻³ energy on the identifying nodes.  Pre-registered check with r_c = 5 Å (11 nodes with every
-pair beyond r_c): μ̂ = 1.867 D, the bias changing sign.  RESULT_RC5_RESULTS
+pair beyond r_c): μ̂ = 1.867 D, the bias changing sign.  **Result: 1.864, 1.862, 1.858 D (one seed unconverged and
+excluded) = 1.861 ± 0.003 D**, +0.3 %, the tail error of the mean 0.67 % at 300 Å (was 3.3 %), q = 3.00, slope +0.00;
+M_1μ 1.870 ± 0.020 D (`results/e3_pw_dimer_rcut5.0_K4.log`).  The identifying nodes of a molecular dimer are
+those with every intermolecular pair beyond r_c.
 
 **Clusters, K = 2** (`results/e3_pw_clusters_K2*.log`; 36 training clusters n = 3–5, 8 hexamers held out;
 the hexamers' non-additive energy has rms 1.287 kcal/mol = 9.1 % of the interaction energy): non-additive
@@ -174,11 +177,19 @@ electrostatics — is 13.9 % of the interaction at every distance; the reading i
 | A (§6) | none | 112, 111 % | 80, 89 % (pred. ≤ 20 % ✗) | 238, 299 % (pred. = M_S0† ✗) | – | – |
 | B (§7) | 16 from one core | 106, 99 % | 92, 82 % (pred. ≤ 30 % ✗) | 297, 370 % (pred. ≤ 1.5 × M_S0† ✗) | – | – |
 | C (§8) | 16 from one core | – | – | – | 120, 79 % (pred. ≤ 30 % ✗) | 117, 65 % (pred. ≤ 15 % ✗) |
-| D (§9) | 32 from eight cores | RESULT_D_ROW |
+| D (§9) | 32 from eight cores | 98, 114 % | – | – | 86, 116 % (pred. ≤ 50 % ✗) | 80, 108 % |
+| E (§10) | 32 from eight cores, weight ×10 | – | – | – | 124, 90 % | – |
+| F (§11) | 32 from eight cores | M_1†ᵉᵐᵇ RESULT_F_ROW |
 
 The constant 13.9 % share identifies what this "induction" is: not the probe's R⁻⁶ response to the core's
 field but, dominantly, the interaction of the core's *pre-existing* induced dipoles (0.1–0.3 a.u. per oxygen
 in a hydrogen-bonded trimer) with the probe's charges, ∝ R⁻³ — an environment-dependent source, v1's learned
 μ_i, which a pinned-charge dagger cannot carry by construction and no degree-2 read-out at the probe can
 either.  Run C's single training core showed the source map one environment and asked for a second (the
-test was at fault; §9); run D corrects the design.  RESULT_D_SUMMARY
+test was at fault; §9); run D corrects the design and the prediction fails again — for a reason the new training-
+residual diagnostic shows: the learned-source rungs' residual on the far-field *training* configurations is
+134–163 % of their own induction, and weighting those configurations ×10 (run E) leaves it at 113–170 %.  The
+far-field signal (0.03–0.08 kcal/mol on a 0.1–0.6 kcal/mol interaction) sits below a floor of ~0.05 kcal/mol that
+the learned-source class does not get under here, weighting or not.  The exact decomposition
+(`scratch/far_decomposition.py`): piece (2) is 91 / 100 / 93 / 98 % of the induction rms at 6 / 7 / 8 / 10 Å, the
+mutual response 40 / 16 / 14 / 5 %.  RESULT_F_SUMMARY

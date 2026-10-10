@@ -1,0 +1,33 @@
+water dimer (PW truth, phi = 0): window [3.86, 6.95] A, 40 nodes, sigma = 1e-09; |f*| at R+ = 3.33e-04 E_h; E R^3 at 300 A = -0.6533 (dipole-dipole -0.652)
+  M_1 seed 0: window rmse 1.83e-05; monomer dipole 1.864 D (truth 1.855), q_O = +0.662 (truth -0.659); 219 s
+  M_1 seed 1: window rmse 2.25e-05; monomer dipole 1.862 D (truth 1.855), q_O = -0.662 (truth -0.659); 208 s
+  M_1 seed 2: window rmse 2.29e-05; monomer dipole 1.858 D (truth 1.855), q_O = -0.660 (truth -0.659); 204 s
+  M_1 seed 3: window rmse 6.97e-05; monomer dipole 1.695 D (truth 1.855), q_O = -0.602 (truth -0.659); 204 s
+  M_1: 1 unconverged seeds excluded (window rmse [6.96791612e-05] vs best 1.83e-05)
+  M_1:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+             8.2  2.10e-04  -2.07e-04  1.53e-02  6.54e-07  3.12e-03    3.17
+            10.1  1.06e-04  -1.06e-04  5.32e-03  3.35e-07  3.15e-03    3.13
+            11.6  6.80e-05  -6.79e-05  1.30e-03  2.15e-07  3.16e-03    3.11
+            15.5  2.82e-05  -2.82e-05  3.21e-03  8.94e-08  3.18e-03    3.08
+            20.5  1.18e-05  -1.18e-05  5.20e-03  3.74e-08  3.18e-03    3.06
+            29.3  3.99e-06  -4.01e-06  6.20e-03  1.27e-08  3.18e-03    3.04
+            51.7  7.15e-07  -7.20e-07  6.64e-03  2.28e-09  3.19e-03    3.02
+            97.8  1.04e-07  -1.05e-07  6.72e-03  3.32e-10  3.19e-03    3.01
+           304.3  3.44e-09  -3.46e-09  6.73e-03  1.10e-11  3.19e-03    3.00
+  M_1: slope of log(W/|f*|) vs log R on [30, 300] A = +0.00  (branch 2: 0; branch 1: p* - p_min = 3 - 1 = 2 for a monopole leak; branch 3: -> -inf);  monomer dipole 1.820 +- 0.083 D  [894 s]
+  M_1mu seed 0: window rmse 1.06e-05; monomer dipole 1.889 D (truth 1.855), q_O = +0.041 (truth -0.659); 232 s
+  M_1mu seed 1: window rmse 1.77e-05; monomer dipole 1.849 D (truth 1.855), q_O = -0.030 (truth -0.659); 236 s
+  M_1mu seed 2: window rmse 3.69e-05; monomer dipole 1.926 D (truth 1.855), q_O = -0.033 (truth -0.659); 248 s
+  M_1mu seed 3: window rmse 1.04e-05; monomer dipole 1.872 D (truth 1.855), q_O = +0.066 (truth -0.659); 238 s
+  M_1mu: 1 unconverged seeds excluded (window rmse [3.6889058e-05] vs best 1.04e-05)
+  M_1mu:   R (A)      |f*|       mean   rel err  spread W    W/|f*|       q
+             8.2  2.10e-04  -2.15e-04  2.32e-02  3.97e-06  1.89e-02    3.12
+            10.1  1.06e-04  -1.09e-04  2.53e-02  2.05e-06  1.93e-02    3.09
+            11.6  6.80e-05  -6.98e-05  2.54e-02  1.33e-06  1.95e-02    3.06
+            15.5  2.82e-05  -2.88e-05  2.42e-02  5.60e-07  1.99e-02    3.03
+            20.5  1.18e-05  -1.20e-05  2.26e-02  2.38e-07  2.02e-02    3.00
+            29.3  3.99e-06  -4.07e-06  2.09e-02  8.23e-08  2.06e-02    2.99
+            51.7  7.15e-07  -7.29e-07  1.89e-02  1.51e-08  2.11e-02    2.99
+            97.8  1.04e-07  -1.06e-07  1.78e-02  2.24e-09  2.15e-02    2.99
+           304.3  3.44e-09  -3.50e-09  1.70e-02  7.51e-11  2.18e-02    3.00
+  M_1mu: slope of log(W/|f*|) vs log R on [30, 300] A = +0.02  (branch 2: 0; branch 1: p* - p_min = 3 - 1 = 2 for a monopole leak; branch 3: -> -inf);  monomer dipole 1.884 +- 0.033 D  [1023 s]

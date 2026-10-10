@@ -48,7 +48,15 @@ with R_OO > 5.96 Å have every intermolecular pair beyond r_c. Prediction from t
 11 nodes: λ̂ = 1.0067, **μ̂ = 1.867 D**, seed spread ≤ 3 %, and in particular **the bias changes sign**
 (μ̂ > 1.855 D). If the dipole stays at 1.82 D the mechanism is something else and §5(1) is wrong.
 
-RESULT_RC5_PLACEHOLDER
+**Result of the check** (`results/e3_pw_dimer_rcut5.0_K4.log`, run after the prediction was on record): M_1 at
+r_c = 5 Å gives **1.864, 1.862, 1.858 D** (seed 3 unconverged — window rmse 7.0e-5 against 1.8–2.3e-5 — and
+excluded by the rule, at 1.695 D): **1.861 ± 0.003 D**, +0.3 % against the truth and 0.3 % below the class
+minimum 1.867 D; the bias changed sign as predicted, the spread fell from 0.7 % to 0.2 %, and the tail
+error of the mean fell from 3.3 % to 0.67 % at 300 Å (= λ² − 1 to the digit, λ = 1.0032), W/|f⋆| from 1.6e-2
+to 3.2e-3, q = 3.00, slope +0.00. M_1μ at r_c = 5 Å: 1.889, 1.849, 1.872 D (one seed excluded at 1.926):
+1.870 ± 0.020 D, +0.8 %, q_O = −0.03 … +0.07 — the dipole gauge of the atomic-dipole channel sets its
+wider spread. The window rmse rises from 8e-6 to 2e-5 (E₀ loses the O···O message beyond 5 Å), which is
+the price and is irrelevant to the identification. §5(1) stands as diagnosed.
 
 ## 2. Clusters (K = 2) — `results/e3_pw_clusters_K2.log`, `results/e3_pw_clusters_K2_MS2p.log`
 
@@ -99,7 +107,9 @@ induction, per distance: 100 % means "electrostatics only".
 | D (§9) | 32, eight cores | M_1† | 98, 114 % (86 / 111 / 124 / 106) | ~100 % ✓ |
 | | | M_1μ | 86, 116 % (94 / 67 / 73 / 90) | ≤ 50 % **✗** (the floor, §10) |
 | | | M_S0μ | 80, 108 % (90 / 56 / 65 / 81) | below M_1μ with a gap at 6–7 Å only → lower at every distance by 4–11 points, both at the floor: **not read** |
-| E (§10) | 32, eight cores, **weight 10** | M_1μ | RESULT_E_M1MU | far-field training residual < 30 % of its induction; test ≤ 50 % → learnable, ≥ 70 % → not |
+| E (§10) | 32, eight cores, **weight 10** | M_1μ | 124, 90 % (102 / 54 / 72 / 111) | far-field training residual < 30 % of its induction → **170, 113 % ✗**; the test reading therefore void |
+| F (§11) | 32, eight cores | M_1†ᵉᵐᵇ (embedded dipoles pinned) | RESULT_F_M1PEMB | 4.6 ± 0.5 % at 10 Å, ≈ 14 / 16 % at 8 / 7 Å (± 5), ≤ 40 % at 6 Å |
+| | | M_S0†ᵉᵐᵇ | RESULT_F_MS0PEMB | = M_1†ᵉᵐᵇ within the seed spread |
 
 **Run D's training residuals** (the diagnostic added in §10; `results/e3_pw_far_8cores_K2_part2.log`): on the
 training clusters 0.23 / 0.33 kcal/mol (M_1μ), 0.22 / 0.36 (M_S0μ); on the 32 far-field *training*
@@ -112,7 +122,30 @@ and §9's prediction was wrong for a third reason, below the two it named. (The 
 from cached data after the container's memory limit killed it half-way; the restarted seeds reproduce the
 first run's numbers to the digit.)
 
-RESULT_E_TEXT
+**Run E, the weighted re-fit** (`results/e3_pw_far_8cores_wfar10_K2.log`): with the 32 far-field training
+configurations weighted ×10 in energies and forces, their residual is 0.057 / 0.038 kcal/mol = 170 / 113 % of
+their induction — it does not move — and the test error is 124 / 90 %. The floor is not the loss weighting.
+Something in the model class or the optimisation leaves ~0.05 kcal/mol on a configuration whose
+electrostatics is 0.35 kcal/mol; the learned sources' far field is wrong by about the induction itself. The
+candidate is the one free multipole: a learned charge-plus-dipole monomer has a quadrupole that nothing in
+the training set pins (the dimer's far nodes are dipole–dipole, the clusters are degenerate with E₀), and at
+6–10 Å the quadrupole–dipole term is a tenth of the electrostatics. Not tested further here; the real E3
+pins the sources instead (§6).
+
+**The exact decomposition of the test's induction** (`scratch/far_decomposition.py`, on the cached test set):
+
+| d (Å) | rms interaction | rms induction | rms piece (2): embedded dipoles × probe charges | rms remainder (1) + (3) | remainder / induction |
+|---|---|---|---|---|---|
+| 6 | 0.5598 | 0.0760 | 0.0688 | 0.0306 | 40.3 % |
+| 7 | 0.3471 | 0.0495 | 0.0494 | 0.0077 | 15.6 % |
+| 8 | 0.2318 | 0.0315 | 0.0292 | 0.0044 | 13.9 % |
+| 10 | 0.0827 | 0.0179 | 0.0175 | 0.0008 | 4.6 % |
+| all | 0.3516 | 0.0488 | 0.0456 | 0.0159 | 32.6 % |
+
+(kcal/mol; piece (2) = −Σ_j μ_j(core alone)·E_probe(r_j) with the truth's kernel.) The far-field many-body
+energy of a hydrogen-bonded trimer at 7–10 Å is, to 85–95 %, the field of its embedded induced dipoles.
+
+RESULT_F_TEXT
 
 **What the "induction" of this test is** (§8, verified by the constant 13.9 % share from 6 to 10 Å): the
 probe's interaction minus point-charge electrostatics contains (1) the probe's own response to the core's
@@ -143,7 +176,7 @@ read-out at the probe can either, because at the probe the term is linear in the
 1. **M_1's learned dipole: −1.8 % where +0.1 % (recomputed: +0.6 %) was predicted** (within the ±3 %
    tolerance, wrong sign, 2.4 % below the class minimum at a spread of 0.7 %). Cause verified: no window
    node is E₀-silent for a molecular dimer at r_c = 6 Å (the H···O pair). Check pre-registered above
-   (r_c = 5 Å → 1.867 D). RESULT_RC5_SHORT
+   (r_c = 5 Å → 1.867 D): **1.861 ± 0.003 D, sign flipped, 0.3 % from the computed minimum ✓.**
 2. **Clusters, v1.5 order 0 ≤ 30 % → 73–85 %.** The many-body induction of a small cluster is near-field;
    the band-field inputs see the smeared far part and nothing identifies their coefficient (§2).
 3. **Far-field run A, M_S0† ≤ 20 % → 80–89 %; M_S2† = M_S0† → 240–300 %.** No training configuration
@@ -153,8 +186,65 @@ read-out at the probe can either, because at the probe the term is linear in the
    of the probe's interaction" in §6 was wrong by a factor 20 for the same reason.
 5. **Far-field run C, M_1μ ≤ 30 % → 79–120 %.** The 16 far-field training configurations shared a single
    core: one environment shown, a second asked for (§9).
-6. RESULT_D_WRONG
+6. **Far-field run D (eight cores), M_1μ ≤ 50 % → 86–116 %; M_S0μ "below M_1μ by the R⁻⁶ share" → both at
+   the floor.** The training residual on the far-field configurations is 134–163 % of their induction: the
+   signal was never fitted (§10(a) ✓).
+7. **Run E (weight 10): the far-field training residual < 30 % → 113–170 %** (§10(b) ✗). The floor is the
+   model class or the optimisation, not the weighting; the test reading of §10(c) is void.
+8. RESULT_F_WRONG
 
 ## 6. What the rehearsal settles for the real E3
 
-RESULT_CONSEQUENCES
+The protocol that goes to the CCSD(T) data is the rehearsed one with these changes, each tied to a numbered
+wrong prediction above.
+
+1. **Identifying nodes (§5(1)).** "Beyond r_c" means the smallest intermolecular atom-pair distance beyond r_c,
+   and the dimer window must hold ≥ 10 such nodes. With the Phase 2 window [1.35 R_e, 1.8 × 1.35 R_e] that is
+   r_c ≤ 5 Å for the dimer part (11 nodes) — verified: the learned dipole moves from 1.822 ± 0.013 D to
+   1.861 ± 0.003 D against a computed class minimum of 1.867 D. The prediction for the learned monomer
+   multipoles is the linear-class minimum under the training objective on those nodes, computed from the
+   CCSD(T) curve before training by the construction of `scratch/lambda_hat.py`.
+2. **The fixed orientation is φ = 0** (acceptor dipole along the O–O axis). At the near-equilibrium orientation
+   the dipole–dipole coefficient of the rigid-monomer dimer vanishes and the curve is p = 4 to ~900 Å; a
+   CCSD(T) scan computed there would be a quadrupole experiment, which M_1 with charges alone cannot represent.
+3. **Fragment references and the near-source switch stay on** (`Rung.fragments`, `bf_rs = ℓ₁`); both were
+   forced by failures in the first smoke tests (§1 of the pre-registration).
+4. **The cluster reading is a near-field reading (§5(2)).** The non-additive energy of hexamers is induction
+   among near sources, E₀'s territory; at 36 training clusters it separates nothing between v1 and v1.5 and is
+   kept as what it is — a test of E₀ with the band's sources — with the prediction form "v1.5 = v1 within the
+   seed spread", the opposite of §3's.
+5. **The far-field test is the v1 / v1.5 reading, and it is a test of the sources (§5(3)–(5)).** At 7–10 Å from
+   a hydrogen-bonded trimer, 85–95 % of the many-body energy is the field of the cluster's embedded induced
+   dipoles; the mutual response (1) + (3) — the only part a band-field read-out can carry — is 5–16 % there and
+   40 % at 6 Å. So the far-field test reads v1's claim (environment-dependent sources) first and v1.5's only
+   in the remainder, and the remainder is at or below the fit floors reached here (0.05 kcal/mol on a probe
+   configuration, independent of weighting, §5(6)–(7)).
+6. **The dagger must pin embedded multipoles.** M_1† with isolated-monomer sources has the error "100 % of the
+   induction" by construction and is the baseline; the dagger that tests the architecture is M_1†ᵉᵐᵇ with the
+   distributed multipoles of each monomer *in its cluster* (from the CCSD(T) density or a DFT density embedded
+   in the cluster — a decision for the data plan), RESULT_F_CONSEQ Learned sources (M_1μ) have to recover
+   the same map from energies and forces; on the synthetic truth they do not at this data scale, and the gap
+   between M_1μ and M_1†ᵉᵐᵇ on the real data is the price of learning the sources — report it as such rather
+   than as a failure of either.
+7. **Data for the far-field part.** The signal is 0.03–0.08 kcal/mol per configuration on a 0.1–0.6 kcal/mol
+   interaction. For CCSD(T)/CBS that is within reach only with counterpoise correction and a tight basis
+   extrapolation on the whole tetramer-sized structure; a cheaper and adequate truth for this *part* is a
+   hybrid-functional DFT (far-field induction is not a correlation problem), with CCSD(T) kept for the dimer
+   curve and the clusters. Either way: ≥ 8 different cores, probes at several distances with d defined from
+   the core's centre of mass (at d = 6 Å the nearest atoms are 3–4.5 Å from the core — inside r_c), and the
+   training-residual diagnostic reported alongside the test.
+8. **Seeds.** K = 2 cannot separate rungs whose errors differ by less than ~30 % (the seed spreads above are
+   that large); the real E3 runs K ≥ 4 with the convergence rule and reports the per-distance pattern with the
+   rmse. The E3 runs are memory-bound on this container (one far-field run at a time, 3.5 GB; the data sets
+   are cached); the K = 4 batch belongs on the group's GPU like the K = 16 batch of E1.
+9. **Not rehearsed:** the dispersion channel on water (the truth's C₆ is O–O only and damped; on the real data
+   α(iω) matching is E2's problem and M_16† needs the monomer's α(iω)), the periodic case, and the real sources
+   themselves — the embedded distributed multipoles at the CCSD(T) level, which the data plan has to supply
+   together with the curve and the clusters.
+
+The pre-registration's §4 ("predictions for the real data, in this form") is therefore amended: the dimer
+predictions are computed on the correctly defined identifying nodes; the cluster prediction is "v1.5 = v1";
+the far-field prediction is stated for M_1†ᵉᵐᵇ (the remainder share computed from a polarisable-model
+decomposition of the actual configurations, as in §3 here) and for M_1μ (the open question, with the
+rehearsal's answer as the prior); and the band-field response is read only where the remainder is above the
+fit floor, which the training-residual diagnostic establishes per run.
