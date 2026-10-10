@@ -7,3 +7,4 @@ dist/
 # experiment outputs are committed under results/ only
 /*.json
 results/*.out
+results/*.pkl
