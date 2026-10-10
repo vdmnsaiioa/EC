@@ -24,6 +24,7 @@ class Structure:
     pinned: Dict[str, np.ndarray] = field(default_factory=dict)   # e.g. {"q": (N,), "mu": (N,3), "alpha": (N,K)}
     info: Dict[str, Any] = field(default_factory=dict)
     frag: Optional[np.ndarray] = None     # (N,) fragment index per atom (the molecules); None: every atom its own fragment
+    weight: float = 1.0                   # weight of this structure's energy and forces in the training loss
 
     @property
     def n_atoms(self):
@@ -49,7 +50,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         "mask": np.zeros((B, n_max), dtype=bool), "cell": np.tile(np.eye(3) * 1e6, (B, 1, 1)),
         "pbc": np.zeros(B, dtype=bool), "total_charge": np.zeros(B),
         "energy": np.zeros(B), "forces": np.zeros((B, n_max, 3)), "has_energy": np.zeros(B, dtype=bool),
-        "has_forces": np.zeros(B, dtype=bool),
+        "has_forces": np.zeros(B, dtype=bool), "weight": np.ones(B),
         "pin_q": np.zeros((B, n_max)), "pin_mu": np.zeros((B, n_max, 3)), "pin_alpha": np.zeros((B, n_max, n_freq)),
         "pin_alpha2": np.zeros((B, n_max, n_freq)),
     }
@@ -57,7 +58,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         n = s.n_atoms
         out["positions"][b, :n] = s.positions; out["numbers"][b, :n] = s.numbers; out["mask"][b, :n] = True
         if s.cell is not None: out["cell"][b] = s.cell
-        out["pbc"][b] = s.pbc; out["total_charge"][b] = s.total_charge
+        out["pbc"][b] = s.pbc; out["total_charge"][b] = s.total_charge; out["weight"][b] = s.weight
         if s.energy is not None: out["energy"][b] = s.energy; out["has_energy"][b] = True
         if s.forces is not None: out["forces"][b, :n] = s.forces; out["has_forces"][b] = True
         if "q" in s.pinned: out["pin_q"][b, :n] = s.pinned["q"]

@@ -37,7 +37,11 @@ For GPUs install the matching `jax[cuda]` wheel first.
 
 Every energy the model returns is an interaction (atomisation) energy: the model's own isolated-atom
 energies are subtracted inside `energy_single`, so non-interacting fragments give exactly zero and the
-asymptotic measurements are never contaminated by a constant.
+asymptotic measurements are never contaminated by a constant.  Structures that carry fragments (the
+molecules of a cluster, `Structure.frag`) subtract instead the model's own energy of each fragment alone at
+its own geometry, `E_int = E(all) − Σ_f E(f)` — the atomic case is one atom per fragment — so that a
+learned monomer energy never leaves a constant at infinity either.  The E3 script adds learned-source
+variants of the band-field rungs (`M_S0mu`, `M_S2mu`: learned `q_i`, `μ_i` and the read-out).
 
 Pieces (one module each):
 
@@ -64,13 +68,23 @@ Pieces (one module each):
   Gaussian envelope in reciprocal space (checked against explicit images to 1e-10).  Every rung now runs on
   open clusters and on periodic cells.
 * `bandfields.py` — band-field tensors at the atom by nested forward-mode differentiation of the band
-  potential (own charge excluded), and the degree-2 equivariant read-out with environment-dependent
-  coefficients from `E_0`.
+  potential (own charge excluded; optionally the near sources excluded by a smooth switch
+  `1 − exp(−(r/r_s)¹⁰)`, `Rung.bf_rs`, because `|E_near + E_far|²` contains a term linear in the far field
+  that is degenerate with a dipole source), and two read-outs of degree 2: the *pair* read-out (default), a
+  Taylor class on the structure — `ε_i = Σ_j Σ_m w_m(r_ij; s_i, s_j) I_m(n̂_ij; E_i, ℓ∇E_i, ℓ²∇∇E_i)` over the
+  14 invariants through order 2, higher orders zero-initialised — and the node read-out (`L ≤ 2`, which cannot
+  carry the `L = 4` environment tensors of the order-2 operators; kept as `Rung.readout = "node"`).
 * `model.py`, `train.py`, `measure.py`, `data.py`, `toys.py` — assembly, training (Adam + optional
-  L-BFGS polish, targets scaled never shifted), the Phase 1c / X2 measurements, the dimer truths
+  L-BFGS polish on an exact, memory-bounded full-data loss — a rematerialised `lax.map` over padded
+  chunks — targets scaled never shifted), the Phase 1c / X2 measurements, the dimer truths
   (Tang–Toennies, and the published ab initio Ar₂ / Ne₂ potentials in the Rostock form with their
   provenance check), the windows of `phase2-reference-data.md`, the sealed E2 targets, and the X2-B
-  dielectric toy.
+  dielectric toy (with its exact Taylor-class ceiling).
+* `water.py` — the synthetic polarisable water truth of the E3 rehearsal: rigid gas-phase monomers with
+  point charges (μ = 1.855 D), intermolecular Coulomb smeared at 0.5 Å, a self-consistent isotropic
+  polarisable site on each O (α = 9.72 a.u.), exponential repulsion and damped C₆; dimer scans, relaxed
+  random clusters (rigid-body Metropolis on the truth), probe configurations for the far-field induction
+  test, and an extxyz loader for the real data.
 
 A note on optimisation: the analytic rung `M_A` and the band-field read-out are ill-conditioned linear
 problems inside a non-linear model; Adam alone leaves them far from the floor (`M_A` window rmse 3e-5 E_h
@@ -81,6 +95,10 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
     python scripts/dimer_ladder.py --system Ar2 --truth tt --rungs M_inf,M_6,M_A,M_G --seeds 4 --steps 1500 --lbfgs 300
     python scripts/dimer_ladder.py --system Ne2,Ar2 --truth published --rungs M_6,M_16 --seeds 8 --lbfgs 300
     python scripts/x2b_toy_regression.py --steps 1500 --lbfgs 200
+    python scripts/e3_water.py --part dimer --rungs M_inf,M_G,M_A,M_1,M_1mu,M_1p --seeds 4 --steps 1500 --lbfgs 300
+    python scripts/e3_water.py --part clusters --rungs M_1p,M_S0p,M_S2p --seeds 2 --steps 1000 --lbfgs 150
+    python scripts/e3_water.py --part far --train_far 1 --train_far_cores 8 --rungs M_1p,M_1mu,M_S0mu --seeds 2 --steps 1000 --lbfgs 150
+    sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
 
 `dimer_ladder.py` trains an ensemble of each rung on the Phase 2 window (40 log-uniform nodes on
 `[R₋, 1.8 R₋]`, label noise `σ = 1e-9 E_h`) and prints the Phase 1c table on the evaluation grid out to
@@ -90,6 +108,11 @@ potentials; with several systems one model is trained on the union, and for the 
 learned free-atom `α(iω)` and the Casimir–Polder `C₆` of every pair of species — including the mixed pair
 the model never saw — are compared with the sealed targets (E2).  `x2b_toy_regression.py` trains the
 band-field path (orders 0 and 2) on the X2-B toy of `x2-protocol.md` §3 (truth T3, `a/l₁ = 1/4`).
+`e3_water.py` is the E3 protocol — the fixed-orientation dimer ladder (p⋆ = 3, learned monomer dipole),
+the clusters (n = 3–5 train, hexamers held out, non-additive energy against the model's own dimers) and
+the far-field induction test (a probe monomer at 6–10 Å from a relaxed trimer; the reading is the error as
+a share of the induction) — run here on the synthetic truth and, with `sseft.water.read_extxyz`, on the
+CCSD(T) data when they exist.  Every part saves its json after each rung.
 
 ## What v0 reproduces
 
@@ -106,6 +129,11 @@ band-field path (orders 0 and 2) on the X2-B toy of `x2-protocol.md` §3 (truth 
   `R′²` with the slope `2/ℓ²` (measured 0.132 Å⁻² against 0.125), the mean's relative error settling at 1
   and the spread collapsing to the float64 floor by 30 Å.  A `C₈` channel (quadrupole polarisability) is
   the L6b item of the build plan.
+* E1 / E2 on the published Ar₂ and Ne₂ potentials (every branch assignment as pre-registered; the unseen
+  Ne–Ar C₆ from the learned α(iω); the C₆ bias computed under the training objective), the L6b rung M_68,
+  and the E3 rehearsal on the synthetic water truth (the dimer ladder with p⋆ = 3 and the learned monomer
+  dipole, the clusters, and the far-field induction test with its four pre-registered runs): `RESULTS.md`,
+  with the pre-registration and result notes in `notes/`.
 * The X2-B toy and the numbers behind the lines above: `RESULTS.md`.
 
 ## Layout
@@ -113,6 +141,9 @@ band-field path (orders 0 and 2) on the X2-B toy of `x2-protocol.md` §3 (truth 
     sseft/        the package
     scripts/      the experiments (each prints its table and writes a json)
     tests/        pytest (fast; the ladder and the toy are scripts)
+    notes/        the pre-registration and result notes of the experiments run from this repository
+    scratch/      one-off computations quoted in the notes (not part of the package)
+    results/      the logs and jsons of every run quoted in RESULTS.md
     RESULTS.md    running log of the regression numbers per commit
 
 The design, the predictions and the measurement protocols live in the project notes

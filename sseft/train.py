@@ -21,16 +21,18 @@ def make_loss_sums(rung, scale, w_force=10.0):
     """per-batch sums and counts of the squared scaled residuals: (sum_e, cnt_e, sum_f, cnt_f)."""
     def sums(params, batch):
         n = jnp.maximum(jnp.sum(batch["mask"], axis=1), 1.0)
+        wgt = batch.get("weight", jnp.ones_like(batch["energy"]))          # per-structure weights (default 1)
         if w_force > 0:
             E, F = M.energy_forces(params, rung, batch)
             f_err = (F - batch["forces"]) / scale
-            fm = batch["mask"][:, :, None] * batch["has_forces"][:, None, None]
+            fm = batch["mask"][:, :, None] * (batch["has_forces"] * wgt)[:, None, None]
             sf, cf = jnp.sum(f_err ** 2 * fm), jnp.sum(fm)
         else:
             E = jax.vmap(lambda bb: M.energy_single(params, rung, bb)[0])(batch)
             sf, cf = jnp.zeros(()), jnp.zeros(())
         e_err = (E - batch["energy"]) / n / scale
-        return jnp.sum(e_err ** 2 * batch["has_energy"]), jnp.sum(batch["has_energy"]), sf, cf
+        we = batch["has_energy"] * wgt
+        return jnp.sum(e_err ** 2 * we), jnp.sum(we), sf, cf
     return sums
 
 

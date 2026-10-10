@@ -20,7 +20,7 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
     M_S0p, M_S2p      M_1p + band-field inputs at order 0 / 2                  (v1.5 dagger)
     M_S0, M_S2        M_1 + band-field inputs (q learned)
 """
-import argparse, time, json, sys, os
+import argparse, time, json, sys, os, pickle
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import sseft
@@ -122,40 +122,68 @@ def run_far(a):
     field) + the clusters; test = a probe monomer at 6-10 A from a trimer.  The probe's interaction energy minus its
     electrostatics with the pinned charges is the induction; v1 cannot represent it beyond r_c, v1.5 can."""
     t0 = time.time()
-    R_train = bohr_to_ang(D.window_design(*WINDOW, 40)); rng = np.random.default_rng(0)
-    train = (W.dimer_scan(R_train, sigma=a.sigma, rng=rng) + W.cluster_dataset((3, 4, 5), a.n_train, seed=0, sigma=a.sigma, mc_steps=a.mc_steps)
-             + [W.monomer_structure()] * 4)
     dists = (6.0, 7.0, 8.0, 10.0)
-    if a.train_far > 0:
-        # far-field configurations in the training set (another core, other seeds): the only data in which the
-        # response to the band field is resolvable above the fit's floor
-        far_train, _ = W.probe_configurations(3, dists, a.train_far, seed=400, mc_steps=a.mc_steps, n_cores=a.train_far_cores)
-        train = train + far_train
-    test, E_core = W.probe_configurations(3, dists, a.n_test, seed=300, mc_steps=a.mc_steps, n_cores=a.test_cores)
-    y = np.array([s.energy for s in test]) - E_core                                   # the probe's interaction with the core
-    # the probe's induction: total minus the pure electrostatics of the point charges (smeared as in the truth) --
-    # computed from the truth's components
-    es = []
-    for s in test:
-        pos = bohr_to_ang(s.positions); c_all = W.pw_components(pos, 4); c_core = W.pw_components(pos[:9], 3)
-        es.append((c_all["es"] - c_core["es"]) + (c_all["rep"] - c_core["rep"]) + (c_all["disp"] - c_core["disp"]))
-    ind = y - np.array(es)
+    if a.cache and os.path.exists(a.cache):
+        with open(a.cache, "rb") as fh: base, far_train, E_core_tr, test, E_core = pickle.load(fh)
+        print(f"data from {a.cache}", flush=True)
+    else:
+        R_train = bohr_to_ang(D.window_design(*WINDOW, 40)); rng = np.random.default_rng(0)
+        base = (W.dimer_scan(R_train, sigma=a.sigma, rng=rng) + W.cluster_dataset((3, 4, 5), a.n_train, seed=0, sigma=a.sigma, mc_steps=a.mc_steps)
+                + [W.monomer_structure()] * 4)
+        far_train, E_core_tr = [], np.zeros(0)
+        if a.train_far > 0:
+            # far-field configurations in the training set (other cores, other seeds): the only data in which anything
+            # beyond the isolated-monomer sources is resolvable above the fit's floor
+            far_train, E_core_tr = W.probe_configurations(3, dists, a.train_far, seed=400, mc_steps=a.mc_steps, n_cores=a.train_far_cores)
+        test, E_core = W.probe_configurations(3, dists, a.n_test, seed=300, mc_steps=a.mc_steps, n_cores=a.test_cores)
+        if a.cache:
+            with open(a.cache, "wb") as fh: pickle.dump((base, far_train, E_core_tr, test, E_core), fh)
+    for s in far_train: s.weight = a.w_far                                             # --w_far: weight of the far-field training structures
+    train = base + far_train
+    clusters = [s for s in base if s.n_atoms > 6]
+
+    def probe_parts(structs, E_c):
+        """the probe's interaction with the core and its induction (total minus the point-charge electrostatics, repulsion
+        and dispersion of the truth's components)."""
+        yy = np.array([s.energy for s in structs]) - E_c
+        es = []
+        for s in structs:
+            pos = bohr_to_ang(s.positions); c_all = W.pw_components(pos, 4); c_core = W.pw_components(pos[:9], 3)
+            es.append((c_all["es"] - c_core["es"]) + (c_all["rep"] - c_core["rep"]) + (c_all["disp"] - c_core["disp"]))
+        return yy, yy - np.array(es)
+    y, ind = probe_parts(test, E_core)
+    y_tr, ind_tr = probe_parts(far_train, E_core_tr) if far_train else (np.zeros(0), np.zeros(0))
     print(f"far-field induction test: {len(test)} probe configurations at d = {dists} A from a trimer; probe interaction rms "
           f"{np.sqrt(np.mean(y ** 2)) * 627.5:.4f} kcal/mol, of which induction rms {np.sqrt(np.mean(ind ** 2)) * 627.5:.4f} "
           f"({np.sqrt(np.mean(ind ** 2)) / np.sqrt(np.mean(y ** 2)) * 100:.1f} %)  [{time.time() - t0:.0f} s]", flush=True)
+    if far_train:
+        print(f"  {len(far_train)} far-field training configurations from {a.train_far_cores} cores (weight {a.w_far:g}); their induction rms "
+              f"{np.sqrt(np.mean(ind_tr ** 2)) * 627.5:.4f} kcal/mol ({np.sqrt(np.mean(ind_tr ** 2)) / np.sqrt(np.mean(y_tr ** 2)) * 100:.1f} % of the interaction)", flush=True)
     results = {"d": [s.info["d"] for s in test], "probe_interaction": y.tolist(), "induction": ind.tolist()}
+
+    def probe_rmse(params, rung, structs, yy):
+        Et, _ = T.predict(params, rung, structs)
+        Ec, _ = T.predict(params, rung, [W.water_structure(bohr_to_ang(s.positions)[:9]) for s in structs])
+        return (Et - Ec) - yy
     for name in a.rungs.split(","):
-        rung = configure(RUNGS[name], a); t1 = time.time(); errs = []; errs_ind = []
+        rung = configure(RUNGS[name], a); t1 = time.time(); errs = []; train_errs = []
         for seed in range(a.seeds):
             params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0, batch_size=a.batch, lbfgs_chunk=a.lbfgs_chunk)
-            Et, _ = T.predict(params, rung, test)
-            cores = [W.water_structure(bohr_to_ang(s.positions)[:9]) for s in test]
-            Ec, _ = T.predict(params, rung, cores)
-            yp = Et - Ec
-            r = np.sqrt(np.mean((yp - y) ** 2)); errs.append(r)
+            res = probe_rmse(params, rung, test, y)
+            r = np.sqrt(np.mean(res ** 2)); errs.append(r)
             print(f"  {name} seed {seed}: probe-interaction rmse {r * 627.5:.4f} kcal/mol = {r / np.sqrt(np.mean(ind ** 2)) * 100:.0f} % of the induction "
-                  f"(per distance: " + ", ".join(f"{d:.0f} A {np.sqrt(np.mean((yp - y)[np.array(results['d']) == d] ** 2)) / np.sqrt(np.mean(ind[np.array(results['d']) == d] ** 2)) * 100:.0f} %" for d in dists) + f"); {info['time']:.0f} s", flush=True)
-        results[name] = dict(rmse=errs)
+                  f"(per distance: " + ", ".join(f"{d:.0f} A {np.sqrt(np.mean(res[np.array(results['d']) == d] ** 2)) / np.sqrt(np.mean(ind[np.array(results['d']) == d] ** 2)) * 100:.0f} %" for d in dists) + f"); {info['time']:.0f} s", flush=True)
+            # the fit's own floor: residuals on the training clusters and on the far-field training configurations (the
+            # latter as a share of *their* induction -- above 100 % the far-field signal was never fitted, and the test
+            # measures the floor, not generalisation)
+            Ecl, _ = T.predict(params, rung, clusters); r_cl = np.sqrt(np.mean((Ecl - np.array([s.energy for s in clusters])) ** 2))
+            msg = f"      training residuals: clusters {r_cl * 627.5:.4f} kcal/mol"
+            tr = {"clusters": float(r_cl)}
+            if far_train:
+                res_tr = probe_rmse(params, rung, far_train, y_tr); r_tr = np.sqrt(np.mean(res_tr ** 2)); tr["far"] = float(r_tr)
+                msg += f"; far-field configurations {r_tr * 627.5:.4f} kcal/mol = {r_tr / np.sqrt(np.mean(ind_tr ** 2)) * 100:.0f} % of their induction"
+            print(msg, flush=True); train_errs.append(tr)
+        results[name] = dict(rmse=errs, train=train_errs, w_far=a.w_far)
         _save(a, results)
     return results
 
@@ -210,6 +238,8 @@ def main():
     ap.add_argument("--train_far", type=int, default=0, help="far-field probe configurations per distance and core added to the training set")
     ap.add_argument("--train_far_cores", type=int, default=8, help="number of different core trimers in the far-field training set")
     ap.add_argument("--test_cores", type=int, default=1)
+    ap.add_argument("--w_far", type=float, default=1.0, help="training weight of the far-field configurations (energies and forces)")
+    ap.add_argument("--cache", default="", help="pickle of the generated far-field data sets (written if absent, read if present)")
     ap.add_argument("--out", default="e3_water_results.json")
     a = ap.parse_args()
     res = {"dimer": run_dimer, "clusters": run_clusters, "far": run_far}[a.part](a)

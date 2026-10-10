@@ -218,3 +218,29 @@ least the R⁻⁶ share, i.e. a visible gap at 6–7 Å and none at 10 Å**. If 
 eight cores, the learned-source map is not learnable from energies and forces at this data scale,
 and the real E3 needs matching targets for the embedded monomer multipoles rather than more
 configurations.
+
+## 10. Fifth addendum (after the first half of the §9 run, before its completion and the weighted re-run)
+
+**Status of §9.** The eight-core run was killed by the container's memory limit half-way (a smoke
+test of a script change ran beside it; nothing else may run beside a far-field run). What it had
+produced: M_1† 98 % and 114 % of the induction (as predicted); **M_1μ seed 0: 86 %** (94 / 67 / 73 /
+90 % at 6 / 7 / 8 / 10 Å) — not the ≤ 50 % predicted, and the same per-distance shape as the best
+seed of §8. The remaining seeds and M_S0μ are re-run from the cached data sets (`--cache`; the
+generation is seeded, so the sets are identical).
+
+**Before concluding that the source map is not learnable (the §9 fallback), the floor has to be
+measured.** The training loss weights every structure alike; the clusters' residual (≳ 0.1 kcal/mol
+per structure in the earlier runs) is larger than the far-field configurations' whole induction
+(0.05 kcal/mol), so the optimiser may never have fitted the far-field signal at all — the §7
+lesson again, at the level of the fit rather than the data. The script now reports, per seed, the
+residual on the training clusters and on the far-field *training* configurations as a share of
+their own induction, and takes a weight `--w_far` for those configurations.
+
+**Pre-registered:** (a) at weight 1 the residual on the far-field training configurations is
+**≥ 50 % of their induction** (the signal was below the floor; if it is ≤ 20 % the floor is not the
+explanation and the map is simply not generalising); (b) at weight 10 that residual falls **below
+30 %**; (c) the test error at weight 10 is then the reading of generalisation from eight cores:
+**≤ 50 %** means the map is learnable from energies and forces at this scale and the real E3 needs
+far-field configurations with a weight, not matching targets; **≥ 70 %** means it is not, and the
+real E3 needs the embedded-monomer multipoles as matching targets (§9's conclusion, now earned).
+Between the two the question stays open and K = 4 decides.

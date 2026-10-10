@@ -129,3 +129,56 @@ instead 4.8–5.8, approaching 6 from below — the seeds' δC₆ and δC₈ are
 valley), so the spread |δC₆/R⁶ + δC₈/R⁸| is partially cancelled at short R′; the uncorrelated estimate was wrong.
 Window rmse 50× below M_6's (the C₈ term absorbs the L6a misfit); the plateau level 2.6e-3 on Ar₂ is 4× M_6's,
 the wider two-parameter fibre.
+
+## v0.0.5 — E3 rehearsed without data: the synthetic polarisable water truth (`scripts/e3_water.py`, `sseft/water.py`)
+
+Pre-registered in `notes/e3-water-preregistration.md` (§3; §6–§9 are the addenda of the far-field sequence,
+each written before the run it predicts); the results note is `notes/e3-rehearsal-results.md`.  Tests: 30
+(`pytest -q tests/`; the water truth, the fragment references and the near-source exclusion added).  Two
+design changes the molecular case forced, both in the package: fragment references (`E_int = E(all) −
+Σ_f E(f)`, the model's own fragment energies at their own geometries; without them a learned monomer energy
+left a flat 10⁻³ E_h tail under every rung) and the near-source switch in the band-field input
+(`|E_near + E_far|²` carries a term linear in the far field with an environment-dependent coefficient — a
+spurious permanent dipole of ~0.5 kcal/mol at 3 Å for a rigid water).
+
+**Dimer, φ = 0, p⋆ = 3, K = 4** (`results/e3_pw_dimer_K4_part{1,2}.log`; window [3.86, 6.95] Å, r_c = 6 Å):
+
+| rung | window rmse | rel. err 20 / 300 Å | W/\|f⋆\| 20 / 300 Å, slope | q 10 → 300 Å | monomer dipole (truth 1.855 D) | pre-registered → verdict |
+|---|---|---|---|---|---|---|
+| M_∞ | 1.5e-4 | 1.000 / 1.000 | floor | – | – | branch 3 ✓ |
+| M_G | 5.6e-6 (2 of 4 seeds excluded) | 415 / 1.1e8 | 1.2e3 / 1.6e8, +4.12 | −6.4 → −1.04 | – | branch 1, q → −1 ✓ |
+| M_1† | 7.7–8.5e-6 | 1.53e-3 / 4.98e-7 | 0 | – | pinned | 1.5e-3 at 20 Å falling as R⁻³, spread 0 ✓ |
+| M_1 | 8.1–11e-6 (1 excluded) | 3.4e-2 / 3.3e-2 | 1.63e-2 / 1.63e-2, +0.00 | 3.13 → 3.00 | 1.822 ± 0.013 D | branch 2 ✓; 1.857 D ± 3 %: magnitude ✓, sign of the bias ✗ |
+| M_1μ | 4.7–7.8e-6 (2 excluded) | 1.7e-2 / 1.3e-2 | 2.9e-2 / 3.0e-2, +0.01 | 3.09 → 3.00 | 1.876 ± 0.019 D, q_O = +0.04 … +0.08 | same tail, split unidentified ✓ |
+| M_A (4 Å, N = 4) | 2.2–3.5e-5 (1 excluded) | 1.07 at 15.5 Å, 1.00 beyond | floor beyond 27 Å | burst, q = 3 crossed at ~10 Å, dq/dR′² = 0.133 | – | R_q3 = 9.4 + (1–3) Å ✓, 0.125 ± 20 % ✓, branch 3 after the burst ✓ |
+
+The wrong sign of M_1's dipole bias (measured λ = 0.982, class minimum under the objective 1.0065,
+`scratch/lambda_hat.py`) has a verified cause: at every window node an intermolecular atom pair (the donor
+H to the acceptor O, at R_OO − 0.96 Å) is inside r_c = 6 Å, so E₀ is silent at no node and absorbs part of
+the band's R⁻³ energy on the identifying nodes.  Pre-registered check with r_c = 5 Å (11 nodes with every
+pair beyond r_c): μ̂ = 1.867 D, the bias changing sign.  RESULT_RC5_RESULTS
+
+**Clusters, K = 2** (`results/e3_pw_clusters_K2*.log`; 36 training clusters n = 3–5, 8 hexamers held out;
+the hexamers' non-additive energy has rms 1.287 kcal/mol = 9.1 % of the interaction energy): non-additive
+rmse as a share of it — M_1† 88, 93 %; M_S0† 85, 73 % (pre-registered ≤ 30 % ✗); M_S2† 114, 120 % (no gain
+over order 0 ✓, in fact a loss).  Small-cluster induction is near-field induction, E₀'s, and the training set
+holds nothing that identifies the band-field coefficient (the dimer's far nodes carry ~10⁻⁶ E_h of
+induction, below the window rmse).
+
+**Far-field induction test, K = 2** (`results/e3_pw_far*.log`; a probe monomer at 6 / 7 / 8 / 10 Å from a
+relaxed trimer, 8 placements per distance; the "induction" — the probe's interaction minus point-charge
+electrostatics — is 13.9 % of the interaction at every distance; the reading is the rmse as a share of it):
+
+| run | far-field training configurations | M_1† | M_S0† | M_S2† | M_1μ | M_S0μ |
+|---|---|---|---|---|---|---|
+| A (§6) | none | 112, 111 % | 80, 89 % (pred. ≤ 20 % ✗) | 238, 299 % (pred. = M_S0† ✗) | – | – |
+| B (§7) | 16 from one core | 106, 99 % | 92, 82 % (pred. ≤ 30 % ✗) | 297, 370 % (pred. ≤ 1.5 × M_S0† ✗) | – | – |
+| C (§8) | 16 from one core | – | – | – | 120, 79 % (pred. ≤ 30 % ✗) | 117, 65 % (pred. ≤ 15 % ✗) |
+| D (§9) | 32 from eight cores | RESULT_D_ROW |
+
+The constant 13.9 % share identifies what this "induction" is: not the probe's R⁻⁶ response to the core's
+field but, dominantly, the interaction of the core's *pre-existing* induced dipoles (0.1–0.3 a.u. per oxygen
+in a hydrogen-bonded trimer) with the probe's charges, ∝ R⁻³ — an environment-dependent source, v1's learned
+μ_i, which a pinned-charge dagger cannot carry by construction and no degree-2 read-out at the probe can
+either.  Run C's single training core showed the source map one environment and asked for a second (the
+test was at fault; §9); run D corrects the design.  RESULT_D_SUMMARY
