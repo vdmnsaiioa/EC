@@ -13,4 +13,4 @@ jax.config.update("jax_enable_x64", True)
 
 from . import units, structure, kernels, e0, heads, bands, ewald, bandfields, model, train, measure, water  # noqa: E402,F401
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"

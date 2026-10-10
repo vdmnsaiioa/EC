@@ -16,7 +16,7 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
 ## Install
 
     pip install -e .            # jax, optax, numpy, scipy (tested with jax 0.10, optax 0.2.8, numpy 2.4, scipy 1.17)
-    pytest -q tests/            # 29 tests, ~4 min on a CPU
+    pytest -q tests/            # 32 tests, ~2.5 min on a CPU
 
 For GPUs install the matching `jax[cuda]` wheel first.
 
