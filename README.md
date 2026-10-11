@@ -86,9 +86,15 @@ Pieces (one module each):
   dielectric toy (with its exact Taylor-class ceiling).
 * `water.py` — the synthetic polarisable water truth of the E3 rehearsal: rigid gas-phase monomers with
   point charges (μ = 1.855 D), intermolecular Coulomb smeared at 0.5 Å, a self-consistent isotropic
-  polarisable site on each O (α = 9.72 a.u.), exponential repulsion and damped C₆; dimer scans, relaxed
-  random clusters (rigid-body Metropolis on the truth), probe configurations for the far-field induction
-  test, and an extxyz loader for the real data.
+  polarisable site on each O (α = 9.72 a.u.), exponential repulsion and damped C₆, and a sodium-like
+  non-polarisable ion (`ION`) for the band-field response test; dimer scans, relaxed random clusters
+  (rigid-body Metropolis on the truth), probe and ion configurations for the far-field tests, the exact
+  decomposition of an ion's induction, and an extxyz loader for the real data.
+* `linear.py` — the weighted linear least-squares solve of the band-field read-out's order-0 output layers
+  under the training objective (energies, forces, per-structure weights), the rest of the model fixed: the
+  read-out is a linear-in-coefficients term inside a non-linear model, and like `M_A`'s analytic family it is
+  initialised by its solve and polished by L-BFGS, never trained by Adam (`train.fit` freezes it during the
+  Adam stage; the five rules are in `notes/e3r-results.md` §5).
 
 A note on optimisation: the analytic rung `M_A` and the band-field read-out are ill-conditioned linear
 problems inside a non-linear model; Adam alone leaves them far from the floor (`M_A` window rmse 3e-5 E_h
@@ -102,6 +108,8 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
     python scripts/e3_water.py --part dimer --rungs M_inf,M_G,M_A,M_1,M_1mu,M_1p --seeds 4 --steps 1500 --lbfgs 300
     python scripts/e3_water.py --part clusters --rungs M_1p,M_S0p,M_S2p --seeds 2 --steps 1000 --lbfgs 150
     python scripts/e3_water.py --part far --train_far 1 --train_far_cores 8 --rungs M_1p,M_1mu,M_S0mu --seeds 2 --steps 1000 --lbfgs 150
+    python scripts/e3_water.py --part ion --rungs M_16p,M_16S0p --l1 0.75 --rs_over_l1 0 --train_far 1 --train_far_cores 8 \
+        --test_cores 4 --extra_far 2 --seeds 2 --steps 1000 --lbfgs 300      # E3-R: the band-field response on an ion probe
     sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
 
 `dimer_ladder.py` trains an ensemble of each rung on the Phase 2 window (40 log-uniform nodes on
@@ -141,6 +149,12 @@ CCSD(T) data when they exist.  Every part saves its json after each rung.
   embedded dagger `M_16pemb` reproducing the dimer tail to 6e-8 at 20 Å, the far field to the mutual response
   (5 % at 10 Å) and, at a band edge of 0.75 Å, the hexamers' non-additive energy to 4–9 %: `RESULTS.md`, with
   the pre-registration and result notes in `notes/`.
+* E3-R, the band-field response tested explicitly (`notes/e3r-*.md`): with permanent sources, the own fragment
+  excluded from the band-field input and the band edge at 0.75 Å, the order-0 read-out carries the first-order
+  induction — the hexamers' non-additive error from 90–106 % to 15–51 %, an ion's induction at 6–12 Å from
+  87–95 % to 32–34 %, and the response coefficient of an isolated monomer read at 1.05 and 1.00 of α — once
+  the training set holds configurations with the source beyond r_c of every atom and the read-out is trained
+  by its linear solve rather than by Adam.
 * The X2-B toy and the numbers behind the lines above: `RESULTS.md`.
 
 ## Layout
