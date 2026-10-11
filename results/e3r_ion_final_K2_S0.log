@@ -4,3 +4,6 @@ band-field response test: 80 ion configurations from 4 trimer cores at d = (6.0,
     read-out linear solve: objective 3.116e-02 -> 1.676e-02  [596 s]
   M_16S0p seed 0: ion-interaction rmse 0.2373 kcal/mol = 42 % of the induction (per distance: 6 A 36 %, 7 A 54 %, 8 A 43 %, 10 A 63 %, 12 A 54 %; of the response alone 60 %); 2165 s
       training residuals: clusters 0.3960 kcal/mol; ion-core configurations 0.8292 = 29 % of their induction (d >= 6 A: 30 %); response coefficient a_eff / alpha from a monomer + ion at 20 A: 0.648
+    read-out linear solve: objective 3.630e-02 -> 2.005e-02  [578 s]
+  M_16S0p seed 1: ion-interaction rmse 0.2812 kcal/mol = 50 % of the induction (per distance: 6 A 43 %, 7 A 63 %, 8 A 56 %, 10 A 67 %, 12 A 62 %; of the response alone 72 %); 2215 s
+      training residuals: clusters 0.6898 kcal/mol; ion-core configurations 0.4214 = 15 % of their induction (d >= 6 A: 43 %); response coefficient a_eff / alpha from a monomer + ion at 20 A: 0.605

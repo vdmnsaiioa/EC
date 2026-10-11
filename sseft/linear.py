@@ -13,9 +13,13 @@ import jax.numpy as jnp
 from . import model as M
 
 
-def _flat_last(readout):
-    """the output-layer parameters of the read-out as one vector, and the inverse."""
-    leaves = [readout["theta"][-1]["w"], readout["theta"][-1]["b"], readout["iso"][-1]["w"], readout["iso"][-1]["b"]]
+def _flat_last(readout, n0):
+    """the order-0 output-layer parameters of the read-out as one vector (the first n0 output columns of the pair
+    coefficients and the node term), and the inverse.  The orders >= 1 stay at zero and switch on in the L-BFGS
+    polish: with ~2000 output coefficients at order 2 against ~1700 equations the plain solve is under-determined
+    and over-fits the training set (clusters: 126 % of the non-additive energy against 44-51 % at order 0)."""
+    th = readout["theta"][-1]
+    leaves = [th["w"][:, :n0], th["b"][:n0], readout["iso"][-1]["w"], readout["iso"][-1]["b"]]
     shapes = [l.shape for l in leaves]; sizes = [int(np.prod(s)) for s in shapes]
     def unflat(c):
         out = []; i = 0
@@ -27,8 +31,8 @@ def _flat_last(readout):
 
 def _with_last(params, c, unflat):
     w1, b1, w2, b2 = unflat(c)
-    ro = dict(params["readout"])
-    ro["theta"] = list(ro["theta"]); ro["theta"][-1] = {"w": w1, "b": b1}
+    ro = dict(params["readout"]); th = ro["theta"][-1]; n0 = w1.shape[1]
+    ro["theta"] = list(ro["theta"]); ro["theta"][-1] = {"w": th["w"].at[:, :n0].set(w1), "b": th["b"].at[:n0].set(b1)}
     ro["iso"] = list(ro["iso"]); ro["iso"][-1] = {"w": w2, "b": b2}
     return {**params, "readout": ro}
 
@@ -37,7 +41,8 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12)
     """set the read-out's output layers to the weighted least-squares optimum of the training objective (energies per
     atom and forces, scaled as in train.make_loss_sums, per-structure weights included), the rest of the model fixed.
     Returns the new params and the (before, after) values of the objective."""
-    c0, unflat = _flat_last(params["readout"])
+    nr = rung.e0.get("n_rbf_readout", rung.e0["n_rbf"])
+    c0, unflat = _flat_last(params["readout"], 2 * nr)                  # the order-0 invariants' columns
     n = int(data["mask"].shape[0]); nc = len(c0)
     AtA = np.zeros((nc, nc)); Atr = np.zeros(nc); loss0 = 0.0
     # counts for the objective's normalisation (as in make_loss_sums over the whole set)
