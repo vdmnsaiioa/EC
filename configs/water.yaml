@@ -1,0 +1,4 @@
+experiment:
+  type: water
+  part: dimer
+  rungs: [M_inf, M_1, M_1p]

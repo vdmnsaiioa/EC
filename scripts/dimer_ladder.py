@@ -13,6 +13,7 @@ isolated atoms at zero energy included so that the dimer energy is the interacti
 systems one model is trained on the union of the windows; the Casimir-Polder C6 of every pair of species
 (including the mixed pairs never seen in training) is then compared with DOSD.
 """
+from experiment_config import parse_selection
 import argparse, time, json, sys, os, itertools
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -45,7 +46,7 @@ def main():
     ap.add_argument("--rcut", type=float, default=6.0, help="E0 cutoff in A")
     ap.add_argument("--one_oscillator", action="store_true")
     ap.add_argument("--out", default="dimer_ladder_results.json")
-    a = ap.parse_args()
+    a = parse_selection(ap, "dimer_ladder", rungs=M.RUNGS, systems={"tt": set(D.TT) & set(WINDOWS), "published": set(D.PUBLISHED) & set(WINDOWS)})
 
     systems = a.system.split(",")
     rng = np.random.default_rng(0)

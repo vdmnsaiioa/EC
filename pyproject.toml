@@ -9,7 +9,7 @@ description = "Scale-separated EFT model: E_0 + IR bands on learned sources (JAX
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"
-dependencies = ["jax>=0.4.30", "optax>=0.2", "numpy>=1.26", "scipy>=1.11"]
+dependencies = ["jax>=0.4.30", "optax>=0.2", "numpy>=1.26", "scipy>=1.11", "PyYAML>=6.0"]
 
 [project.optional-dependencies]
 test = ["pytest"]

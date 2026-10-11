@@ -20,6 +20,28 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
 
 For GPUs install the matching `jax[cuda]` wheel first.
 
+## Experiment selection with YAML
+
+Select an experiment using `configs/dimer.yaml`, `configs/water.yaml`, or `configs/toy.yaml`:
+
+```sh
+python scripts/run_experiment.py --config configs/dimer.yaml --lbfgs 300
+python scripts/run_experiment.py --config configs/water.yaml
+python scripts/run_experiment.py --config configs/toy.yaml
+```
+
+The config contains a single `experiment` mapping. `type` is required:
+
+| Type | Optional selection fields |
+| --- | --- |
+| `dimer_ladder` | `systems` (list), `truth` (`tt` or `published`), `rungs` (list) |
+| `water` | `part` (`dimer`, `clusters`, `far`, or `ion`), `rungs` (list) |
+| `x2b_toy` | `orders` (list containing `0` and/or `2`) |
+
+Omitted fields retain the selected script's defaults. Explicit CLI flags override YAML selection values. Unknown fields and unsupported selections are rejected. Training, dataset, and architecture settings still use the existing CLI flags/defaults; YAML support currently covers experiment selection only. The examples run real experiments and may take substantial time.
+
+Each original script also accepts `--config`, provided its experiment type matches. Existing commands without a config continue to work.
+
 ## The rungs
 
 | rung    | bands                | sources                | band fields | stands for |

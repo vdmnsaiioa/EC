@@ -6,6 +6,7 @@ order, fitted by OLS (sseft.toys.taylor_class_ceiling); the linear-tier numbers 
 
     python scripts/x2b_toy_regression.py [--steps 1500] [--lbfgs 200] [--clusters 24]
 """
+from experiment_config import parse_selection
 import argparse, time, sys, os, json
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -20,7 +21,7 @@ def main():
     ap.add_argument("--rcut", type=float, default=2.0, help="E0 cutoff in the toy's units; the truth's response range is a = 0.5")
     ap.add_argument("--orders", default="0,2"); ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="x2b_toy_regression.json")
-    a = ap.parse_args()
+    a = parse_selection(ap, "x2b_toy")
     t0 = time.time()
     train = toys.x2b_dataset(n_clusters=a.clusters, N=(40,), seed=0)
     test = toys.x2b_dataset(n_clusters=8, N=(40,), densities=(0.18, 0.26), seed=99)

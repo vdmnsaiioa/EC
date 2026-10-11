@@ -20,6 +20,7 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
     M_S0p, M_S2p      M_1p + band-field inputs at order 0 / 2                  (v1.5 dagger)
     M_S0, M_S2        M_1 + band-field inputs (q learned)
 """
+from experiment_config import parse_selection
 import argparse, time, json, sys, os, pickle
 import numpy as np
 import jax
@@ -424,7 +425,7 @@ def main():
     ap.add_argument("--extra_far", type=int, default=0, help="ion part: pure far-field configurations per distance and core (d = 10, 12, 14 A) added to the training set")
     ap.add_argument("--extra_cache", default="", help="ion part: cache of the pure far-field configurations")
     ap.add_argument("--out", default="e3_water_results.json")
-    a = ap.parse_args()
+    a = parse_selection(ap, "water", rungs=RUNGS)
     res = {"dimer": run_dimer, "clusters": run_clusters, "far": run_far, "ion": run_ion}[a.part](a)
     _save(a, res)
 
