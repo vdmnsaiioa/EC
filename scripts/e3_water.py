@@ -109,6 +109,9 @@ def pin_embedded(structs, n_core=None, self_energy=True):
 
 def configure(rung, a):
     kw = dict(lA=ang_to_bohr(a.lA), e0={**rung.e0, "r_cut": ang_to_bohr(a.rcut), "F": a.F, "n_rbf_readout": 8})
+    charge_source = getattr(a, "charges", None)
+    if rung.charges and charge_source is not None:
+        kw["pin_q"] = charge_source == "pinned"
     if a.l1 > 0:
         kw["l1"] = ang_to_bohr(a.l1)                                                   # the band edge (default 1.5 A)
     if rung.band_fields >= 0:
@@ -135,6 +138,11 @@ def _save(a, results):
     if hasattr(a, "rungs"):
         for name in a.rungs.split(","):
             if name in results:
+                preset = RUNGS[name]
+                charge_source = getattr(a, "charges", None)
+                results[name]["model"] = {
+                    "charges": (charge_source or ("pinned" if preset.pin_q else "learned")) if preset.charges else "off"
+                }
                 results[name]["training"] = {"seeds": training_seeds(a), "far_weight": a.w_far if hasattr(a, "w_far") else 1.0,
                                              **training_kwargs(a)}
     old.update(results)
@@ -463,6 +471,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--part", default="dimer", choices=["dimer", "clusters", "far", "ion"])
     ap.add_argument("--rungs", default="M_inf,M_G,M_A,M_1,M_1mu,M_1p")
+    ap.add_argument("--charges", choices=["pinned", "learned"], default=None,
+                    help="override charge sources for all charge-bearing water rungs; omitted keeps preset defaults")
     ap.add_argument("--seeds", type=int, default=4); ap.add_argument("--steps", type=int, default=1500); ap.add_argument("--lbfgs", type=int, default=300)
     ap.add_argument("--sigma", type=float, default=1e-9); ap.add_argument("--rcut", type=float, default=6.0); ap.add_argument("--lA", type=float, default=4.0)
     ap.add_argument("--F", type=int, default=16); ap.add_argument("--rs_over_l1", type=float, default=1.0)

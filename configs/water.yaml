@@ -3,6 +3,9 @@ experiment:
   part: clusters
   rungs: [M_inf, M_1, M_1p]
 
+model:
+  charges: null  # pinned or learned; null preserves each rung's default.
+
 data:
   # Sizes count water molecules; n_train/n_test are clusters per size.
   train_sizes: [3, 4, 5]

@@ -42,6 +42,23 @@ Omitted fields retain the selected script's defaults. Explicit CLI flags overrid
 
 Each original script also accepts `--config`, provided its experiment type matches. Existing commands without a config continue to work.
 
+### Water charge sources
+
+The optional `model` mapping selects the charge source independently of the water rung names:
+
+```yaml
+experiment:
+  type: water
+  part: clusters
+  rungs: [M_1, M_S0, M_S2]
+model:
+  charges: pinned  # Change to learned to train the charge head.
+```
+
+`model.charges: pinned` uses the synthetic water's fixed atomic charges. `learned` uses the model's learned charge head even for presets whose names end in `p`. Omission or `null` preserves each preset's original charge behavior, allowing a mixed learned/pinned comparison. `configs/water.yaml` uses `null` to retain that comparison by default. The setting applies to both the Coulomb band and band-field inputs in every water part. Charge-free models such as `M_inf` stay charge-free. Dipole and polarizability pinning retain their preset settings.
+
+Explicit `--charges pinned` or `--charges learned` overrides YAML. Rung names remain the result labels; each model result records its effective charge mode under `model.charges`, so use that metadata to interpret results when a preset is overridden. Response-readout freezing is a separate training setting and does not select the charge source. Select response rungs such as `M_S0`/`M_S2` or `M_S0p`/`M_S2p` when you want band-field readouts.
+
 ### Water cluster datasets
 
 `configs/water.yaml` selects `part: clusters` and makes the dataset defaults explicit:

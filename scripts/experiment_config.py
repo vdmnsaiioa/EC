@@ -285,12 +285,26 @@ def validate_cluster_data(data):
         raise ValueError("data.radius_angstrom must exceed half of min_oo_angstrom to place multiple molecules")
 
 
+def validate_model(model, kind):
+    """Validate water charge-source overrides; omission/null retains rung defaults."""
+    if kind != "water":
+        raise ValueError("model configuration currently supports water only")
+    if not isinstance(model, dict):
+        raise ValueError("model must be a mapping")
+    unknown = set(model) - {"charges"}
+    if unknown:
+        raise ValueError(f"unsupported model fields: {', '.join(sorted(map(str, unknown)))}")
+    if model.get("charges") not in (None, "pinned", "learned"):
+        raise ValueError("model.charges must be pinned, learned, or null")
+    return model
+
+
 def load_config(path):
     with Path(path).open() as stream:
         config = yaml.safe_load(stream)
     if (not isinstance(config, dict) or "experiment" not in config
-            or set(config) - {"experiment", "data", "training"}):
-        raise ValueError("config must contain an experiment mapping and optional data/training mappings")
+            or set(config) - {"experiment", "data", "training", "model"}):
+        raise ValueError("config must contain an experiment mapping and optional data/training/model mappings")
     selection = config["experiment"]
     if not isinstance(selection, dict):
         raise ValueError("experiment must be a mapping")
@@ -318,6 +332,8 @@ def load_config(path):
         if kind != "water":
             raise ValueError("data configuration currently supports water clusters only")
         validate_cluster_data(config["data"])
+    if "model" in config:
+        validate_model(config["model"], kind)
     if "training" in config:
         validate_training(config["training"])
     return config
@@ -350,6 +366,7 @@ def parse_selection(parser, kind, argv=None, *, rungs=None, systems=None):
                 defaults[key] = ','.join(map(str, value)) if isinstance(value, list) else value
             training_defaults = validate_training(config.get("training", {}))
             defaults.update(training_defaults)
+            defaults.update(config.get("model", {}))
             parser.set_defaults(**defaults)
         except (OSError, ValueError, yaml.YAMLError) as exc:
             parser.error(str(exc))
