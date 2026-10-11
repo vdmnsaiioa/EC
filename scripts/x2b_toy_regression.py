@@ -33,9 +33,10 @@ def main():
     res = {"ceiling": ceil}
     for order in [int(x) for x in a.orders.split(",")]:
         rung = M.with_rung(M.RUNGS["M_S%d" % order], dispersion=False, pin_alpha=False, site_energies=False,
-                           coulomb_energy=False, l1=2.0, e0={**M.RUNGS["M_S0"].e0, "r_cut": a.rcut, "F": a.F, "n_rbf_readout": a.n_rbf_readout})
+                           coulomb_energy=False, l1=2.0, bf_E_ref=1.0,    # the toy's fields are O(1) in its own units
+                           e0={**M.RUNGS["M_S0"].e0, "r_cut": a.rcut, "F": a.F, "n_rbf_readout": a.n_rbf_readout})
         t = time.time()
-        params, info = T.fit(rung, train, seed=a.seed, steps=a.steps, lr=3e-3, w_force=0.0, batch_size=48,
+        params, info = T.fit(rung, train, seed=a.seed, steps=a.steps, lr=3e-3, w_force=0.0, batch_size=48, readout_adam=True,   # the toy's model is the read-out
                              lbfgs_steps=a.lbfgs, verbose=True)
         E_tr = T.predict_aux(params, rung, train)["E_bf"]; E_te = T.predict_aux(params, rung, test)["E_bf"]
         rtr = np.sqrt(np.mean((E_tr - y_tr) ** 2)) / np.sqrt(np.mean(y_tr ** 2))

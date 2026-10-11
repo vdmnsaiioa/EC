@@ -133,7 +133,7 @@ the wider two-parameter fibre.
 ## v0.0.5 → v0.0.6 — E3 rehearsed without data: the synthetic polarisable water truth (`scripts/e3_water.py`, `sseft/water.py`)
 
 Pre-registered in `notes/e3-water-preregistration.md` (§3; §6–§9 are the addenda of the far-field sequence,
-each written before the run it predicts); the results note is `notes/e3-rehearsal-results.md`.  Tests: 32
+each written before the run it predicts); the results note is `notes/e3-rehearsal-results.md`.  Tests: 34
 (`pytest -q tests/`; the water truth, the fragment references, the near-source exclusion and the embedded dagger's
 identity added).  Two
 design changes the molecular case forced, both in the package: fragment references (`E_int = E(all) −
@@ -210,3 +210,44 @@ hydrogen-bond partner's field at 1.9 Å is only 64 % long-range at that band edg
 E₀'s and unlearned; **at ℓ₁ = 0.75 Å (pre-registered ≤ 25 %): non-additive rmse 9 and 4 %, hexamer rmse 0.078 /
 0.061 kcal/mol (every rung at ℓ₁ = 1.5 Å: 0.50–0.88), dimer rmse 0.02 / 0.01.**  The band edge of a
 hydrogen-bonded system sits below the hydrogen bond; the real E3 runs at ℓ₁ = 0.75 Å.
+
+## v0.0.6 → v0.0.7 — E3-R: the band-field response tested explicitly (`scripts/e3_water.py --part ion`, `sseft/linear.py`)
+
+Pre-registered in `notes/e3r-bandfield-response-preregistration.md` (§3: the order-0 ceilings computed from the
+truth; §4: predictions; §6–§10: five addenda, each written between the runs); results in `notes/e3r-results.md`.
+Design: permanent sources (the isolated monomer's charges and the ion's charge) pinned with the dispersion band
+on the pinned α_O, the band edge ℓ₁ = 0.75 Å, the own fragment excluded from the band-field input (new,
+`Rung.bf_fragments`, tested open and periodic), and an ion probe in the truth (a non-polarisable unit charge;
+`sseft.water.ION`) whose induction signal at 6–12 Å from a trimer is 0.15–1.0 kcal/mol, 10–60× the fit floors.
+The order-0 read-out's computed ceiling is the first-order induction E_ind1: 71 % of the hexamers' non-additive
+energy, 85–93 % of a water probe's induction, 86–98 % of the ion's.
+
+**Training the read-out took five rules, each bought with a failed run** (the runs are in `results/e3r_ion_l1_0.75_K2_*.log`):
+field tensors in units of E_ref = 0.01 a.u. and the output in units of e_scale (without: a_eff/α = 0.21, the
+coefficient never reached); output layers starting at zero (without: the fit collapsed on the ion at 2 Å, clusters
+at 3.3 kcal/mol); the read-out frozen during Adam (without: Adam's fixed steps wreck the near configurations,
+clusters 1.9 kcal/mol); its order-0 sector set by the weighted linear least-squares solve of the objective
+(`sseft.linear.solve_readout`, exact against `train.make_chunked_loss`; the full order-2 solve over-fits);
+L-BFGS polish of everything (300 steps).
+
+| reading (K = 2) | M_16† (no read-out) | M_16S0† (order 0) | M_16S2† (order 2) | ceiling / floor from the truth |
+|---|---|---|---|---|
+| hexamers' non-additive rmse, % of 1.287 kcal/mol — joint Adam, read-out unscaled, L-BFGS 150 | 106, 90 % | **36, 15 %** | 22, 19 % | first order 71 %, remainder 30 % |
+| same, final schedule (frozen Adam → solve → L-BFGS 300) | 107, 91 % | 44, 51 % | 52, 51 % (order-0 solve; the full order-2 solve: 126, 69 %) | |
+| hexamer rmse, kcal/mol (joint Adam / final) | 0.66, 0.59 / 0.65, 0.60 | 0.21, 0.16 / 0.32, 0.27 | 0.15, 0.14 / 0.40, 0.32 | |
+| ion at 6 / 7 / 8 / 10 / 12 Å: rmse / induction, final schedule | 93, 87 % (100 % beyond r_c, as computed) | 42, 50 % | – | first order 95 / 95 / 93 / 89 / 86 % |
+| same, + 72 configurations with the ion beyond r_c of every atom | – | **32, 34 %** (30 / 34 / 35 / 55 / 43; 34 / 33 / 31 / 40 / 36) | – | |
+| response coefficient a_eff/α (monomer + ion at 20 Å) | – | 0.65, 0.61 → **1.05, 1.00** with the identification data | – | 1 |
+| water probe at 6 / 7 / 8 / 10 Å: rmse / induction | 101, 101 % | 68, 68 % (floor-limited: the induction is 1–4× the fit floor) | – | first order 85–93 % |
+
+The read-out learns the band-field response: the response coefficient read on an isolated monomer with
+nothing else in play is 1.05 and 1.00 of the truth's α once the training set holds configurations in which the
+source is beyond r_c of every atom (14 such structures left it at 0.6–0.65, 86 brought it within 5 %); the
+ion's induction error falls from 87–95 % to 32–34 %, the hexamers' non-additive error from 90–106 % to 15–51 %
+(schedule-dependent). The errors above the computed floors are fit residuals on the far-field configurations
+(33–45 % of their induction, 0.03–0.05 kcal/mol, five to ten times below the clusters' residual) that the
+uniform objective does not reduce; the water probe's induction is at the floor. The learned-source tier is
+unreadable on a charged system (the charge head's uniform neutrality shift spreads the ion's +1 over every atom:
+M_1μ at 591 %) and is deferred until the ion's charge is pinned. Wrong predictions: eight, listed in the results
+note; the one that mattered was the §3 "floor" of 30 % on the hexamers, beaten by one seed (15 %) because the
+coefficients are environment-dependent.

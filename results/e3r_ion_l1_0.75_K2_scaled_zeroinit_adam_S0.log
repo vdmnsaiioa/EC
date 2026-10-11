@@ -1,0 +1,5 @@
+data from results/cache_ion.pkl
+band-field response test: 80 ion configurations from 4 trimer cores at d = (6.0, 7.0, 8.0, 10.0, 12.0) A; ion interaction rms 2.5820 kcal/mol, induction (embedded dipoles x ion field + response) rms 0.5648 (21.9 %), of which the response 0.3928; per distance induction 6 A 1.0395, 7 A 0.5710, 8 A 0.3508, 10 A 0.2046, 12 A 0.1540  [16 s]
+  training: 80 base + 54 ion-monomer + 48 ion-core configurations (8 cores, d = (4.0, 5.0, 6.0, 7.0, 8.0, 10.0), weight 1); their induction rms 2.8952 kcal/mol
+  M_16S0p seed 0: ion-interaction rmse 0.4845 kcal/mol = 86 % of the induction (per distance: 6 A 80 %, 7 A 96 %, 8 A 95 %, 10 A 106 %, 12 A 98 %; of the response alone 123 %); 1439 s
+      training residuals: clusters 1.9309 kcal/mol; ion-core configurations 1.5267 = 53 % of their induction (d >= 6 A: 70 %); response coefficient a_eff / alpha from a monomer + ion at 20 A: 0.020

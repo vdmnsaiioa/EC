@@ -1,0 +1,5 @@
+data from results/cache_clusters.pkl
+clusters: 36 training (n = 3, 4, 5), 8 hexamers and 8 dimers held out; rms E_int train 8.30 kcal/mol; hexamer non-additive energy rms 1.287 kcal/mol (9.1 % of the interaction energy)  [21 s]
+  M_16p seed 0: hexamer rmse 0.651 kcal/mol, dimer rmse 0.185, non-additive rmse 1.375 (107 % of the non-additive energy); 704 s
+  M_16p seed 1: hexamer rmse 0.600 kcal/mol, dimer rmse 0.158, non-additive rmse 1.168 (91 % of the non-additive energy); 624 s
+  M_16p: hexamer 0.626, dimer 0.172, non-additive 1.271 kcal/mol (means over seeds)  [1557 s]

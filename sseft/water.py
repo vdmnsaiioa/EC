@@ -94,78 +94,75 @@ def _mol_index(n_mol):
     return jnp.repeat(jnp.arange(n_mol), 3)
 
 
-def pw_energy(pos_bohr, n_mol, p=PW):
-    """total intermolecular energy (hartree) of n_mol rigid monomers at positions (3 n_mol, 3) bohr, atoms ordered
-    O, H, H per molecule.  Differentiable in the positions."""
-    N = 3 * n_mol
-    mol = _mol_index(n_mol)
-    q = jnp.tile(jnp.asarray(monomer_charges()), n_mol)
-    Z = jnp.tile(jnp.asarray([8, 1, 1]), n_mol)
+# a sodium-like cation for the band-field response test: a non-polarisable unit charge with exponential repulsion
+# to O and H (tuned to R_e(ion-O) = 2.25 A, D_e = 24 kcal/mol for the ion-water dimer, see ion_dimer_scan)
+ION = dict(Q=1.0, Z=11, A_O=500.0, b_O=2.4, A_H=30.0, b_H=2.5)      # R_e(ion-O) = 2.39 A, D_e = 21.5 kcal/mol
+
+
+def _site_arrays(n_mol, n_ion=0, p=PW, ion=ION):
+    """species-resolved arrays of the truth's sites: fragment index, charges, polarisabilities, pair repulsion
+    A exp(-b r) and C6 matrices; water atoms ordered O, H, H per molecule, then the ions (one fragment each)."""
+    N = 3 * n_mol + n_ion
+    mol = jnp.concatenate([_mol_index(n_mol), n_mol + jnp.arange(n_ion)])
+    q = jnp.concatenate([jnp.tile(jnp.asarray(monomer_charges()), n_mol), jnp.full((n_ion,), ion["Q"])])
+    Z = jnp.concatenate([jnp.tile(jnp.asarray([8, 1, 1]), n_mol), jnp.full((n_ion,), ion["Z"])])
+    isO = Z == 8; isH = Z == 1; isI = Z == ion["Z"]
+    alpha = jnp.where(isO, ALPHA_O, 0.0)
+    def pair(ma, mb): return (ma[:, None] & mb[None, :]) | (mb[:, None] & ma[None, :])
+    A = (jnp.where(pair(isO, isO), p["A_OO"], 0.0) + jnp.where(pair(isO, isH), p["A_OH"], 0.0) + jnp.where(pair(isH, isH), p["A_HH"], 0.0)
+         + jnp.where(pair(isI, isO), ion["A_O"], 0.0) + jnp.where(pair(isI, isH), ion["A_H"], 0.0))
+    b = (jnp.where(pair(isO, isO), p["b_OO"], 0.0) + jnp.where(pair(isO, isH), p["b_OH"], 0.0) + jnp.where(pair(isH, isH), p["b_HH"], 0.0)
+         + jnp.where(pair(isI, isO), ion["b_O"], 0.0) + jnp.where(pair(isI, isH), ion["b_H"], 0.0))
+    c6 = jnp.where(pair(isO, isO), C6_OO, 0.0)
+    return mol, q, alpha, A, b, c6
+
+
+def _pw_general(x, mol, q, alpha, A, b, c6, lam, l_disp, components=False):
+    """intermolecular energy of charged, polarisable point sites in fragments: smeared Coulomb between sites of
+    different fragments, self-consistent induced dipoles on the sites with alpha > 0, pairwise exponential
+    repulsion and damped C6 dispersion on fragment-external pairs.  Differentiable in x."""
+    N = x.shape[0]
     inter = (mol[:, None] != mol[None, :])
-    D = pos_bohr[:, None, :] - pos_bohr[None, :, :]
-    r = jnp.sqrt(jnp.sum(D * D, axis=-1) + jnp.where(inter, 0.0, 1.0))      # intramolecular pairs: dummy distance 1
+    D = x[:, None, :] - x[None, :, :]
+    r = jnp.sqrt(jnp.sum(D * D, axis=-1) + jnp.where(inter, 0.0, 1.0))      # intrafragment pairs: dummy distance 1
     rhat = D / r[..., None]
-    lam = p["lam"]
-    # electrostatics (smeared), each pair once
     E_es = 0.5 * jnp.sum(jnp.where(inter, q[:, None] * q[None, :] * kn.g_long(r, lam), 0.0))
-    # fields at the oxygens from the other molecules' charges: E = -q grad g = -q g'(r) rhat (rhat = (r_i - r_j)/r)
-    isO = Z == 8
     dg = kn.dg_long(r, lam); d2g = kn.d2g_long(r, lam)
     Eq = -jnp.sum(jnp.where(inter[:, :, None], (q[None, :] * dg)[:, :, None] * rhat, 0.0), axis=1)       # (N,3)
-    # dipole-dipole tensor between oxygens of different molecules: T = grad grad g = g'' rr + (g'/r)(1 - rr)
     T = (d2g[..., None, None] * rhat[..., :, None] * rhat[..., None, :]
          + (dg / r)[..., None, None] * (jnp.eye(3)[None, None] - rhat[..., :, None] * rhat[..., None, :]))
-    T = jnp.where((inter & isO[:, None] & isO[None, :])[..., None, None], T, 0.0)
-    # self-consistent induced dipoles on the oxygens: mu = alpha (Eq + T mu)  ->  (I - alpha T) mu = alpha Eq
-    # build the 3n x 3n system on all atoms with alpha = 0 on hydrogens (keeps shapes static)
-    alpha = jnp.where(isO, ALPHA_O, 0.0)
-    A = jnp.eye(3 * N) - (alpha[:, None, None, None] * T).transpose(0, 2, 1, 3).reshape(3 * N, 3 * N)
-    rhs = (alpha[:, None] * Eq).reshape(-1)
-    mu = jnp.linalg.solve(A, rhs).reshape(N, 3)
+    pol = alpha > 0
+    T = jnp.where((inter & pol[:, None] & pol[None, :])[..., None, None], T, 0.0)
+    Amat = jnp.eye(3 * N) - (alpha[:, None, None, None] * T).transpose(0, 2, 1, 3).reshape(3 * N, 3 * N)
+    mu = jnp.linalg.solve(Amat, (alpha[:, None] * Eq).reshape(-1)).reshape(N, 3)
     E_ind = -0.5 * jnp.sum(mu * Eq)
-    # repulsion and dispersion (intermolecular)
-    OO = inter & isO[:, None] & isO[None, :]
-    OH = inter & (isO[:, None] != isO[None, :])
-    HH = inter & ~isO[:, None] & ~isO[None, :]
-    E_rep = 0.5 * jnp.sum(jnp.where(OO, p["A_OO"] * jnp.exp(-p["b_OO"] * r), 0.0)
-                          + jnp.where(OH, p["A_OH"] * jnp.exp(-p["b_OH"] * r), 0.0)
-                          + jnp.where(HH, p["A_HH"] * jnp.exp(-p["b_HH"] * r), 0.0))
-    E_disp = -0.5 * jnp.sum(jnp.where(OO, C6_OO * kn.f6_long(r, p["l_disp"]), 0.0))
+    E_rep = 0.5 * jnp.sum(jnp.where(inter, A * jnp.exp(-b * r), 0.0))
+    E_disp = -0.5 * jnp.sum(jnp.where(inter, c6 * kn.f6_long(r, l_disp), 0.0))
+    if components:
+        E_ind1 = -0.5 * jnp.sum(alpha[:, None] * Eq * Eq)
+        return dict(es=E_es, ind=E_ind, ind1=E_ind1, rep=E_rep, disp=E_disp, mu_ind=mu, Eq=Eq)
     return E_es + E_ind + E_rep + E_disp
 
 
-def pw_energy_forces(pos_ang, n_mol):
+def pw_energy(pos_bohr, n_mol, p=PW, n_ion=0):
+    """total intermolecular energy (hartree) of n_mol rigid monomers (atoms O, H, H per molecule) [+ n_ion ions,
+    last rows] at positions (3 n_mol + n_ion, 3) bohr.  Differentiable in the positions."""
+    mol, q, alpha, A, b, c6 = _site_arrays(n_mol, n_ion, p)
+    return _pw_general(pos_bohr, mol, q, alpha, A, b, c6, p["lam"], p["l_disp"])
+
+
+def pw_energy_forces(pos_ang, n_mol, n_ion=0):
     """energy (hartree) and forces (hartree/bohr) of the truth for positions in A."""
     x = jnp.asarray(ang_to_bohr(np.asarray(pos_ang, float)))
-    E, g = jax.value_and_grad(lambda y: pw_energy(y, n_mol))(x)
+    E, g = jax.value_and_grad(lambda y: pw_energy(y, n_mol, n_ion=n_ion))(x)
     return float(E), -np.array(g)
 
 
-def pw_components(pos_ang, n_mol):
-    """the four pieces, for diagnostics."""
-    return _pw_components(jnp.asarray(ang_to_bohr(np.asarray(pos_ang, float))), n_mol)
-
-
-def _pw_components(x, n_mol, p=PW):
-    N = 3 * n_mol; mol = _mol_index(n_mol)
-    q = jnp.tile(jnp.asarray(monomer_charges()), n_mol); Z = jnp.tile(jnp.asarray([8, 1, 1]), n_mol)
-    inter = (mol[:, None] != mol[None, :]); D = x[:, None, :] - x[None, :, :]
-    r = jnp.sqrt(jnp.sum(D * D, axis=-1) + jnp.where(inter, 0.0, 1.0)); rhat = D / r[..., None]; lam = p["lam"]
-    E_es = 0.5 * jnp.sum(jnp.where(inter, q[:, None] * q[None, :] * kn.g_long(r, lam), 0.0))
-    isO = Z == 8; dg = kn.dg_long(r, lam); d2g = kn.d2g_long(r, lam)
-    Eq = -jnp.sum(jnp.where(inter[:, :, None], (q[None, :] * dg)[:, :, None] * rhat, 0.0), axis=1)
-    T = (d2g[..., None, None] * rhat[..., :, None] * rhat[..., None, :] + (dg / r)[..., None, None] * (jnp.eye(3)[None, None] - rhat[..., :, None] * rhat[..., None, :]))
-    T = jnp.where((inter & isO[:, None] & isO[None, :])[..., None, None], T, 0.0)
-    alpha = jnp.where(isO, ALPHA_O, 0.0)
-    A = jnp.eye(3 * N) - (alpha[:, None, None, None] * T).transpose(0, 2, 1, 3).reshape(3 * N, 3 * N)
-    mu = jnp.linalg.solve(A, (alpha[:, None] * Eq).reshape(-1)).reshape(N, 3)
-    E_ind = -0.5 * jnp.sum(mu * Eq)
-    E_ind1 = -0.5 * jnp.sum(alpha[:, None] * Eq * Eq)                        # first-order (pairwise-additive) induction
-    OO = inter & isO[:, None] & isO[None, :]; OH = inter & (isO[:, None] != isO[None, :]); HH = inter & ~isO[:, None] & ~isO[None, :]
-    E_rep = 0.5 * jnp.sum(jnp.where(OO, p["A_OO"] * jnp.exp(-p["b_OO"] * r), 0.0) + jnp.where(OH, p["A_OH"] * jnp.exp(-p["b_OH"] * r), 0.0)
-                          + jnp.where(HH, p["A_HH"] * jnp.exp(-p["b_HH"] * r), 0.0))
-    E_disp = -0.5 * jnp.sum(jnp.where(OO, C6_OO * kn.f6_long(r, p["l_disp"]), 0.0))
-    return {k: float(v) for k, v in dict(es=E_es, ind=E_ind, ind1=E_ind1, rep=E_rep, disp=E_disp).items()} | {"mu_ind": np.array(mu)}
+def pw_components(pos_ang, n_mol, n_ion=0):
+    """the pieces (es, ind, ind1, rep, disp) and the induced dipoles / charge fields, for diagnostics."""
+    mol, q, alpha, A, b, c6 = _site_arrays(n_mol, n_ion)
+    c = _pw_general(jnp.asarray(ang_to_bohr(np.asarray(pos_ang, float))), mol, q, alpha, A, b, c6, PW["lam"], PW["l_disp"], components=True)
+    return {k: (float(v) if v.ndim == 0 else np.array(v)) for k, v in c.items()}
 
 
 # ---------------------------------------------------------------- data sets --------------------------------
@@ -256,6 +253,68 @@ def probe_configurations(n_core, distances_ang, n_per_distance, seed=0, mc_steps
                 out.append(water_structure(pos, energy=E, forces=F, info={"d": float(d), "k": k, "core": c, "E_core": E_core}))
                 cores.append(E_core)
     return out, np.array(cores)
+
+
+# ---------------------------------------------------------------- the ion probe (band-field response test) -----
+def ion_structure(pos_ang, n_mol, energy=None, forces=None, info=None):
+    """n_mol waters (O, H, H each) followed by one ion: fragments per molecule and one for the ion; pinned charges
+    are the truth's (the monomer charges and the ion's Q)."""
+    Z = np.concatenate([np.tile([8, 1, 1], n_mol), [ION["Z"]]])
+    frag = np.concatenate([np.repeat(np.arange(n_mol), 3), [n_mol]])
+    st = Structure(ang_to_bohr(np.asarray(pos_ang, float)), Z, energy=energy, forces=forces, info=info or {}, frag=frag,
+                   total_charge=ION["Q"])
+    st.pinned = {"q": np.concatenate([np.tile(monomer_charges(), n_mol), [ION["Q"]]])}
+    return st
+
+
+def ion_monomer_scan(distances_ang, n_orient, seed=0):
+    """the ion at distance R from the oxygen of a monomer, in random directions with random monomer orientations:
+    teaches E_0 the ion-water short range.  Returns structures with the truth's energy and forces."""
+    rng = np.random.default_rng(seed); out = []
+    for R in distances_ang:
+        for k in range(n_orient):
+            u = rng.normal(size=3); u /= np.linalg.norm(u)
+            pos = np.vstack([monomer_positions() @ random_rotation(rng).T, R * u])
+            E, F = pw_energy_forces(pos, 1, n_ion=1)
+            out.append(ion_structure(pos, 1, energy=E, forces=F, info={"R": float(R), "k": k}))
+    return out
+
+
+def ion_configurations(n_core, distances_ang, n_per_distance, seed=0, mc_steps=300, n_cores=1):
+    """relaxed water cores plus the ion at distance d (A) from the core's centre of mass in a random direction:
+    the band-field response test.  Beyond E_0's cutoff the ion's interaction with the core is the electrostatics of
+    the core's charges and embedded induced dipoles with the ion (exact with pinned embedded sources) plus the
+    core's response to the ion's field -- the term the band-field read-out has to carry.  Returns (structures,
+    core_energies)."""
+    rng = np.random.default_rng(seed); out = []; cores = []
+    for c in range(n_cores):
+        core = random_cluster(n_core, rng, mc_steps=mc_steps)
+        com = core[0::3].mean(axis=0)
+        E_core = pw_energy_forces(core, n_core)[0]
+        for d in distances_ang:
+            for k in range(n_per_distance):
+                u = rng.normal(size=3); u /= np.linalg.norm(u)
+                pos = np.vstack([core, com + d * u])
+                E, F = pw_energy_forces(pos, n_core, n_ion=1)
+                out.append(ion_structure(pos, n_core, energy=E, forces=F, info={"d": float(d), "k": k, "core": c, "E_core": E_core}))
+                cores.append(E_core)
+    return out, np.array(cores)
+
+
+def ion_response_decomposition(st):
+    """for an ion configuration: the ion's interaction with the core, its point-charge electrostatics + repulsion,
+    piece (2) = the core's embedded induced dipoles (core alone) against the ion's field, and the remainder -- the
+    core's self-consistent response to the ion, the band-field response.  All in hartree."""
+    pos = bohr_to_ang(st.positions); n_mol = (len(pos) - 1) // 3
+    c_all = pw_components(pos, n_mol, n_ion=1); c_core = pw_components(pos[:-1], n_mol)
+    y = st.energy - st.info["E_core"]
+    es = (c_all["es"] - c_core["es"]) + (c_all["rep"] - c_core["rep"]) + (c_all["disp"] - c_core["disp"])
+    # the ion's smeared field at the core's atoms
+    x = st.positions; lam = PW["lam"]; Q = ION["Q"]
+    D = x[:-1] - x[-1]; r = np.linalg.norm(D, axis=1)
+    E_ion = -Q * np.array(kn.dg_long(jnp.asarray(r), lam))[:, None] * D / r[:, None]
+    piece2 = -np.sum(c_core["mu_ind"] * E_ion)
+    return dict(y=y, es=es, piece2=piece2, response=y - es - piece2)
 
 
 def pair_additive_energy(pos_ang, n_mol):

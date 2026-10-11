@@ -17,8 +17,10 @@ Response read-out, bilinear in the field (no terms linear in the band field: tho
               + sum_f [ g_f E_d v_b v_c H_bcd + g'_f (E.v_f) (lap E).v_f + g''_f E_d t_bc H_bcd
                         + h_f v_f.G.G.v_f + h'_f t_f : (G.G) ]
 with every coefficient an output of an MLP of the invariant features s_i (environment-dependent).  The
-coefficients of the orders >= 1 start at zero, so that training begins from the order-0 model and the
-higher orders switch on as the data ask for them.
+coefficients of the read-out start at zero (every order), so that training begins from the model without the
+response and the read-out switches on as the data ask for it: with the field tensors in units of E_ref, a random
+initialisation produced energies of the order of 10^2 e_scale on configurations with strong fields (an ion at 2 A)
+and the fit collapsed (e3r-bandfield-response-preregistration.md section 7).
 """
 import jax
 import jax.numpy as jnp
@@ -40,13 +42,16 @@ def near_weight(r, rs):
     return 1.0 - jnp.exp(-(r / rs) ** 10)
 
 
-def band_field_tensors(positions, q, pmask, l, order, rs=0.0):
+def band_field_tensors(positions, q, pmask, l, order, rs=0.0, src_mask=None):
     """E (N,3), gE (N,3,3), ggE (N,3,3,3) of the charge-channel band potential at each atom (own charge excluded,
-    sources closer than rs switched off smoothly)."""
+    sources closer than rs switched off smoothly, and only the sources selected by src_mask (N,N) -- by default
+    every other atom; for molecules the atoms of other fragments: the field that polarises a fragment is the
+    field of the others, and the own fragment's near field is E_0's)."""
+    src = pmask if src_mask is None else (pmask & src_mask)
     def V(x, i):
-        d = jnp.where(pmask[i][:, None], x[None, :] - positions, 1.0)    # excluded pairs get a finite dummy vector
+        d = jnp.where(src[i][:, None], x[None, :] - positions, 1.0)      # excluded pairs get a finite dummy vector
         rr = jnp.sqrt(jnp.sum(d * d, axis=-1))                              # so that no derivative is taken at r = 0
-        w = pmask[i].astype(x.dtype) * near_weight(rr, rs)
+        w = src[i].astype(x.dtype) * near_weight(rr, rs)
         return jnp.sum(w * q * kn.g_long(rr, l))
     def E(x, i):
         return -jax.grad(V)(x, i)
@@ -100,17 +105,24 @@ def init_readout_pair(key, cfg, order):
     k = jax.random.split(key, 3)
     nr = cfg.get("n_rbf_readout", cfg["n_rbf"])
     theta = _mlp_init(k[0], [2 * F, F, m * nr], scale=0.1)                           # radial coefficients per invariant from (s_i, s_j)
-    n0 = 2 * nr                                                                      # the order-0 invariants' columns
     last = theta[-1]
-    theta[-1] = {"w": last["w"].at[:, n0:].set(0.0), "b": last["b"].at[n0:].set(0.0)}   # orders >= 1 start at zero
-    return {"theta": theta,
-            "iso": _mlp_init(k[1], [F, F, 1], scale=0.1)}                           # node-level a(s_i) |E_i|^2
+    theta[-1] = {"w": jnp.zeros_like(last["w"]), "b": jnp.zeros_like(last["b"])}      # the read-out starts at zero (every order)
+    iso = _mlp_init(k[1], [F, F, 1], scale=0.1)
+    iso[-1] = {"w": jnp.zeros_like(iso[-1]["w"]), "b": jnp.zeros_like(iso[-1]["b"])}
+    return {"theta": theta, "iso": iso}                                              # node-level a(s_i) |E_i|^2
 
 
-def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l):
-    """per-atom response energies (N,) of the pair read-out."""
+def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l, E_ref=1.0, e_scale=1.0):
+    """per-atom response energies (N,) of the pair read-out.  The field tensors enter in units of E_ref and the
+    output in units of e_scale (the data-derived site-energy scale), so that the learned coefficients are O(1):
+    a physical polarisability alpha is the coefficient alpha E_ref^2 / e_scale -- with E_ref = 0.01 a.u. and
+    e_scale ~ 5e-3 E_h that is 0.2 for alpha = 9.72 a.u., against 9.72 without the scales (which Adam does not reach
+    from an O(0.1) initialisation in fields of 1e-3 a.u.: e3r-bandfield-response-preregistration.md section 6)."""
     from .e0 import rbf
     N, F = s.shape
+    E = E / E_ref
+    gE = gE / E_ref if gE is not None else None
+    ggE = ggE / E_ref if ggE is not None else None
     m = n_pair_invariants(order)
     within = pmask & (r < cfg["r_cut"])
     n = D / r[..., None]
@@ -125,11 +137,11 @@ def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l):
     inv = pair_invariants(n, E, G, H, order)                                            # (N,N,m)
     eps = jnp.sum(w * inv * within[..., None], axis=(1, 2))
     eps = eps - 0.5 * mlp(p["iso"], s)[..., 0] * jnp.sum(E * E, axis=-1)
-    return eps * mask
+    return eps * mask * e_scale
 
 
 # ---------------------------------------------------------------- node read-out (L <= 2 variant) --------------
-def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.0, rs=0.0, D=None, pmask=None):
+def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.0, rs=0.0, D=None, pmask=None, excl_mask=None):
     """the same tensors for a periodic cell: the Ewald potential V(x) = (4 pi / V) sum_{k != 0} e^{-k^2 l^2/4} / k^2
     Re[S(k) e^{-i k.x}] (tin-foil, neutral), differentiated in x, with the own charge's contribution removed
     analytically (its field at its own centre is zero; its gradient is -q_i grad grad g(0) = q_i (4 / 3 sqrt(pi) l^3) I;
@@ -156,14 +168,18 @@ def band_field_tensors_pbc(positions, q, mask, cell, l, order, n_max=8, b_max=4.
         gE = (gE - (qm * 4.0 / (3.0 * math.sqrt(math.pi) * l ** 3))[:, None, None] * jnp.eye(3)[None]) * mask[:, None, None]
     if order >= 2:
         ggE = jax.vmap(jax.jacfwd(jax.jacfwd(E)))(positions) * mask[:, None, None, None]
-    if rs > 0:
-        # remove the near sources (their minimum images) with the complementary weight exp(-(r/rs)^10), in real space
+    if rs > 0 or excl_mask is not None:
+        # remove the near sources (their minimum images) with the complementary weight exp(-(r/rs)^10), and the
+        # excluded sources (the own fragment's atoms, excl_mask (N,N)) completely, in real space
         assert D is not None and pmask is not None
         def Vn(x, i):
             img = positions[i] - D[i]                                            # nearest images of the sources
             d = jnp.where(pmask[i][:, None], x[None, :] - img, 1.0)
             rr = jnp.sqrt(jnp.sum(d * d, axis=-1))
-            w = pmask[i].astype(x.dtype) * (1.0 - near_weight(rr, rs))
+            w = 1.0 - near_weight(rr, rs)
+            if excl_mask is not None:
+                w = jnp.where(excl_mask[i], 1.0, w)
+            w = pmask[i].astype(x.dtype) * w
             return jnp.sum(w * q * kn.g_long(rr, l))
         En = lambda x, i: -jax.grad(Vn)(x, i)
         idx = jnp.arange(positions.shape[0])
