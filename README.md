@@ -30,7 +30,7 @@ python scripts/run_experiment.py --config configs/water.yaml
 python scripts/run_experiment.py --config configs/toy.yaml
 ```
 
-The config contains a single `experiment` mapping. `type` is required:
+The config contains an `experiment` mapping. `type` is required:
 
 | Type | Optional selection fields |
 | --- | --- |
@@ -38,9 +38,47 @@ The config contains a single `experiment` mapping. `type` is required:
 | `water` | `part` (`dimer`, `clusters`, `far`, or `ion`), `rungs` (list) |
 | `x2b_toy` | `orders` (list containing `0` and/or `2`) |
 
-Omitted fields retain the selected script's defaults. Explicit CLI flags override YAML selection values. Unknown fields and unsupported selections are rejected. Training, dataset, and architecture settings still use the existing CLI flags/defaults; YAML support currently covers experiment selection only. The examples run real experiments and may take substantial time.
+Omitted fields retain the selected script's defaults. Explicit CLI flags override YAML values. Unknown fields and unsupported selections are rejected. YAML also supports the water cluster dataset settings below. Training and architecture settings still use the existing CLI flags/defaults. The examples run real experiments and may take substantial time.
 
 Each original script also accepts `--config`, provided its experiment type matches. Existing commands without a config continue to work.
+
+### Water cluster datasets
+
+`configs/water.yaml` selects `part: clusters` and makes the dataset defaults explicit:
+
+```yaml
+experiment:
+  type: water
+  part: clusters
+  rungs: [M_inf, M_1, M_1p]
+
+data:
+  train_sizes: [3, 4, 5]
+  test_sizes: [6, 2]
+  n_train: 12
+  n_test: 8
+  train_seed: 0
+  test_seed: 100
+  sigma: 1.0e-9
+  monomer_references: 4
+  mc_steps: 300
+  temperature_kelvin: 300.0
+  radius_angstrom: null
+  min_oo_angstrom: 2.7
+  min_atom_distance_angstrom: 1.7
+```
+
+Sizes are numbers of water molecules, and sampling counts are **per size**. These defaults produce 36 training clusters plus four monomer references, and eight test clusters for each of sizes 6 and 2. Sizes must be distinct integers of at least two, and both lists must be nonempty. Change either list to evaluate other cluster sizes; evaluation computes pair-subtracted non-additive energy using the actual size.
+
+`train_seed` controls dataset generation independently of model initialization. Test sizes use seeds `test_seed + 100 * index` in the configured list order (defaults: size 6 uses 100; size 2 uses 200). `sigma` adds training energy noise in hartree. Test labels remain noiseless. `monomer_references` controls the number of isolated monomer references added to training.
+
+`mc_steps` sets the number of rigid-body Metropolis relaxation attempts at `temperature_kelvin`. `radius_angstrom: null` chooses a generation radius of `1.9 * size**(1/3) + 0.8` Å for each size. `min_oo_angstrom` sets the initial oxygen separation, and `min_atom_distance_angstrom` sets the intermolecular atom distance floor during generation and relaxation. Use a radius large enough to place the requested molecules. Impossible diameter/separation combinations are rejected, and placement retries are bounded with an informative error.
+
+CLI overrides remain available, for example `--n_train 20 --test_sizes 4,6 --mc_steps 500`. The `data` mapping currently applies only to `water` with `part: clusters`; omit it for other parts. Existing selection-only configs keep the previous defaults.
+
+Cluster results record resolved dataset settings and per-size energy and non-additive RMSE under `clusters_by_size` (hartree). The original `hexamer`, `dimer`, `nonadditive`, and `nadd6_truth` fields remain when the corresponding sizes are evaluated. Use a separate output file for each experiment. Cluster runs reject an existing output with different or unknown dataset metadata, preventing results from different datasets from being merged.
+
+Cluster caches record generation settings and reject a mismatch. Older cluster caches lack this metadata; use a new cache path to regenerate them.
 
 ## The rungs
 
