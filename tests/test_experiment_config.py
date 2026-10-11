@@ -34,7 +34,7 @@ def test_defaults_and_cli_override(tmp_path):
     'experiment: {type: x2b_toy, orders: [1]}',
     'experiment: {type: x2b_toy, orders: [false]}',
     'experiment: {type: water, rungs: []}',
-    'experiment: {type: water}\ntraining: {}',
+    'experiment: {type: water}\ntraining: {unknown: 1}',
 ])
 def test_invalid_config(tmp_path, text):
     with pytest.raises(ValueError):

@@ -1,6 +1,8 @@
-"""YAML experiment selection and water cluster dataset configuration."""
+"""YAML experiment selection, dataset settings, and shared training options."""
+import argparse
 import math
 from pathlib import Path
+import sys
 import yaml
 
 TYPES = {"dimer_ladder", "water", "x2b_toy"}
@@ -17,6 +19,240 @@ CLUSTER_DEFAULTS = {
     "min_atom_distance_angstrom": 1.7, "sigma": 1e-9,
     "monomer_references": 4,
 }
+
+# Each YAML field maps to the existing or shared CLI destination and a validation
+# rule. Keeping this table shared makes YAML and CLI values follow the same rules.
+TRAINING_FIELDS = {
+    None: {
+        "seeds": ("model_seeds", "seeds"),
+        "energy_scale": ("energy_scale", "optional_positive"),
+        "verbose": ("verbose", "bool"),
+    },
+    "adam": {
+        "steps": ("steps", "nonnegative_int"),
+        "learning_rate": ("learning_rate", "positive"),
+        "final_learning_rate_ratio": ("final_learning_rate_ratio", "fraction"),
+        "beta1": ("adam_beta1", "decay"),
+        "beta2": ("adam_beta2", "decay"),
+        "epsilon": ("adam_epsilon", "nonnegative"),
+        "epsilon_root": ("adam_epsilon_root", "nonnegative"),
+        "gradient_clip_norm": ("gradient_clip_norm", "optional_positive"),
+        "batch_size": ("batch", "optional_positive_int"),
+    },
+    "readout": {
+        "freeze_during_adam": ("freeze_readout", "bool"),
+        "linear_solve": ("readout_linear_solve", "bool"),
+        "ridge": ("readout_ridge", "nonnegative"),
+    },
+    "lbfgs": {
+        "steps": ("lbfgs", "nonnegative_int"),
+        "chunk_size": ("lbfgs_chunk", "positive_int"),
+        "learning_rate": ("lbfgs_learning_rate", "optional_positive"),
+        "memory_size": ("lbfgs_memory_size", "positive_int"),
+        "scale_init_precond": ("lbfgs_scale_init_precond", "bool"),
+        "max_linesearch_steps": ("lbfgs_max_linesearch_steps", "positive_int"),
+        "readout_only": ("lbfgs_readout_only", "bool"),
+    },
+    "loss": {
+        "energy_weight": ("w_energy", "nonnegative"),
+        "force_weight": ("w_force", "nonnegative"),
+        "far_weight": ("w_far", "positive"),
+    },
+}
+
+
+def _validate_training_value(name, value, rule):
+    if rule.startswith("optional_") and value is None:
+        return
+    rule = rule.removeprefix("optional_")
+    if rule == "seeds":
+        valid = (isinstance(value, list) and bool(value)
+                 and all(type(v) is int and v >= 0 for v in value)
+                 and len(set(value)) == len(value))
+        description = "a nonempty list of distinct nonnegative integers"
+    elif rule == "bool":
+        valid, description = type(value) is bool, "a boolean"
+    elif rule in ("positive_int", "nonnegative_int"):
+        minimum = 1 if rule == "positive_int" else 0
+        valid = type(value) is int and value >= minimum
+        description = f"an integer >= {minimum}"
+    else:
+        numeric = type(value) in (int, float) and math.isfinite(value)
+        limits = {
+            "positive": (lambda v: v > 0, "a finite positive number"),
+            "nonnegative": (lambda v: v >= 0, "a finite nonnegative number"),
+            "fraction": (lambda v: 0 <= v <= 1, "a finite number between 0 and 1"),
+            "decay": (lambda v: 0 <= v < 1, "a finite number >= 0 and < 1"),
+        }
+        condition, description = limits[rule]
+        valid = numeric and condition(value)
+    if not valid:
+        raise ValueError(f"{name} must be {description}")
+
+
+def validate_training(training):
+    """Validate supplied YAML fields and return their CLI argument defaults."""
+    if not isinstance(training, dict):
+        raise ValueError("training must be a mapping")
+    allowed = set(TRAINING_FIELDS[None]) | (set(TRAINING_FIELDS) - {None})
+    unknown = set(training) - allowed
+    if unknown:
+        raise ValueError(f"unsupported training fields: {', '.join(sorted(map(str, unknown)))}")
+    defaults = {}
+    for section, fields in TRAINING_FIELDS.items():
+        values = training if section is None else training.get(section, {})
+        prefix = "training" if section is None else f"training.{section}"
+        if not isinstance(values, dict):
+            raise ValueError(f"{prefix} must be a mapping")
+        if section is not None:
+            unknown = set(values) - set(fields)
+            if unknown:
+                raise ValueError(f"unsupported {prefix} fields: {', '.join(sorted(map(str, unknown)))}")
+        for key, (destination, rule) in fields.items():
+            if key not in values:
+                continue
+            _validate_training_value(f"{prefix}.{key}", values[key], rule)
+            defaults[destination] = (','.join(map(str, values[key]))
+                                     if rule == "seeds" else values[key])
+    return defaults
+
+
+def _training_defaults(kind):
+    return {
+        "steps": 1000 if kind == "x2b_toy" else 1500,
+        "lbfgs": 0 if kind == "dimer_ladder" else 300,
+        "learning_rate": 3e-3, "final_learning_rate_ratio": 0.01,
+        "adam_beta1": 0.9, "adam_beta2": 0.999,
+        "adam_epsilon": 1e-8, "adam_epsilon_root": 0.0,
+        "gradient_clip_norm": None,
+        "batch": {"water": 12, "x2b_toy": 48, "dimer_ladder": None}[kind],
+        "lbfgs_chunk": 6 if kind == "water" else 48,
+        "freeze_readout": kind != "x2b_toy",
+        "readout_linear_solve": kind != "x2b_toy", "readout_ridge": 1e-8,
+        "lbfgs_learning_rate": None, "lbfgs_memory_size": 10,
+        "lbfgs_scale_init_precond": True, "lbfgs_max_linesearch_steps": 20,
+        "lbfgs_readout_only": False,
+        "w_energy": 1.0, "w_force": 0.0 if kind == "x2b_toy" else 1.0,
+        "w_far": 1.0, "energy_scale": None,
+        "verbose": kind == "x2b_toy", "model_seeds": None,
+    }
+
+
+def add_training_arguments(parser, kind):
+    """Add shared training flags after a script's existing legacy arguments."""
+    defaults = _training_defaults(kind)
+    parser.set_defaults(_training_kind=kind)
+    parser._training_kind = kind
+    integer_fields = {"steps", "lbfgs", "batch", "lbfgs_chunk",
+                      "lbfgs_memory_size", "lbfgs_max_linesearch_steps"}
+    boolean_fields = {"freeze_readout", "readout_linear_solve", "verbose",
+                      "lbfgs_scale_init_precond", "lbfgs_readout_only"}
+    help_text = {
+        "steps": "Adam steps (readout frozen when --freeze_readout is enabled)",
+        "lbfgs": "L-BFGS steps after Adam and the optional linear readout solve",
+        "model_seeds": "comma-separated model initialization seeds; overrides YAML seeds",
+        "freeze_readout": "freeze the field-response readout during Adam",
+        "readout_linear_solve": "fit order-0 readout coefficients before L-BFGS",
+        "lbfgs_readout_only": "train only the field-response readout during L-BFGS",
+        "energy_scale": "positive target normalization; omitted means automatic",
+    }
+    for destination, default in defaults.items():
+        option = f"--{destination}"
+        if option in parser._option_string_actions:
+            continue
+        kwargs = {"default": default}
+        if destination in boolean_fields:
+            kwargs["action"] = argparse.BooleanOptionalAction
+        elif destination != "model_seeds":
+            kwargs["type"] = int if destination in integer_fields else float
+        if destination in help_text:
+            kwargs["help"] = help_text[destination]
+        parser.add_argument(option, **kwargs)
+    seed_option = "--seed" if kind == "x2b_toy" else "--seeds"
+    if seed_option not in parser._option_string_actions:
+        parser.add_argument(seed_option, type=int, default=0 if kind == "x2b_toy" else 4)
+
+
+def training_seeds(args):
+    """Return the explicit seed list or the legacy seed/count selection."""
+    selected = getattr(args, "model_seeds", None)
+    if selected is not None:
+        return [int(v) for v in selected.split(',')] if isinstance(selected, str) else list(selected)
+    if hasattr(args, "seeds"):
+        return list(range(args.seeds))
+    return [getattr(args, "seed", 0)]
+
+
+def training_kwargs(args):
+    """Build fit keyword arguments, retaining defaults for direct legacy callers."""
+    defaults = _training_defaults(getattr(args, "_training_kind", "water"))
+    value = lambda key: getattr(args, key, defaults[key])
+    return {
+        "steps": value("steps"), "lr": value("learning_rate"),
+        "w_energy": value("w_energy"), "w_force": value("w_force"),
+        "batch_size": value("batch"), "lbfgs_steps": value("lbfgs"),
+        "lbfgs_chunk": value("lbfgs_chunk"),
+        "readout_adam": not value("freeze_readout"),
+        "readout_linear_solve": value("readout_linear_solve"),
+        "readout_ridge": value("readout_ridge"),
+        "scale": value("energy_scale"), "verbose": value("verbose"),
+        "lr_final_ratio": value("final_learning_rate_ratio"),
+        "adam_b1": value("adam_beta1"), "adam_b2": value("adam_beta2"),
+        "adam_eps": value("adam_epsilon"), "adam_eps_root": value("adam_epsilon_root"),
+        "gradient_clip_norm": value("gradient_clip_norm"),
+        "lbfgs_lr": value("lbfgs_learning_rate"),
+        "lbfgs_memory": value("lbfgs_memory_size"),
+        "lbfgs_scale_init_precond": value("lbfgs_scale_init_precond"),
+        "lbfgs_max_linesearch_steps": value("lbfgs_max_linesearch_steps"),
+        "lbfgs_readout_only": value("lbfgs_readout_only"),
+    }
+
+
+def _explicit_destinations(parser, argv):
+    explicit = set()
+    for token in argv:
+        if token == "--":
+            break
+        option = token.split('=', 1)[0]
+        action = parser._option_string_actions.get(option)
+        if action is None and option.startswith('--') and parser.allow_abbrev:
+            matches = [a for name, a in parser._option_string_actions.items() if name.startswith(option)]
+            if matches and all(a is matches[0] for a in matches):
+                action = matches[0]
+        if action is not None:
+            explicit.add(action.dest)
+    return explicit
+
+
+def _validate_resolved_training(args, kind, rungs):
+    for section, fields in TRAINING_FIELDS.items():
+        for key, (destination, rule) in fields.items():
+            name = f"training.{key}" if section is None else f"training.{section}.{key}"
+            value = training_seeds(args) if rule == "seeds" else getattr(args, destination)
+            _validate_training_value(name, value, rule)
+    if args.steps + args.lbfgs == 0:
+        raise ValueError("training must include at least one Adam or L-BFGS step")
+    if args.w_energy + args.w_force == 0:
+        raise ValueError("training.loss must give positive weight to energy or force")
+    if args.adam_epsilon + args.adam_epsilon_root == 0:
+        raise ValueError("training.adam.epsilon and epsilon_root cannot both be zero")
+    if kind == "x2b_toy":
+        response = all_response = True
+    elif isinstance(rungs, dict):
+        response_models = [getattr(rungs[name], "band_fields", -1) >= 0
+                           for name in args.rungs.split(',')]
+        response, all_response = any(response_models), all(response_models)
+    else:
+        # A minimal parser may not have the model definitions. In that case
+        # defer architecture-specific validation to fit rather than guessing.
+        response = all_response = None
+    if response and args.freeze_readout and args.lbfgs == 0:
+        raise ValueError("a frozen field-response readout needs training.lbfgs.steps > 0")
+    if args.lbfgs_readout_only:
+        if all_response is False:
+            raise ValueError("training.lbfgs.readout_only requires every selected model to have field response")
+        if args.lbfgs == 0:
+            raise ValueError("training.lbfgs.readout_only requires training.lbfgs.steps > 0")
 
 
 def validate_cluster_data(data):
@@ -52,8 +288,9 @@ def validate_cluster_data(data):
 def load_config(path):
     with Path(path).open() as stream:
         config = yaml.safe_load(stream)
-    if not isinstance(config, dict) or "experiment" not in config or set(config) - {"experiment", "data"}:
-        raise ValueError("config must contain an experiment mapping and optional data mapping")
+    if (not isinstance(config, dict) or "experiment" not in config
+            or set(config) - {"experiment", "data", "training"}):
+        raise ValueError("config must contain an experiment mapping and optional data/training mappings")
     selection = config["experiment"]
     if not isinstance(selection, dict):
         raise ValueError("experiment must be a mapping")
@@ -81,6 +318,8 @@ def load_config(path):
         if kind != "water":
             raise ValueError("data configuration currently supports water clusters only")
         validate_cluster_data(config["data"])
+    if "training" in config:
+        validate_training(config["training"])
     return config
 
 
@@ -90,8 +329,11 @@ def load_selection(path):
 
 def parse_selection(parser, kind, argv=None, *, rungs=None, systems=None):
     parser.add_argument("--config", help="YAML configuration; explicit CLI flags override it")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    explicit = _explicit_destinations(parser, argv)
     probe, _ = parser.parse_known_args(argv)
     has_data = False
+    training_defaults = {}
     if probe.config:
         try:
             config = load_config(probe.config)
@@ -106,6 +348,8 @@ def parse_selection(parser, kind, argv=None, *, rungs=None, systems=None):
             has_data = "data" in config
             for key, value in config.get("data", {}).items():
                 defaults[key] = ','.join(map(str, value)) if isinstance(value, list) else value
+            training_defaults = validate_training(config.get("training", {}))
+            defaults.update(training_defaults)
             parser.set_defaults(**defaults)
         except (OSError, ValueError, yaml.YAMLError) as exc:
             parser.error(str(exc))
@@ -132,4 +376,20 @@ def parse_selection(parser, kind, argv=None, *, rungs=None, systems=None):
     if kind == "x2b_toy":
         if any(v not in ("0", "2") for v in args.orders.split(',')):
             parser.error("orders must be a comma-separated list of 0 or 2")
+    if hasattr(parser, "_training_kind"):
+        legacy_seed = "seed" if kind == "x2b_toy" else "seeds"
+        if legacy_seed in explicit:
+            if "model_seeds" in explicit:
+                parser.error(f"--model_seeds cannot be combined with --{legacy_seed}")
+            args.model_seeds = None
+        # Historically the water dimer workflow uses full-batch Adam and a
+        # larger L-BFGS chunk; explicit YAML/CLI choices override that default.
+        if kind == "water" and args.part == "dimer":
+            for destination, default in (("batch", None), ("lbfgs_chunk", 48)):
+                if destination not in training_defaults and destination not in explicit:
+                    setattr(args, destination, default)
+        try:
+            _validate_resolved_training(args, kind, rungs)
+        except (ValueError, TypeError) as exc:
+            parser.error(str(exc))
     return args

@@ -37,10 +37,19 @@ def _with_last(params, c, unflat):
     return {**params, "readout": ro}
 
 
-def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12):
+def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12, *, w_energy=1.0):
     """set the read-out's output layers to the weighted least-squares optimum of the training objective (energies per
     atom and forces, scaled as in train.make_loss_sums, per-structure weights included), the rest of the model fixed.
-    Returns the new params and the (before, after) values of the objective."""
+    w_energy and w_force match train.make_loss; ridge is relative to the average diagonal of the normal matrix.
+    Returns the new params and the (before, after) values of the unregularized objective."""
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("scale must be finite and > 0")
+    if any(not np.isfinite(value) or value < 0 for value in (w_energy, w_force, ridge)):
+        raise ValueError("w_energy, w_force, and ridge must be finite and >= 0")
+    if w_energy + w_force == 0:
+        raise ValueError("w_energy and w_force cannot both be zero")
+    if isinstance(chunk, (bool, np.bool_)) or not isinstance(chunk, (int, np.integer)) or chunk < 1:
+        raise ValueError("chunk must be an integer >= 1")
     nr = rung.e0.get("n_rbf_readout", rung.e0["n_rbf"])
     c0, unflat = _flat_last(params["readout"], 2 * nr)                  # the order-0 invariants' columns
     n = int(data["mask"].shape[0]); nc = len(c0)
@@ -71,7 +80,7 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12)
             T = jnp.asarray(eye[:, j0:j0 + nslice])
             jE, jF = jac_slice(c0, b, T)
             JE[:, j0:j0 + T.shape[1]] = np.array(jE); JF[..., j0:j0 + T.shape[1]] = np.array(jF)
-        we = (has_e[idx] / natoms[idx] ** 2 / cnt_e / scale ** 2)                 # weights of the energy rows
+        we = (w_energy * has_e[idx] / natoms[idx] ** 2 / cnt_e / scale ** 2)      # weights of the energy rows
         rE = np.array(b["energy"]) - E0 + JE @ np.array(c0)                       # residual target for the linear model E = E0 + JE (c - c0)
         for k in range(len(idx)):
             AtA += we[k] * np.outer(JE[k], JE[k]); Atr += we[k] * JE[k] * rE[k]
@@ -82,14 +91,14 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12)
             AtA += (Jf[k] * wf[k][:, None]).T @ Jf[k]; Atr += Jf[k].T @ (wf[k] * rF[k])
             loss0 += float(np.sum(wf[k] * ((np.array(b["forces"]) - F0).reshape(len(idx), -1)[k]) ** 2))
     lam = ridge * np.trace(AtA) / nc
-    c = np.linalg.solve(AtA + lam * np.eye(nc), Atr)
+    c = np.linalg.solve(AtA + lam * np.eye(nc), Atr) if lam > 0 else np.linalg.lstsq(AtA, Atr, rcond=None)[0]
     new = _with_last(params, jnp.asarray(c), unflat)
     # the objective after, exactly (the model is linear in c)
     loss1 = 0.0
     for i0 in range(0, n, chunk):
         idx = np.arange(i0, min(i0 + chunk, n)); b = {k: v[idx] for k, v in data.items()}
         E1, F1 = val(jnp.asarray(c), b); E1 = np.array(E1); F1 = np.array(F1)
-        we = (has_e[idx] / natoms[idx] ** 2 / cnt_e / scale ** 2)
+        we = (w_energy * has_e[idx] / natoms[idx] ** 2 / cnt_e / scale ** 2)
         loss1 += float(np.sum(we * (np.array(b["energy"]) - E1) ** 2))
         wf = fm_all[idx] * (w_force / cnt_f / scale ** 2)
         loss1 += float(np.sum(wf * (np.array(b["forces"]) - F1) ** 2))

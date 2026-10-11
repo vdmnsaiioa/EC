@@ -20,7 +20,7 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
     M_S0p, M_S2p      M_1p + band-field inputs at order 0 / 2                  (v1.5 dagger)
     M_S0, M_S2        M_1 + band-field inputs (q learned)
 """
-from experiment_config import CLUSTER_DEFAULTS, parse_selection
+from experiment_config import CLUSTER_DEFAULTS, add_training_arguments, parse_selection, training_kwargs, training_seeds
 import argparse, time, json, sys, os, pickle
 import numpy as np
 import jax
@@ -132,6 +132,11 @@ def _save(a, results):
         except Exception: old = {}
     if old and "dataset" in results and old.get("dataset") != results["dataset"]:
         raise ValueError("output contains results for different or unknown dataset settings; use a new --out path")
+    if hasattr(a, "rungs"):
+        for name in a.rungs.split(","):
+            if name in results:
+                results[name]["training"] = {"seeds": training_seeds(a), "far_weight": a.w_far if hasattr(a, "w_far") else 1.0,
+                                             **training_kwargs(a)}
     old.update(results)
     json.dump(old, open(a.out, "w"), indent=1)
 
@@ -150,8 +155,10 @@ def run_dimer(a):
     for name in a.rungs.split(","):
         rung = configure(RUNGS[name], a)
         preds, rmses, dipoles = [], [], []; t0 = time.time()
-        for seed in range(a.seeds):
-            params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0)
+        fitted_options = []
+        for seed in training_seeds(a):
+            params, info = T.fit(rung, train, seed=seed, **training_kwargs(a))
+            fitted_options.append(info.get("training_options", {"seed": seed, **training_kwargs(a)}))
             E_tr, _ = T.predict(params, rung, train[:40])
             rmse = float(np.sqrt(np.mean((E_tr - np.array([s.energy for s in train[:40]])) ** 2)))
             E_te, _ = T.predict(params, rung, test); preds.append(E_te); rmses.append(rmse)
@@ -181,6 +188,7 @@ def run_dimer(a):
               + (f";  monomer dipole {np.mean(dip_c):.3f} +- {np.std(dip_c, ddof=1) if len(dip_c) > 1 else 0:.3f} D over the converged seeds" if dipoles else "") + f"  [{time.time() - t0:.0f} s]", flush=True)
         results[name] = dict(rows=rows, slope=slope, window_rmse=rm.tolist(), converged=conv.tolist(), dipoles=dipoles,
                              grid=dict(R_A=R_eval.tolist(), f_true=f_true.tolist(), mean=mean.tolist(), W=np.nan_to_num(Wsp).tolist(), preds=P.tolist()))
+        results[name]["training_runs"] = fitted_options
         _save(a, results)
     return results
 
@@ -239,8 +247,10 @@ def run_far(a):
         return (Et - Ec) - yy
     for name in a.rungs.split(","):
         rung = configure(RUNGS[name], a); t1 = time.time(); errs = []; train_errs = []
-        for seed in range(a.seeds):
-            params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0, batch_size=a.batch, lbfgs_chunk=a.lbfgs_chunk)
+        fitted_options = []
+        for seed in training_seeds(a):
+            params, info = T.fit(rung, train, seed=seed, **training_kwargs(a))
+            fitted_options.append(info.get("training_options", {"seed": seed, **training_kwargs(a)}))
             res = probe_rmse(params, rung, test, y)
             r = np.sqrt(np.mean(res ** 2)); errs.append(r)
             print(f"  {name} seed {seed}: probe-interaction rmse {r * 627.5:.4f} kcal/mol = {r / np.sqrt(np.mean(ind ** 2)) * 100:.0f} % of the induction "
@@ -256,6 +266,7 @@ def run_far(a):
                 msg += f"; far-field configurations {r_tr * 627.5:.4f} kcal/mol = {r_tr / np.sqrt(np.mean(ind_tr ** 2)) * 100:.0f} % of their induction"
             print(msg, flush=True); train_errs.append(tr)
         results[name] = dict(rmse=errs, train=train_errs, w_far=a.w_far)
+        results[name]["training_runs"] = fitted_options
         _save(a, results)
     return results
 
@@ -309,9 +320,10 @@ def run_clusters(a):
     for name in a.rungs.split(","):
         rung = configure(RUNGS[name], a)
         metrics = {str(n): dict(energy_rmse=[], nonadditive_rmse=[]) for n in tests}
-        for seed in range(a.seeds):
-            params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs,
-                                 lr=3e-3, w_force=1.0, batch_size=a.batch, lbfgs_chunk=a.lbfgs_chunk)
+        fitted_options = []
+        for seed in training_seeds(a):
+            params, info = T.fit(rung, train, seed=seed, **training_kwargs(a))
+            fitted_options.append(info.get("training_options", {"seed": seed, **training_kwargs(a)}))
             for n, structs in tests.items():
                 energies, _ = T.predict(params, rung, structs)
                 nadd_model = []
@@ -337,6 +349,7 @@ def run_clusters(a):
                                  nonadditive=metrics["6"]["nonadditive_rmse"])
         if "2" in metrics:
             results[name]["dimer"] = metrics["2"]["energy_rmse"]
+        results[name]["training_runs"] = fitted_options
         _save(a, results)
     print(f"clusters completed in {time.time() - t0:.0f} s", flush=True)
     return results
@@ -416,8 +429,10 @@ def run_ion(a):
         return (Et - Ec) - yy
     for name in a.rungs.split(","):
         rung = configure(RUNGS[name], a); t1 = time.time(); errs = []; train_errs = []; coefs = []
-        for seed in range(a.seeds):
-            params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0, batch_size=a.batch, lbfgs_chunk=a.lbfgs_chunk)
+        fitted_options = []
+        for seed in training_seeds(a):
+            params, info = T.fit(rung, train, seed=seed, **training_kwargs(a))
+            fitted_options.append(info.get("training_options", {"seed": seed, **training_kwargs(a)}))
             res = ion_rmse(params, rung, test, y); r = rms(res); errs.append(float(r))
             print(f"  {name} seed {seed}: ion-interaction rmse {r * K:.4f} kcal/mol = {r / rms(ind) * 100:.0f} % of the induction "
                   f"(per distance: " + ", ".join(f"{d:.0f} A {rms(res[dd == d]) / rms(ind[dd == d]) * 100:.0f} %" for d in dists)
@@ -439,6 +454,7 @@ def run_ion(a):
             with open(a.out.replace(".json", f"_{name}_seed{seed}.params.pkl"), "wb") as fh:
                 pickle.dump(jax.tree_util.tree_map(np.asarray, params), fh)
         results[name] = dict(rmse=errs, train=train_errs, a_eff_over_alpha=coefs, w_far=a.w_far)
+        results[name]["training_runs"] = fitted_options
         _save(a, results)
     return results
 
@@ -471,6 +487,7 @@ def main():
     ap.add_argument("--extra_far", type=int, default=0, help="ion part: pure far-field configurations per distance and core (d = 10, 12, 14 A) added to the training set")
     ap.add_argument("--extra_cache", default="", help="ion part: cache of the pure far-field configurations")
     ap.add_argument("--out", default="e3_water_results.json")
+    add_training_arguments(ap, "water")
     a = parse_selection(ap, "water", rungs=RUNGS)
     res = {"dimer": run_dimer, "clusters": run_clusters, "far": run_far, "ion": run_ion}[a.part](a)
     _save(a, res)
