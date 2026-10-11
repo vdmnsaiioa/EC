@@ -186,9 +186,15 @@ def random_cluster(n_mol, rng, radius_ang=None, min_OO=2.7, min_any=1.7, mc_step
     """n rigid monomers placed at random in a sphere and relaxed by a short rigid-body Metropolis run on the truth
     (so that the clusters are hydrogen-bonded rather than random packings).  Returns positions (3n, 3) in A."""
     radius_ang = radius_ang or (1.9 * n_mol ** (1 / 3) + 0.8)
+    if n_mol > 1 and 2 * radius_ang <= min_OO:
+        raise ValueError("cluster radius must exceed half the minimum oxygen separation")
     def place():
         Os = []
+        attempts = 0
         while len(Os) < n_mol:
+            attempts += 1
+            if attempts > 10000 * n_mol:
+                raise ValueError("could not place water molecules; increase radius_ang or reduce min_OO")
             x = rng.uniform(-radius_ang, radius_ang, 3)
             if np.linalg.norm(x) > radius_ang: continue
             if Os and np.min(np.linalg.norm(np.array(Os) - x, axis=1)) < min_OO: continue
@@ -202,7 +208,11 @@ def random_cluster(n_mol, rng, radius_ang=None, min_OO=2.7, min_any=1.7, mc_step
         return np.all(d[inter] >= min_any)
     Os = place(); Rs = [random_rotation(rng) for _ in range(n_mol)]
     pos = assemble(Os, Rs)
+    attempts = 0
     while not ok(pos):
+        attempts += 1
+        if attempts > 1000:
+            raise ValueError("could not generate a non-overlapping water cluster; increase radius_ang or reduce min_any")
         Os = place(); Rs = [random_rotation(rng) for _ in range(n_mol)]; pos = assemble(Os, Rs)
     kT = T_K * 3.166811563e-6
     E = pw_energy_forces(pos, n_mol)[0]

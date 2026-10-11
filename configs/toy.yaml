@@ -1,0 +1,3 @@
+experiment:
+  type: x2b_toy
+  orders: [0, 2]

@@ -6,6 +6,7 @@ order, fitted by OLS (sseft.toys.taylor_class_ceiling); the linear-tier numbers 
 
     python scripts/x2b_toy_regression.py [--steps 1500] [--lbfgs 200] [--clusters 24]
 """
+from experiment_config import add_training_arguments, parse_selection, training_kwargs, training_seeds
 import argparse, time, sys, os, json
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -20,7 +21,8 @@ def main():
     ap.add_argument("--rcut", type=float, default=2.0, help="E0 cutoff in the toy's units; the truth's response range is a = 0.5")
     ap.add_argument("--orders", default="0,2"); ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="x2b_toy_regression.json")
-    a = ap.parse_args()
+    add_training_arguments(ap, "x2b_toy")
+    a = parse_selection(ap, "x2b_toy")
     t0 = time.time()
     train = toys.x2b_dataset(n_clusters=a.clusters, N=(40,), seed=0)
     test = toys.x2b_dataset(n_clusters=8, N=(40,), densities=(0.18, 0.26), seed=99)
@@ -35,14 +37,20 @@ def main():
         rung = M.with_rung(M.RUNGS["M_S%d" % order], dispersion=False, pin_alpha=False, site_energies=False,
                            coulomb_energy=False, l1=2.0, bf_E_ref=1.0,    # the toy's fields are O(1) in its own units
                            e0={**M.RUNGS["M_S0"].e0, "r_cut": a.rcut, "F": a.F, "n_rbf_readout": a.n_rbf_readout})
-        t = time.time()
-        params, info = T.fit(rung, train, seed=a.seed, steps=a.steps, lr=3e-3, w_force=0.0, batch_size=48, readout_adam=True,   # the toy's model is the read-out
-                             lbfgs_steps=a.lbfgs, verbose=True)
-        E_tr = T.predict_aux(params, rung, train)["E_bf"]; E_te = T.predict_aux(params, rung, test)["E_bf"]
-        rtr = np.sqrt(np.mean((E_tr - y_tr) ** 2)) / np.sqrt(np.mean(y_tr ** 2))
-        rte = np.sqrt(np.mean((E_te - y_te) ** 2)) / np.sqrt(np.mean(y_te ** 2))
-        print(f"order {order}: train rel rms {rtr:.3e}, test rel rms {rte:.3e}  (exact-class ceiling {ceil[order]['train']:.2e} / {ceil[order]['test']:.2e})  [{time.time()-t:.0f} s]", flush=True)
-        res[order] = dict(train=rtr, test=rte, time=time.time() - t)
+        runs = []
+        for seed in training_seeds(a):
+            t = time.time()
+            params, info = T.fit(rung, train, seed=seed, **training_kwargs(a))
+            E_tr = T.predict_aux(params, rung, train)["E_bf"]; E_te = T.predict_aux(params, rung, test)["E_bf"]
+            rtr = np.sqrt(np.mean((E_tr - y_tr) ** 2)) / np.sqrt(np.mean(y_tr ** 2))
+            rte = np.sqrt(np.mean((E_te - y_te) ** 2)) / np.sqrt(np.mean(y_te ** 2))
+            print(f"order {order} seed {seed}: train rel rms {rtr:.3e}, test rel rms {rte:.3e} "
+                  f"(exact-class ceiling {ceil[order]['train']:.2e} / {ceil[order]['test']:.2e}) [{time.time()-t:.0f} s]", flush=True)
+            runs.append(dict(seed=seed, train=float(rtr), test=float(rte), time=time.time()-t,
+                             training_options=info.get("training_options", {"seed": seed, **training_kwargs(a)})))
+        res[order] = {"runs": runs, "training": {"seeds": training_seeds(a), **training_kwargs(a)}}
+        if len(runs) == 1:
+            res[order].update({key: runs[0][key] for key in ("train", "test", "time")})
     json.dump(res, open(a.out, "w"), indent=1)
 
 if __name__ == "__main__":

@@ -1,0 +1,5 @@
+experiment:
+  type: dimer_ladder
+  systems: [Ar2]
+  truth: tt
+  rungs: [M_inf, M_6, M_A]

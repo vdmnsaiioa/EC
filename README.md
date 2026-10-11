@@ -20,6 +20,140 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
 
 For GPUs install the matching `jax[cuda]` wheel first.
 
+## Experiment selection with YAML
+
+Select an experiment using `configs/dimer.yaml`, `configs/water.yaml`, or `configs/toy.yaml`:
+
+```sh
+python scripts/run_experiment.py --config configs/dimer.yaml --lbfgs 300
+python scripts/run_experiment.py --config configs/water.yaml
+python scripts/run_experiment.py --config configs/toy.yaml
+```
+
+The config contains an `experiment` mapping. `type` is required:
+
+| Type | Optional selection fields |
+| --- | --- |
+| `dimer_ladder` | `systems` (list), `truth` (`tt` or `published`), `rungs` (list) |
+| `water` | `part` (`dimer`, `clusters`, `far`, or `ion`), `rungs` (list) |
+| `x2b_toy` | `orders` (list containing `0` and/or `2`) |
+
+Omitted fields retain the selected script's defaults. Explicit CLI flags override YAML values. Unknown fields and unsupported selections are rejected. YAML also supports water cluster datasets and the training settings below. Architecture settings still use the existing CLI flags/defaults. The examples run real experiments and may take substantial time.
+
+Each original script also accepts `--config`, provided its experiment type matches. Existing commands without a config continue to work.
+
+### Water charge sources
+
+The optional `model` mapping selects the charge source independently of the water rung names:
+
+```yaml
+experiment:
+  type: water
+  part: clusters
+  rungs: [M_1, M_S0, M_S2]
+model:
+  charges: pinned  # Change to learned to train the charge head.
+```
+
+`model.charges: pinned` uses the synthetic water's fixed atomic charges. `learned` uses the model's learned charge head even for presets whose names end in `p`. Omission or `null` preserves each preset's original charge behavior, allowing a mixed learned/pinned comparison. `configs/water.yaml` uses `null` to retain that comparison by default. The setting applies to both the Coulomb band and band-field inputs in every water part. Charge-free models such as `M_inf` stay charge-free. Dipole and polarizability pinning retain their preset settings.
+
+Explicit `--charges pinned` or `--charges learned` overrides YAML. Rung names remain the result labels; each model result records its effective charge mode under `model.charges`, so use that metadata to interpret results when a preset is overridden. Response-readout freezing is a separate training setting and does not select the charge source. Select response rungs such as `M_S0`/`M_S2` or `M_S0p`/`M_S2p` when you want band-field readouts.
+
+### Water cluster datasets
+
+`configs/water.yaml` selects `part: clusters` and makes the dataset defaults explicit:
+
+```yaml
+experiment:
+  type: water
+  part: clusters
+  rungs: [M_inf, M_1, M_1p]
+
+data:
+  train_sizes: [3, 4, 5]
+  test_sizes: [6, 2]
+  n_train: 12
+  n_test: 8
+  train_seed: 0
+  test_seed: 100
+  sigma: 1.0e-9
+  monomer_references: 4
+  mc_steps: 300
+  temperature_kelvin: 300.0
+  radius_angstrom: null
+  min_oo_angstrom: 2.7
+  min_atom_distance_angstrom: 1.7
+```
+
+Sizes are numbers of water molecules, and sampling counts are **per size**. These defaults produce 36 training clusters plus four monomer references, and eight test clusters for each of sizes 6 and 2. Sizes must be distinct integers of at least two, and both lists must be nonempty. Change either list to evaluate other cluster sizes; evaluation computes pair-subtracted non-additive energy using the actual size.
+
+`train_seed` controls dataset generation independently of model initialization. Test sizes use seeds `test_seed + 100 * index` in the configured list order (defaults: size 6 uses 100; size 2 uses 200). `sigma` adds training energy noise in hartree. Test labels remain noiseless. `monomer_references` controls the number of isolated monomer references added to training.
+
+`mc_steps` sets the number of rigid-body Metropolis relaxation attempts at `temperature_kelvin`. `radius_angstrom: null` chooses a generation radius of `1.9 * size**(1/3) + 0.8` Å for each size. `min_oo_angstrom` sets the initial oxygen separation, and `min_atom_distance_angstrom` sets the intermolecular atom distance floor during generation and relaxation. Use a radius large enough to place the requested molecules. Impossible diameter/separation combinations are rejected, and placement retries are bounded with an informative error.
+
+CLI overrides remain available, for example `--n_train 20 --test_sizes 4,6 --mc_steps 500`. The `data` mapping currently applies only to `water` with `part: clusters`; omit it for other parts. Existing selection-only configs keep the previous defaults.
+
+Cluster results record resolved dataset settings and per-size energy and non-additive RMSE under `clusters_by_size` (hartree). The original `hexamer`, `dimer`, `nonadditive`, and `nadd6_truth` fields remain when the corresponding sizes are evaluated. Use a separate output file for each experiment. Cluster runs reject an existing output with different or unknown dataset metadata, preventing results from different datasets from being merged.
+
+Cluster caches record generation settings and reject a mismatch. Older cluster caches lack this metadata; use a new cache path to regenerate them.
+
+### Training configuration
+
+All experiment types accept an optional `training` mapping. `configs/water.yaml` lists every supported field:
+
+```yaml
+training:
+  seeds: [0, 1, 2, 3]
+  adam:
+    steps: 1500
+    learning_rate: 0.003
+    final_learning_rate_ratio: 0.01
+    beta1: 0.9
+    beta2: 0.999
+    epsilon: 1.0e-8
+    epsilon_root: 0.0
+    gradient_clip_norm: null
+    batch_size: 12
+  readout:
+    freeze_during_adam: true
+    linear_solve: true
+    ridge: 1.0e-8
+  lbfgs:
+    steps: 300
+    chunk_size: 6
+    learning_rate: null
+    memory_size: 10
+    scale_init_precond: true
+    max_linesearch_steps: 20
+    readout_only: false
+  loss:
+    energy_weight: 1.0
+    force_weight: 1.0
+    far_weight: 1.0
+  energy_scale: null
+  verbose: false
+```
+
+`adam.steps` controls the initial training stage. With `readout.freeze_during_adam: true`, the entire response readout is frozen and its energy contribution remains zero; the GNN and active energy/source heads train. Thus this value controls the number of response-frozen training steps. Adam uses cosine learning-rate decay ending at `learning_rate * final_learning_rate_ratio`. `beta1`, `beta2`, `epsilon`, and `epsilon_root` configure Adam's moment estimates and numerical stabilizers. `gradient_clip_norm` optionally limits the norm of the trainable gradient; `null` disables clipping. `batch_size: null` uses all training structures each step.
+
+After Adam, `readout.linear_solve: true` fits the order-0 response output coefficients by weighted least squares while holding the rest fixed. `ridge` sets regularization relative to the design matrix scale; it is not a general weight-decay penalty. Higher-order response coefficients are optimized in L-BFGS. Readout settings apply only when the selected rung has a response readout; for water, select rungs such as `M_S0p` and `M_S2p` to use them. The baseline models `M_inf`, `M_1`, and `M_1p` have no response readout.
+
+`lbfgs.steps` controls subsequent full-data optimization. With the default `readout_only: false`, the GNN, active heads, and response train jointly. Set `readout_only: true` to hold all non-readout parameters fixed in this stage; every selected model must have a response readout. `chunk_size` changes memory usage while preserving the full-data loss. `memory_size` controls the retained curvature history. `learning_rate: null` preserves automatic step scaling with the zoom line search; `max_linesearch_steps` bounds its internal trials, and `scale_init_precond` controls initial inverse-Hessian scaling. These are optimizer iterations, not epochs or line-search trial counts. Zero Adam steps allow an L-BFGS-only run; at least one optimizer step must be requested. Models with a frozen response readout require positive L-BFGS steps.
+
+`loss.energy_weight` and `loss.force_weight` combine scaled energy and force residuals. Set `force_weight: 0.0` for energy-only training. They also determine the readout linear solve's objective. `far_weight` sets per-structure weights for water's `far` and `ion` parts. `energy_scale: null` derives the normalization from training energies; positive values supply a manual scale in hartree. Targets are never mean-centered. `verbose` controls progress output. Dataset caches remain valid when only training options change.
+
+`seeds` explicitly selects model initialization/minibatch seeds, independently of dataset seeds. Each selected rung is trained with each seed. The toy supports multiple model seeds too and stores results under `runs`, keeping its original scalar metrics for a single-seed run. Results record the requested configuration under `training` and the effective per-seed options under `training_runs` (water/dimers) or each toy run's `training_options`, including the actual normalization scale, effective batch size, and whether a response solve ran.
+
+Explicit CLI flags override YAML. Existing `--steps`, `--lbfgs`, `--batch`, and `--lbfgs_chunk` work; additional flags are listed by `--help`. For example:
+
+```sh
+python scripts/run_experiment.py --config configs/water.yaml --steps 100 --lbfgs 30 --learning_rate 0.001
+```
+
+For water/dimers, explicit `--seeds 2` overrides a YAML seed list with `[0, 1]`; for the toy, `--seed 7` overrides it with `[7]`. `--model_seeds 7,11` supplies an explicit list. Combining that list flag with a count/single-seed flag is rejected as ambiguous. Boolean overrides use positive/negative flags such as `--freeze_readout` / `--no-freeze_readout` and `--lbfgs_readout_only` / `--no-lbfgs_readout_only`.
+
+Omitted training fields retain each workflow's previous defaults: water/dimer Adam learning rate 0.003 and force weight 1; water cluster/far/ion batch 12 and chunk 6; water dimer/noble-gas dimer full-batch Adam and chunk 48; toy batch 48, force weight 0, readout trained by Adam, no linear solve, and verbose output. Default step counts remain those of the original scripts.
+
 ## The rungs
 
 | rung    | bands                | sources                | band fields | stands for |

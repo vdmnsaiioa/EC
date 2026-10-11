@@ -13,6 +13,7 @@ isolated atoms at zero energy included so that the dimer energy is the interacti
 systems one model is trained on the union of the windows; the Casimir-Polder C6 of every pair of species
 (including the mixed pairs never seen in training) is then compared with DOSD.
 """
+from experiment_config import add_training_arguments, parse_selection, training_kwargs, training_seeds
 import argparse, time, json, sys, os, itertools
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -45,7 +46,8 @@ def main():
     ap.add_argument("--rcut", type=float, default=6.0, help="E0 cutoff in A")
     ap.add_argument("--one_oscillator", action="store_true")
     ap.add_argument("--out", default="dimer_ladder_results.json")
-    a = ap.parse_args()
+    add_training_arguments(ap, "dimer_ladder")
+    a = parse_selection(ap, "dimer_ladder", rungs=M.RUNGS, systems={"tt": set(D.TT) & set(WINDOWS), "published": set(D.PUBLISHED) & set(WINDOWS)})
 
     systems = a.system.split(",")
     rng = np.random.default_rng(0)
@@ -81,8 +83,10 @@ def main():
                            e0={**rung.e0, "r_cut": ang_to_bohr(a.rcut)})
         preds = {s: [] for s in systems}; rmses = {s: [] for s in systems}
         alphas = {Z: [] for Z in species}; alphas2 = {Z: [] for Z in species}; t0 = time.time()
-        for seed in range(a.seeds):
-            params, info = T.fit(rung, train, seed=seed, steps=a.steps, lbfgs_steps=a.lbfgs, lr=3e-3, w_force=1.0)
+        fitted_options = []
+        for seed in training_seeds(a):
+            params, info = T.fit(rung, train, seed=seed, **training_kwargs(a))
+            fitted_options.append(info.get("training_options", {"seed": seed, **training_kwargs(a)}))
             msg = []
             for s in systems:
                 E_tr, _ = T.predict(params, rung, tests[s]["train"])
@@ -98,7 +102,7 @@ def main():
                 qmax = max(float(np.max(np.abs(T.predict_aux(params, rung, tests[s]["train"])["q"]))) for s in systems)
                 print(f"    max |q_i| over the windows: {qmax:.2e}  (homonuclear dimers: 0 by neutrality + equivalence)", flush=True)
             print(f"  {name} seed {seed}: " + "; ".join(msg) + f"; {info['time']:.0f} s", flush=True)
-        results[name] = {}
+        results[name] = {"training": {"seeds": training_seeds(a), **training_kwargs(a)}, "training_runs": fitted_options}
         for s in systems:
             P = np.array(preds[s]); R_eval = tests[s]["R_eval"]; f_true = tests[s]["f_true"]
             # convergence rule (e1-e2-results.md section 5): seeds whose window rmse exceeds 2x the best seed's are
