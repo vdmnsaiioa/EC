@@ -251,3 +251,43 @@ unreadable on a charged system (the charge head's uniform neutrality shift sprea
 M_1μ at 591 %) and is deferred until the ion's charge is pinned. Wrong predictions: eight, listed in the results
 note; the one that mattered was the §3 "floor" of 30 % on the hexamers, beaten by one seed (15 %) because the
 coefficients are environment-dependent.
+
+## v0.0.7 → v0.0.8 — YAML configuration of the experiments; the neutrality shift per fragment (`sseft/heads.py`)
+
+No experiment re-run; this entry records what changed in the code and which recorded numbers it leaves untouched.
+
+**Configuration.** Every experiment is selected and configured from a YAML file (`configs/`, `scripts/run_experiment.py`,
+`scripts/experiment_config.py`): the experiment, the water cluster data, the water model (architecture) and the training
+schedule, each field mapped to the scripts' existing flags, explicit flags overriding YAML. `configs/water.yaml` is the
+E3-R cluster run R1 under the final schedule (`M_16p`, `M_16S0p`, `M_16S2p`; ℓ₁ = 0.75 Å, no radial switch; the
+pre-registered clusters; K = 2, Adam 1000 with the read-out frozen → order-0 linear solve → L-BFGS 300; batch 12, chunk 6),
+i.e. the command of `notes/e3r-results.md` §1. Every rung's result now records the architecture as run under `model`
+(sources pinned / learned / off, the neutrality shift, the band-field order, ℓ₁, the switch radius, r_c, F, ℓ_A) next to
+the resolved `training` and `dataset` settings; cluster outputs and caches reject a dataset mismatch. One latent flag bug
+fixed on the way: the near-source switch radius was `rs_over_l1` × the rung's *default* band edge (1.5 Å) rather than the
+band edge in use — immaterial to every recorded run (all E3-R runs have `--rs_over_l1 0`; the rehearsal runs the default
+ℓ₁), recorded as `near_source_switch_angstrom` from now on.
+
+**The neutrality shift per fragment.** The charge head shifted the learned charges uniformly over the whole structure
+(`Σ_i q_i = Q`), and the fragment references `E(f alone)` were shifted to the *structure's* total charge. On structures
+of several fragments that is inconsistent in two ways: a molecule's charges depend on the other molecules' environment-
+dependent `dq` (an intermolecular monopole of either sign; for a probe beyond r_c of a trimer the probe acquires
+−Δ/4 and the trimer +Δ/4, a 1/R term the truth does not have), and on a charged system every fragment of the reference
+is charged — the M_1μ ion result of v0.0.7 (591 % of the induction, `notes/e3r-results.md` §4(7)). Now the shift is taken
+fragment by fragment to each fragment's own total charge (`Structure.frag_charges`; the waters 0, the ion +1;
+`Rung.frag_neutral`, `--charge_neutrality fragment|structure`): a fragment beyond r_c of everything else carries
+exactly its isolated charges, the ion exactly +1, and `E_int = E(all) − Σ_f E(f)` cancels the intramolecular band energy
+exactly (tests: `tests/test_fragment_neutrality.py` — per-molecule sums < 1e-12; a monomer + ion at 40 Å: the monomer's
+charges equal the isolated monomer's to 1e-12 and E_int equals the inter-fragment Coulomb band to 1e-12, neither of
+which holds under the old shift; forces against finite differences; atomic structures unchanged to 1e-14).
+
+**What it touches.** Nothing pinned: every E3-R number (the daggers `M_16†`, `M_16S0†`, `M_16S2†`, `M_16†ᵉᵐᵇ`) and the
+atomic ladders (E1, E2, L6b) are bit-for-bit the same models. The learned-source rungs on multi-fragment structures —
+`M_1`, `M_1μ` on the water dimer and clusters, `M_1μ` / `M_S0μ` on the far-field tests of v0.0.6, `M_1μ` on the ion — are
+now different models; their v0.0.5–v0.0.7 numbers stand as recorded under the old shift (reproducible with
+`--charge_neutrality structure`), and the learned-source tier on the ion, deferred in v0.0.7, is runnable.
+
+### Tests (`pytest -q tests/`, 235 tests)
+
+The 34 physics tests of v0.0.7, 196 configuration tests (selection, data, model, training, dispatch — the expensive
+parts mocked) and 5 fragment-neutrality tests.

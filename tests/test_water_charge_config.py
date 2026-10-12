@@ -39,7 +39,7 @@ def parse(config, argv):
 
 
 def architecture_args(charges=None, **extra):
-    return SimpleNamespace(charges=charges, lA=4.0, rcut=6.0, F=2,
+    return SimpleNamespace(charges=charges, charge_neutrality="fragment", lA=4.0, rcut=6.0, F=2,
                            l1=0.0, rs_over_l1=1.0, **extra)
 
 
@@ -148,8 +148,8 @@ def test_charge_override_controls_actual_coulomb_and_field_sources(modules):
     s, _, _, (distances, radii, pair_mask) = E0.apply_e0(
         params["e0"], base.e0, batch["positions"], batch["numbers"],
         batch["mask"], batch["cell"], batch["pbc"])
-    learned_q = H.charges(params["heads"], s, batch["numbers"],
-                          batch["mask"], batch["total_charge"])
+    learned_q = H.charges(params["heads"], s, batch["numbers"], batch["mask"], batch["total_charge"],
+                          batch["frag_mask"], batch["frag_charge"])          # the shift per fragment (molecule)
     same_fragment = (batch["frag_mask"].T.astype(float) @ batch["frag_mask"].astype(float)) > 0.5
     fields = []
     for pinned in (False, True):
@@ -176,7 +176,7 @@ def test_charge_override_controls_actual_coulomb_and_field_sources(modules):
 ])
 def test_saved_results_record_effective_charge_mode(tmp_path, modules, name, requested, effective):
     _, water = modules
-    args = SimpleNamespace(out=str(tmp_path / "result.json"), rungs=name, charges=requested)
+    args = architecture_args(requested, out=str(tmp_path / "result.json"), rungs=name)
     water._save(args, {name: {"rmse": [0.0]}})
     saved = json.loads(Path(args.out).read_text())
     assert saved[name]["model"]["charges"] == effective

@@ -15,8 +15,8 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
 
 ## Install
 
-    pip install -e .            # jax, optax, numpy, scipy (tested with jax 0.10, optax 0.2.8, numpy 2.4, scipy 1.17)
-    pytest -q tests/            # 32 tests, ~2.5 min on a CPU
+    pip install -e .            # jax, optax, numpy, scipy, PyYAML (tested with jax 0.10, optax 0.2.8, numpy 2.4, scipy 1.17)
+    pytest -q tests/            # 235 tests, ~6 min on a CPU (the 34 physics tests take most of it)
 
 For GPUs install the matching `jax[cuda]` wheel first.
 
@@ -26,7 +26,7 @@ Select an experiment using `configs/dimer.yaml`, `configs/water.yaml`, or `confi
 
 ```sh
 python scripts/run_experiment.py --config configs/dimer.yaml --lbfgs 300
-python scripts/run_experiment.py --config configs/water.yaml
+python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl --out results/e3r_clusters_yaml.json
 python scripts/run_experiment.py --config configs/toy.yaml
 ```
 
@@ -38,36 +38,44 @@ The config contains an `experiment` mapping. `type` is required:
 | `water` | `part` (`dimer`, `clusters`, `far`, or `ion`), `rungs` (list) |
 | `x2b_toy` | `orders` (list containing `0` and/or `2`) |
 
-Omitted fields retain the selected script's defaults. Explicit CLI flags override YAML values. Unknown fields and unsupported selections are rejected. YAML also supports water cluster datasets and the training settings below. Architecture settings still use the existing CLI flags/defaults. The examples run real experiments and may take substantial time.
+Omitted fields retain the selected script's defaults. Explicit CLI flags override YAML values. Unknown fields and unsupported selections are rejected. YAML also supports the water model (architecture) settings, the water cluster datasets and the training settings below; the paths of a run (`--cache`, `--out`) stay on the command line. The examples run real experiments and may take substantial time.
 
 Each original script also accepts `--config`, provided its experiment type matches. Existing commands without a config continue to work.
 
-### Water charge sources
+`configs/water.yaml` is the current protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
-The optional `model` mapping selects the charge source independently of the water rung names:
+### Water model settings
+
+The optional `model` mapping (water only) sets the architecture of every selected rung; each field maps to an existing flag of `e3_water.py`, and explicit flags override YAML:
 
 ```yaml
-experiment:
-  type: water
-  part: clusters
-  rungs: [M_1, M_S0, M_S2]
 model:
-  charges: pinned  # Change to learned to train the charge head.
+  charges: null                    # pinned | learned | null (keep each rung's own source);  --charges
+  charge_neutrality: fragment      # fragment | structure;                                  --charge_neutrality
+  band_edge_angstrom: 0.75         # l_1; null = the rung's own band edge (1.5 A);            --l1
+  rs_over_l1: 0.0                  # near-source switch radius of the band-field input / l_1; --rs_over_l1
+  r_cut_angstrom: 6.0              # E_0's cutoff;                                            --rcut
+  features: 16                     # E_0's feature width F;                                   --F
+  analytic_envelope_angstrom: 4.0  # M_A's envelope;                                          --lA
 ```
 
-`model.charges: pinned` uses the synthetic water's fixed atomic charges. `learned` uses the model's learned charge head even for presets whose names end in `p`. Omission or `null` preserves each preset's original charge behavior, allowing a mixed learned/pinned comparison. `configs/water.yaml` uses `null` to retain that comparison by default. The setting applies to both the Coulomb band and band-field inputs in every water part. Charge-free models such as `M_inf` stay charge-free. Dipole and polarizability pinning retain their preset settings.
+`charges: pinned` uses the synthetic water's fixed atomic charges; `learned` uses the model's learned charge head even for presets whose names end in `p`; omission or `null` preserves each preset's own charge source, allowing a mixed learned/pinned comparison (the daggers of `configs/water.yaml` pin theirs). The setting applies to both the Coulomb band and the band-field inputs in every water part; charge-free models such as `M_inf` stay charge-free, and dipole and polarisability pinning keep their preset settings.
 
-Explicit `--charges pinned` or `--charges learned` overrides YAML. Rung names remain the result labels; each model result records its effective charge mode under `model.charges`, so use that metadata to interpret results when a preset is overridden. Response-readout freezing is a separate training setting and does not select the charge source. Select response rungs such as `M_S0`/`M_S2` or `M_S0p`/`M_S2p` when you want band-field readouts.
+`charge_neutrality: fragment` (the default since v0.0.8) takes the neutrality shift of the *learned* charges fragment by fragment: every molecule is neutral and an ion carries its own charge (`Structure.frag_charges`) whatever its environment, so the charges of a fragment beyond r_c of everything else are exactly the fragment's own, the fragment reference `E_int = E(all) − Σ_f E(f)` cancels the intramolecular band energy exactly, and no molecule acquires a monopole from another molecule's environment-dependent `dq`. `structure` is one shift over the whole structure — the head before v0.0.8, which spread an ion's +1 over every atom (`notes/e3r-results.md` §4(7)) — kept for controlled comparisons only. Structures without fragments (the atomic dimers) always use the one shift to their total charge.
+
+`band_edge_angstrom` is ℓ₁ of every band (`--l1 0` on the command line means the rung's own 1.5 Å), `rs_over_l1` the radius of the near-source switch of the band-field input as a multiple of the band edge actually used (0 disables the switch; the own fragment is excluded from the input regardless, `Rung.bf_fragments`), `r_cut_angstrom` and `features` E_0's cutoff and width, `analytic_envelope_angstrom` the envelope of `M_A`.
+
+Rung names remain the result labels; each rung's result records the architecture as run under `model` — the sources (`charges`, `dipoles`, `polarisabilities`: pinned / learned / off), `charge_neutrality`, `band_fields`, `band_edge_angstrom`, `near_source_switch_angstrom`, `r_cut_angstrom`, `features`, `analytic_envelope_angstrom`, `periodic` — so that two runs differing only in a flag are told apart in the json. Response-readout freezing is a separate training setting and does not select the charge source. Select response rungs such as `M_S0`/`M_S2`, `M_S0p`/`M_S2p` or `M_16S0p`/`M_16S2p` when you want band-field read-outs.
 
 ### Water cluster datasets
 
-`configs/water.yaml` selects `part: clusters` and makes the dataset defaults explicit:
+`configs/water.yaml` selects `part: clusters` and makes the dataset defaults (the pre-registered design) explicit:
 
 ```yaml
 experiment:
   type: water
   part: clusters
-  rungs: [M_inf, M_1, M_1p]
+  rungs: [M_16p, M_16S0p, M_16S2p]
 
 data:
   train_sizes: [3, 4, 5]
@@ -99,13 +107,13 @@ Cluster caches record generation settings and reject a mismatch. Older cluster c
 
 ### Training configuration
 
-All experiment types accept an optional `training` mapping. `configs/water.yaml` lists every supported field:
+All experiment types accept an optional `training` mapping. `configs/water.yaml` lists every supported field (with the values of the E3-R final schedule):
 
 ```yaml
 training:
-  seeds: [0, 1, 2, 3]
+  seeds: [0, 1]
   adam:
-    steps: 1500
+    steps: 1000
     learning_rate: 0.003
     final_learning_rate_ratio: 0.01
     beta1: 0.9
@@ -136,7 +144,7 @@ training:
 
 `adam.steps` controls the initial training stage. With `readout.freeze_during_adam: true`, the entire response readout is frozen and its energy contribution remains zero; the GNN and active energy/source heads train. Thus this value controls the number of response-frozen training steps. Adam uses cosine learning-rate decay ending at `learning_rate * final_learning_rate_ratio`. `beta1`, `beta2`, `epsilon`, and `epsilon_root` configure Adam's moment estimates and numerical stabilizers. `gradient_clip_norm` optionally limits the norm of the trainable gradient; `null` disables clipping. `batch_size: null` uses all training structures each step.
 
-After Adam, `readout.linear_solve: true` fits the order-0 response output coefficients by weighted least squares while holding the rest fixed. `ridge` sets regularization relative to the design matrix scale; it is not a general weight-decay penalty. Higher-order response coefficients are optimized in L-BFGS. Readout settings apply only when the selected rung has a response readout; for water, select rungs such as `M_S0p` and `M_S2p` to use them. The baseline models `M_inf`, `M_1`, and `M_1p` have no response readout.
+After Adam, `readout.linear_solve: true` fits the order-0 response output coefficients by weighted least squares while holding the rest fixed. `ridge` sets regularization relative to the design matrix scale; it is not a general weight-decay penalty. Higher-order response coefficients are optimized in L-BFGS. Readout settings apply only when the selected rung has a response readout; for water, select rungs such as `M_16S0p` and `M_16S2p` (or `M_S0p`, `M_S2p`) to use them. The baseline models `M_inf`, `M_1`, `M_1p` and `M_16p` have no response readout and ignore them.
 
 `lbfgs.steps` controls subsequent full-data optimization. With the default `readout_only: false`, the GNN, active heads, and response train jointly. Set `readout_only: true` to hold all non-readout parameters fixed in this stage; every selected model must have a response readout. `chunk_size` changes memory usage while preserving the full-data loss. `memory_size` controls the retained curvature history. `learning_rate: null` preserves automatic step scaling with the zoom line search; `max_linesearch_steps` bounds its internal trials, and `scale_init_precond` controls initial inverse-Hessian scaling. These are optimizer iterations, not epochs or line-search trial counts. Zero Adam steps allow an L-BFGS-only run; at least one optimizer step must be requested. Models with a frozen response readout require positive L-BFGS steps.
 
@@ -152,7 +160,7 @@ python scripts/run_experiment.py --config configs/water.yaml --steps 100 --lbfgs
 
 For water/dimers, explicit `--seeds 2` overrides a YAML seed list with `[0, 1]`; for the toy, `--seed 7` overrides it with `[7]`. `--model_seeds 7,11` supplies an explicit list. Combining that list flag with a count/single-seed flag is rejected as ambiguous. Boolean overrides use positive/negative flags such as `--freeze_readout` / `--no-freeze_readout` and `--lbfgs_readout_only` / `--no-lbfgs_readout_only`.
 
-Omitted training fields retain each workflow's previous defaults: water/dimer Adam learning rate 0.003 and force weight 1; water cluster/far/ion batch 12 and chunk 6; water dimer/noble-gas dimer full-batch Adam and chunk 48; toy batch 48, force weight 0, readout trained by Adam, no linear solve, and verbose output. Default step counts remain those of the original scripts.
+Omitted training fields retain each workflow's previous defaults: water/dimer Adam learning rate 0.003 and force weight 1; water cluster/far/ion batch 12 and chunk 6; water dimer/noble-gas dimer full-batch Adam and chunk 48; toy batch 48, force weight 0, readout trained by Adam, no linear solve, and verbose output. Default step counts remain those of the original scripts (`e3_water.py` without a config: 4 seeds, Adam 1500, L-BFGS 300 — the dimer design; the cluster, far-field and ion runs of the notes used 2 seeds, Adam 1000 and L-BFGS 150 or 300, which `configs/water.yaml` encodes).
 
 ## The rungs
 
@@ -186,10 +194,11 @@ Pieces (one module each):
 * `e0.py` — PaiNN-style message passing with scalar, vector and traceless rank-2 tensor channels; Bessel
   radial basis with a cosine cutoff; messages are exactly zero beyond the cutoff (no bias in the radial
   weights).
-* `heads.py` — site energies (data-derived output scale), charges with an exact neutrality shift, gated
-  dipoles, dipole and quadrupole dynamic polarisabilities at K = 8 Gauss–Legendre imaginary frequencies
-  (softplus or one-oscillator), the scalar source of `M_A`.  Each source can be *pinned* to values carried
-  by the structure.
+* `heads.py` — site energies (data-derived output scale), charges with an exact neutrality shift taken per
+  fragment (every molecule neutral, an ion at its own charge, `Structure.frag_charges`; one shift over the
+  structure where no fragments are given), gated dipoles, dipole and quadrupole dynamic polarisabilities at
+  K = 8 Gauss–Legendre imaginary frequencies (softplus or one-oscillator), the scalar source of `M_A`.  Each
+  source can be *pinned* to values carried by the structure.
 * `kernels.py` — the split kernels: `erf(r/l)/r` and its derivatives (p = 1, dipoles), the `p = 6` and
   `p = 8` long parts `[1 − e^{−x}P(x)]/r^p` with their small-`x` series, the Gaussian Laplacian family
   `(−l²∇²)ⁿ e^{−r²/l²}` (exact rational recursion; used column-normalised, since the raw family's
@@ -244,6 +253,8 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
     python scripts/e3_water.py --part far --train_far 1 --train_far_cores 8 --rungs M_1p,M_1mu,M_S0mu --seeds 2 --steps 1000 --lbfgs 150
     python scripts/e3_water.py --part ion --rungs M_16p,M_16S0p --l1 0.75 --rs_over_l1 0 --train_far 1 --train_far_cores 8 \
         --test_cores 4 --extra_far 2 --seeds 2 --steps 1000 --lbfgs 300      # E3-R: the band-field response on an ion probe
+    python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl \
+        --out results/e3r_clusters_yaml.json                                  # E3-R R1, the cluster protocol from YAML
     sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
 
 `dimer_ladder.py` trains an ensemble of each rung on the Phase 2 window (40 log-uniform nodes on

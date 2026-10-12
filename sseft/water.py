@@ -267,12 +267,13 @@ def probe_configurations(n_core, distances_ang, n_per_distance, seed=0, mc_steps
 
 # ---------------------------------------------------------------- the ion probe (band-field response test) -----
 def ion_structure(pos_ang, n_mol, energy=None, forces=None, info=None):
-    """n_mol waters (O, H, H each) followed by one ion: fragments per molecule and one for the ion; pinned charges
-    are the truth's (the monomer charges and the ion's Q)."""
+    """n_mol waters (O, H, H each) followed by one ion: fragments per molecule and one for the ion, each with its own
+    total charge (the waters neutral, the ion Q; learned charges are shifted to these fragment by fragment); pinned
+    charges are the truth's (the monomer charges and the ion's Q)."""
     Z = np.concatenate([np.tile([8, 1, 1], n_mol), [ION["Z"]]])
     frag = np.concatenate([np.repeat(np.arange(n_mol), 3), [n_mol]])
     st = Structure(ang_to_bohr(np.asarray(pos_ang, float)), Z, energy=energy, forces=forces, info=info or {}, frag=frag,
-                   total_charge=ION["Q"])
+                   total_charge=ION["Q"], frag_charges=np.concatenate([np.zeros(n_mol), [ION["Q"]]]))
     st.pinned = {"q": np.concatenate([np.tile(monomer_charges(), n_mol), [ION["Q"]]])}
     return st
 

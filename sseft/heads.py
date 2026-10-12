@@ -3,7 +3,9 @@ Per-atom read-outs of E_0: the site energy and the sources (the Wilson coefficie
 proposal section 1.1).
 
     eps_i        site energy (+ per-species reference e0(Z))
-    q_i          charge: q0(Z) + dq_i, shifted uniformly so that sum_i q_i = Q exactly
+    q_i          charge: q0(Z) + dq_i, shifted uniformly within each fragment so that the fragment's charges sum
+                 exactly to its own total charge (a molecule stays neutral in any environment, an ion keeps its
+                 charge); for structures without fragments one shift over the structure to Q
     mu_i         dipole: gated combination of the vector channels
     alpha_i(iw)  dynamic polarisability at the K imaginary frequencies, positive (softplus), or the
                  one-oscillator form alpha0/(1 + w^2/w0^2) with alpha0, w0 > 0
@@ -38,11 +40,23 @@ def site_energy(p, s, numbers, mask):
     return e * mask
 
 
-def charges(p, s, numbers, mask, total_charge):
+def charges(p, s, numbers, mask, total_charge, frag_mask=None, frag_charge=None):
+    """q_i = q0(Z_i) + dq_i, shifted uniformly so that the charges sum exactly to their target.  With frag_mask (F,N)
+    and frag_charge (F,) the shift is taken fragment by fragment -- each fragment's charges sum to its own total
+    charge, whatever its environment, so that the charges of a fragment beyond r_c of everything else are exactly
+    those of the fragment alone (the fragment reference E_int = E(all) - sum_f E(f) then cancels the intramolecular
+    band energy exactly, and no fragment acquires a monopole from the others' environment-dependent dq).  Without
+    fragments one shift over the structure to total_charge."""
     dq = mlp(p["charge"], s)[..., 0] + p["q_ref"][numbers]
     dq = dq * mask
-    n = jnp.maximum(jnp.sum(mask), 1.0)
-    shift = (jnp.sum(dq) - total_charge) / n
+    if frag_mask is None:
+        n = jnp.maximum(jnp.sum(mask), 1.0)
+        shift = (jnp.sum(dq) - total_charge) / n
+        return (dq - shift) * mask
+    fm = frag_mask & mask[None, :]                                          # (F,N): each fragment's atoms inside the mask
+    n_f = jnp.maximum(jnp.sum(fm, axis=1), 1.0)
+    shift_f = (jnp.sum(fm * dq[None, :], axis=1) - frag_charge) / n_f       # (F,) one shift per fragment
+    shift = jnp.sum(fm * shift_f[:, None], axis=0)                          # (N,) the shift of each atom's own fragment
     return (dq - shift) * mask
 
 

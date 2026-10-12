@@ -1,4 +1,4 @@
-"""YAML experiment selection, dataset settings, and shared training options."""
+"""YAML experiment selection, dataset settings, water model (architecture) settings, and shared training options."""
 import argparse
 import math
 from pathlib import Path
@@ -6,6 +6,20 @@ import sys
 import yaml
 
 TYPES = {"dimer_ladder", "water", "x2b_toy"}
+# The water model mapping: each YAML field maps to e3_water.py's existing CLI destination and a validation rule.
+# band_edge_angstrom: null means the rung's own band edge (the CLI's --l1 0); the near-source switch radius of the
+# band-field input is given as a multiple of the band edge (--rs_over_l1; 0 disables the switch).
+MODEL_FIELDS = {
+    "charges": ("charges", "charge_mode"),
+    "charge_neutrality": ("charge_neutrality", "neutrality"),
+    "band_edge_angstrom": ("l1", "optional_positive"),
+    "rs_over_l1": ("rs_over_l1", "nonnegative"),
+    "r_cut_angstrom": ("rcut", "positive"),
+    "features": ("F", "positive_int"),
+    "analytic_envelope_angstrom": ("lA", "positive"),
+}
+CHARGE_MODES = (None, "pinned", "learned")
+NEUTRALITY_MODES = ("fragment", "structure")
 FIELDS = {
     "dimer_ladder": {"systems", "truth", "rungs"},
     "water": {"part", "rungs"},
@@ -65,7 +79,11 @@ def _validate_training_value(name, value, rule):
     if rule.startswith("optional_") and value is None:
         return
     rule = rule.removeprefix("optional_")
-    if rule == "seeds":
+    if rule == "charge_mode":
+        valid, description = value in CHARGE_MODES, "pinned, learned, or null"
+    elif rule == "neutrality":
+        valid, description = value in NEUTRALITY_MODES, "fragment or structure"
+    elif rule == "seeds":
         valid = (isinstance(value, list) and bool(value)
                  and all(type(v) is int and v >= 0 for v in value)
                  and len(set(value)) == len(value))
@@ -286,17 +304,37 @@ def validate_cluster_data(data):
 
 
 def validate_model(model, kind):
-    """Validate water charge-source overrides; omission/null retains rung defaults."""
+    """Validate the water model mapping (charge source and neutrality, band edge, near-source switch, E_0's cutoff
+    and width, M_A's envelope) and return the CLI argument defaults it sets; omitted fields keep the script's
+    defaults, charges: null keeps each rung's own charge source."""
     if kind != "water":
         raise ValueError("model configuration currently supports water only")
     if not isinstance(model, dict):
         raise ValueError("model must be a mapping")
-    unknown = set(model) - {"charges"}
+    unknown = set(model) - set(MODEL_FIELDS)
     if unknown:
         raise ValueError(f"unsupported model fields: {', '.join(sorted(map(str, unknown)))}")
-    if model.get("charges") not in (None, "pinned", "learned"):
-        raise ValueError("model.charges must be pinned, learned, or null")
-    return model
+    defaults = {}
+    for key, (destination, rule) in MODEL_FIELDS.items():
+        if key not in model:
+            continue
+        _validate_training_value(f"model.{key}", model[key], rule)
+        value = model[key]
+        if key == "band_edge_angstrom" and value is None:
+            value = 0.0                                   # --l1 0: the rung's own band edge
+        defaults[destination] = value
+    return defaults
+
+
+def _validate_resolved_model(args):
+    """The architecture as resolved from YAML and CLI (a minimal parser may lack some of the flags)."""
+    for key, (destination, rule) in MODEL_FIELDS.items():
+        if not hasattr(args, destination):
+            continue
+        value = getattr(args, destination)
+        if key == "band_edge_angstrom":
+            value = None if value == 0 else value
+        _validate_training_value(f"model.{key}", value, rule)
 
 
 def load_config(path):
@@ -366,7 +404,8 @@ def parse_selection(parser, kind, argv=None, *, rungs=None, systems=None):
                 defaults[key] = ','.join(map(str, value)) if isinstance(value, list) else value
             training_defaults = validate_training(config.get("training", {}))
             defaults.update(training_defaults)
-            defaults.update(config.get("model", {}))
+            if "model" in config:
+                defaults.update(validate_model(config["model"], kind))
             parser.set_defaults(**defaults)
         except (OSError, ValueError, yaml.YAMLError) as exc:
             parser.error(str(exc))
@@ -380,6 +419,11 @@ def parse_selection(parser, kind, argv=None, *, rungs=None, systems=None):
                 data[key] = [int(v) for v in data[key].split(',')]
             validate_cluster_data(data)
         except (ValueError, AttributeError) as exc:
+            parser.error(str(exc))
+    if kind == "water":
+        try:
+            _validate_resolved_model(args)
+        except (ValueError, TypeError) as exc:
             parser.error(str(exc))
     if rungs is not None:
         invalid = set(args.rungs.split(',')) - set(rungs)

@@ -36,6 +36,8 @@ class Rung:
     pin_mu: bool = False
     pin_alpha: bool = False
     pin_alpha2: bool = False
+    frag_neutral: bool = True              # learned charges: the neutrality shift per fragment (each molecule neutral, an ion
+    # charged) on structures that carry fragments; False: one shift over the whole structure (the head before v0.0.8)
     l1: float = ang_to_bohr(1.5)           # band edge
     lA: float = ang_to_bohr(4.0)           # envelope of the analytic kernel (M_A)
     NA: int = 4                            # powers of q^2 in M_A
@@ -143,7 +145,15 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
     aux = {"E0": E}
     q = mu = alpha = None
     if rung.charges:
-        q = b["pin_q"] if rung.pin_q else H.charges(hp, s, Z, mask, b["total_charge"])
+        if rung.pin_q:
+            q = b["pin_q"]
+        else:
+            q = H.charges(hp, s, Z, mask, b["total_charge"])
+            if rung.frag_neutral and "frag_mask" in b:
+                # structures that carry fragments: one neutrality shift per fragment, so that every molecule is neutral
+                # and the ion carries its charge whatever the environment (a structure without fragments in the same
+                # batch keeps the shift over the structure)
+                q = jnp.where(b["has_frag"], H.charges(hp, s, Z, mask, b["total_charge"], b["frag_mask"], b["frag_charge"]), q)
         if rung.dipoles:
             mu = b["pin_mu"] if rung.pin_mu else H.dipoles(hp, s, v, mask)
         if not rung.coulomb_energy:

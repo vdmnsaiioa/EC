@@ -24,6 +24,8 @@ class Structure:
     pinned: Dict[str, np.ndarray] = field(default_factory=dict)   # e.g. {"q": (N,), "mu": (N,3), "alpha": (N,K), "eself": (N,)}
     info: Dict[str, Any] = field(default_factory=dict)
     frag: Optional[np.ndarray] = None     # (N,) fragment index per atom (the molecules); None: every atom its own fragment
+    frag_charges: Optional[np.ndarray] = None   # (n_frag,) total charge of each fragment (the learned charges are shifted to it
+    # fragment by fragment); None: every fragment neutral, which requires total_charge = 0 when fragments are given
     weight: float = 1.0                   # weight of this structure's energy and forces in the training loss
 
     @property
@@ -34,7 +36,9 @@ class Structure:
 def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: int = 8):
     """Stack structures into padded arrays.  Returns a dict of jnp arrays with a leading batch axis.  When any
     structure carries fragments, "frag_mask" (B, max_frag, n_max) holds one mask per fragment (atoms are their
-    own fragments where no fragments are given)."""
+    own fragments where no fragments are given), "frag_charge" (B, max_frag) the total charge of each fragment
+    and "has_frag" (B,) whether the structure gave fragments itself (the per-fragment neutrality shift of the
+    learned charges applies to those; a structure without fragments keeps one shift to its total charge)."""
     n_max = n_max or max(s.n_atoms for s in structures)
     B = len(structures)
     with_frag = any(s.frag is not None for s in structures)
@@ -42,9 +46,23 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         n_frag = [int(np.max(s.frag)) + 1 if s.frag is not None else s.n_atoms for s in structures]
         max_frag = max(n_frag)
         frag_mask = np.zeros((B, max_frag, n_max), dtype=bool)
+        frag_charge = np.zeros((B, max_frag)); has_frag = np.zeros(B, dtype=bool)
         for b, s in enumerate(structures):
             fr = s.frag if s.frag is not None else np.arange(s.n_atoms)
             for i, f in enumerate(fr): frag_mask[b, int(f), i] = True
+            if s.frag is None:
+                continue
+            has_frag[b] = True
+            if s.frag_charges is None:
+                if abs(s.total_charge) > 1e-12:
+                    raise ValueError("a charged structure with fragments needs frag_charges (the total charge of each fragment)")
+                continue
+            fc = np.asarray(s.frag_charges, float)
+            if fc.shape != (n_frag[b],):
+                raise ValueError(f"frag_charges must have one entry per fragment ({n_frag[b]}), got shape {fc.shape}")
+            if abs(float(np.sum(fc)) - s.total_charge) > 1e-10:
+                raise ValueError("frag_charges must sum to total_charge")
+            frag_charge[b, :n_frag[b]] = fc
     out = {
         "positions": np.zeros((B, n_max, 3)), "numbers": np.zeros((B, n_max), dtype=np.int32),
         "mask": np.zeros((B, n_max), dtype=bool), "cell": np.tile(np.eye(3) * 1e6, (B, 1, 1)),
@@ -67,7 +85,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         if "alpha2" in s.pinned: out["pin_alpha2"][b, :n] = s.pinned["alpha2"]
         if "eself" in s.pinned: out["pin_eself"][b, :n] = s.pinned["eself"]
     if with_frag:
-        out["frag_mask"] = frag_mask
+        out["frag_mask"] = frag_mask; out["frag_charge"] = frag_charge; out["has_frag"] = has_frag
     return {k: jnp.asarray(v) for k, v in out.items()}
 
 

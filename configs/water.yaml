@@ -1,13 +1,28 @@
+# E3-R on the clusters: the band-field response tested explicitly (R1 of notes/e3r-bandfield-response-preregistration.md,
+# final schedule of notes/e3r-results.md section 1).  Permanent sources pinned, the dispersion band on the pinned alpha_O,
+# the band edge below the hydrogen bond, the own fragment excluded from the band-field input (no radial switch); the
+# order-0 and order-2 read-outs against the dagger without one.  Equivalent to
+#     python scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 \
+#         --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0
+# (add --cache and --out on the command line; the earlier, pre-metadata cluster cache is rejected -- use a new path).
 experiment:
   type: water
   part: clusters
-  rungs: [M_inf, M_1, M_1p]
+  rungs: [M_16p, M_16S0p, M_16S2p]
 
 model:
-  charges: null  # pinned or learned; null preserves each rung's default.
+  charges: null  # pinned or learned; null keeps each rung's own source (the daggers above pin the monomer's charges).
+  charge_neutrality: fragment  # Learned charges: one neutrality shift per fragment (every molecule neutral, an ion charged);
+                               # structure: one shift over the whole structure (the head before v0.0.8, for comparison only).
+  band_edge_angstrom: 0.75  # l_1; null uses the rung's own band edge (1.5 A).
+  rs_over_l1: 0.0  # Near-source switch radius of the band-field input as a multiple of l_1; 0 disables the switch.
+  r_cut_angstrom: 6.0  # E_0's cutoff.
+  features: 16  # E_0's feature width F.
+  analytic_envelope_angstrom: 4.0  # M_A's envelope (not used by the rungs above).
 
 data:
-  # Sizes count water molecules; n_train/n_test are clusters per size.
+  # Sizes count water molecules; n_train/n_test are clusters per size (the pre-registered design: n = 3, 4, 5 x 12 for
+  # training, 8 hexamers and 8 dimers held out, relaxed by 300 rigid-body Metropolis steps at 300 K).
   train_sizes: [3, 4, 5]
   test_sizes: [6, 2]
   n_train: 12
@@ -23,9 +38,12 @@ data:
   min_atom_distance_angstrom: 1.7
 
 training:
-  seeds: [0, 1, 2, 3]  # Model seeds, independent of the data seeds above.
+  # The final schedule: E_0 and the sources trained by Adam with the read-out frozen, the read-out's order-0 sector set
+  # by its linear solve, then L-BFGS on everything.  (The joint-Adam variant of the same note -- freeze_during_adam: false,
+  # linear_solve: false, lbfgs.steps: 150 -- gave the best hexamer numbers but cannot identify the far-field coefficient.)
+  seeds: [0, 1]  # Model seeds (K = 2), independent of the data seeds above.
   adam:
-    steps: 1500  # Initial stage; readout is frozen when freeze_during_adam is true.
+    steps: 1000  # Initial stage; readout is frozen when freeze_during_adam is true.
     learning_rate: 0.003
     final_learning_rate_ratio: 0.01  # Cosine decay ends at this fraction of the initial rate.
     beta1: 0.9
@@ -35,8 +53,8 @@ training:
     gradient_clip_norm: null  # null disables gradient clipping.
     batch_size: 12  # null means the full training dataset.
   readout:
-    freeze_during_adam: true  # Applies to response rungs such as M_S0p/M_S2p.
-    linear_solve: true  # Fit order-0 output coefficients after Adam.
+    freeze_during_adam: true  # Applies to the response rungs (M_16S0p, M_16S2p here); the daggers without a read-out ignore it.
+    linear_solve: true  # Fit the order-0 output coefficients after Adam (the orders >= 1 switch on in the polish).
     ridge: 1.0e-8  # Relative regularization for that linear solve.
   lbfgs:
     steps: 300  # Subsequent optimization stage.
@@ -49,6 +67,6 @@ training:
   loss:
     energy_weight: 1.0
     force_weight: 1.0
-    far_weight: 1.0  # Structure weighting for water far/ion experiments.
+    far_weight: 1.0  # Structure weighting of the far-field configurations; used by the far and ion parts only.
   energy_scale: null  # Automatically derived; targets are scaled, never shifted.
   verbose: false

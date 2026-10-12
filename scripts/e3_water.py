@@ -108,15 +108,36 @@ def pin_embedded(structs, n_core=None, self_energy=True):
 
 
 def configure(rung, a):
+    """the rung with the architecture settings of the run: E_0's cutoff and width, M_A's envelope, the charge source
+    and the neutrality shift (per fragment, or over the structure as before v0.0.8), the band edge l_1 and the
+    near-source switch of the band-field input (r_s = rs_over_l1 x l_1; 0 switches it off)."""
     kw = dict(lA=ang_to_bohr(a.lA), e0={**rung.e0, "r_cut": ang_to_bohr(a.rcut), "F": a.F, "n_rbf_readout": 8})
     charge_source = getattr(a, "charges", None)
     if rung.charges and charge_source is not None:
         kw["pin_q"] = charge_source == "pinned"
+    kw["frag_neutral"] = getattr(a, "charge_neutrality", "fragment") == "fragment"
     if a.l1 > 0:
         kw["l1"] = ang_to_bohr(a.l1)                                                   # the band edge (default 1.5 A)
     if rung.band_fields >= 0:
-        kw["bf_rs"] = rung.l1 * a.rs_over_l1
+        kw["bf_rs"] = kw.get("l1", rung.l1) * a.rs_over_l1
     return M.with_rung(rung, **kw)
+
+
+def model_record(name, a):
+    """the architecture of a rung as run, for the results json: the sources (pinned / learned / off), the neutrality
+    shift, the band-field order, the band edge, the near-source switch, E_0's cutoff and width, M_A's envelope."""
+    rung = configure(RUNGS[name], a)
+    source = lambda on, pinned: ("pinned" if pinned else "learned") if on else "off"
+    ang = lambda x: round(float(bohr_to_ang(x)), 12)                     # the unit round trip, without its last bit
+    return {"charges": source(rung.charges, rung.pin_q),
+            "charge_neutrality": "fragment" if rung.frag_neutral else "structure",
+            "dipoles": source(rung.dipoles, rung.pin_mu),
+            "polarisabilities": source(rung.dispersion, rung.pin_alpha),
+            "band_fields": int(rung.band_fields) if rung.band_fields >= 0 else None,
+            "band_edge_angstrom": ang(rung.l1),
+            "near_source_switch_angstrom": ang(rung.bf_rs) if rung.band_fields >= 0 else None,
+            "r_cut_angstrom": ang(rung.e0["r_cut"]), "features": int(rung.e0["F"]),
+            "analytic_envelope_angstrom": ang(rung.lA), "periodic": bool(rung.periodic)}
 
 
 def monomer_dipole(params, rung):
@@ -138,11 +159,7 @@ def _save(a, results):
     if hasattr(a, "rungs"):
         for name in a.rungs.split(","):
             if name in results:
-                preset = RUNGS[name]
-                charge_source = getattr(a, "charges", None)
-                results[name]["model"] = {
-                    "charges": (charge_source or ("pinned" if preset.pin_q else "learned")) if preset.charges else "off"
-                }
+                results[name]["model"] = model_record(name, a)
                 results[name]["training"] = {"seeds": training_seeds(a), "far_weight": a.w_far if hasattr(a, "w_far") else 1.0,
                                              **training_kwargs(a)}
     old.update(results)
@@ -473,6 +490,8 @@ def main():
     ap.add_argument("--rungs", default="M_inf,M_G,M_A,M_1,M_1mu,M_1p")
     ap.add_argument("--charges", choices=["pinned", "learned"], default=None,
                     help="override charge sources for all charge-bearing water rungs; omitted keeps preset defaults")
+    ap.add_argument("--charge_neutrality", choices=["fragment", "structure"], default="fragment",
+                    help="neutrality shift of learned charges: per fragment (each molecule neutral, the ion charged) or one shift over the structure (before v0.0.8)")
     ap.add_argument("--seeds", type=int, default=4); ap.add_argument("--steps", type=int, default=1500); ap.add_argument("--lbfgs", type=int, default=300)
     ap.add_argument("--sigma", type=float, default=1e-9); ap.add_argument("--rcut", type=float, default=6.0); ap.add_argument("--lA", type=float, default=4.0)
     ap.add_argument("--F", type=int, default=16); ap.add_argument("--rs_over_l1", type=float, default=1.0)
@@ -490,7 +509,7 @@ def main():
     ap.add_argument("--train_far", type=int, default=0, help="far-field probe configurations per distance and core added to the training set")
     ap.add_argument("--train_far_cores", type=int, default=8, help="number of different core trimers in the far-field training set")
     ap.add_argument("--test_cores", type=int, default=1)
-    ap.add_argument("--l1", type=float, default=0.0, help="band edge l_1 in A (0: the rung's default, 1.5 A)")
+    ap.add_argument("--l1", type=float, default=0.0, help="band edge l_1 in A (0: the rung's default, 1.5 A); YAML model.band_edge_angstrom")
     ap.add_argument("--w_far", type=float, default=1.0, help="training weight of the far-field configurations (energies and forces)")
     ap.add_argument("--cache", default="", help="pickle of the generated data sets of the part (written if absent, read if present)")
     ap.add_argument("--base_cache", default="", help="ion part: a far-part cache whose base (dimer window + clusters) is reused")
