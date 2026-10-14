@@ -329,3 +329,17 @@ v0.0.8's 236, the q-AQUA driver and truth (benchmarks, atom order, separated mon
 integration, the exact many-body decomposition, the pre-registered R_e / dipole coefficient / charges / raw-set count,
 the model-side subset expansion vanishing for a pairwise model), the multi-part configuration (merging, refusals,
 `--validate_only`, the dispatcher's validate-then-run sequence), and the PW generators against v0.0.8's values.
+
+### Build fix: the q-AQUA library carries its Fortran runtime (no numerical change; 285 tests)
+
+The first HPC run stopped at `ctypes.CDLL`: `libgfortran.so.5: cannot open shared object file`. `libqaqua.so` was
+linked against the runtime of the compiler that built it, which the build's shell could see (the compiler's module or
+conda env) and the run's could not. `external/qaqua/build.sh` now copies the runtime the library needs (libgfortran,
+and libquadmath where the compiler uses it) to `<build>/runtime`, links with that directory in a DT_RPATH
+(`$ORIGIN/runtime`: it also serves libgfortran's own libquadmath and is not overridden by `LD_LIBRARY_PATH`), and fails
+unless `ldd` resolves every library with `LD_LIBRARY_PATH` unset; `--relink` repairs an earlier build in seconds (no
+download, q-AQUA not recompiled). `sseft.qaqua.load_library` preloads the bundled runtime should the RPATH not serve
+and otherwise says how to repair the build, and `qaqua.py --check` prints which runtime was loaded. Checked with the
+system's libgfortran and libquadmath removed (a runtime needing libquadmath, as GCC ≤ 12's): the benchmarks and the
+q-AQUA tests pass on the relinked build. Tests: `tests/test_qaqua_loader.py` (the loader with a fake `ctypes.CDLL`,
+the script's syntax) and the build's runtime resolution in `tests/test_qaqua.py`.

@@ -19,18 +19,68 @@ relative.  The library keeps module state and is not thread-safe.
 
     python sseft/qaqua.py --check external/qaqua/build      # the authors' benchmarks (README of qAQUA_v1)
 
-This module imports only numpy and ctypes, so that the build script can run the check without JAX.
+This module imports only numpy, ctypes and the standard library, so that the build script can run the check without JAX.
 """
 import ctypes
+import glob
 import itertools
 import math
 import os
+import re
 import sys
 
 import numpy as np
 
 AUANG = 0.5291772083                 # q-AQUA's bohr in Angstrom (constants.f90); used to reproduce its benchmarks
 DEBYE_PER_E_BOHR = 2.541746473       # e a0 in Debye
+RUNTIME_DIR = "runtime"              # build.sh copies the compiler's run-time libraries here (in libqaqua.so's RPATH)
+_RUNTIME_NAME = re.compile(r"(libgfortran|libquadmath|libifcore|libifport|libimf|libsvml|libintlc|libirng)\.so")
+_preloaded = []                      # handles of run-time libraries loaded by load_library, kept for the process
+
+_RUNTIME_HELP = """\
+libqaqua.so is linked against the run-time library of the Fortran compiler that built it (libgfortran, libquadmath),
+which this environment does not provide.  Relink the build so that it carries that runtime, in a shell where the
+compiler you built with is available (the same module or conda env as for build.sh), then run again:
+    sh external/qaqua/build.sh --relink        # seconds: reuses the compiled objects
+or make the compiler's runtime visible to this process, e.g.
+    export LD_LIBRARY_PATH="$(dirname "$(gfortran -print-file-name=libgfortran.so.5)"):$LD_LIBRARY_PATH\""""
+
+
+def load_library(root):
+    """ctypes handle of root/libqaqua.so.  The library finds the compiler's run-time libraries that build.sh copies to
+    root/runtime through its RPATH; should the loader not find them that way (a build without that RPATH), they are
+    loaded here first, in an order that satisfies their dependencies on one another.  If libqaqua.so still does not
+    load, the error says how to repair the build or the environment."""
+    path = os.path.join(root, "libqaqua.so")
+    try:
+        return ctypes.CDLL(path)
+    except OSError as e:
+        first = e
+    pending = sorted(glob.glob(os.path.join(root, RUNTIME_DIR, "*.so*")))
+    while pending:                                # load what loads, retry the rest while that makes progress
+        failed = []
+        for p in pending:
+            try:
+                _preloaded.append(ctypes.CDLL(p))
+            except OSError:
+                failed.append(p)
+        if len(failed) == len(pending):
+            break
+        pending = failed
+    try:
+        return ctypes.CDLL(path)
+    except OSError as e:
+        raise OSError(f"cannot load {path}: {e}\n{_RUNTIME_HELP}") from first
+
+
+def loaded_runtime():
+    """the files of the Fortran run-time libraries mapped into this process (Linux; empty elsewhere)."""
+    try:
+        with open("/proc/self/maps") as fh:
+            files = {line.split(None, 5)[5].strip() for line in fh if len(line.split(None, 5)) == 6}
+    except OSError:
+        return []
+    return sorted(f for f in files if _RUNTIME_NAME.match(os.path.basename(f)))      # not wheels' renamed copies
 
 
 class QAqua:
@@ -47,7 +97,7 @@ class QAqua:
         if missing:
             raise FileNotFoundError(f"incomplete q-AQUA build at {self.root} (missing {missing[0]}); "
                                     "run: sh external/qaqua/build.sh")
-        lib = ctypes.CDLL(lib_path)
+        lib = load_library(self.root)
         f64 = np.ctypeslib.ndpointer(dtype=np.float64, flags="C_CONTIGUOUS")
         dp = ctypes.POINTER(ctypes.c_double)
         lib.qaqua_init.argtypes = [ctypes.c_int]; lib.qaqua_init.restype = ctypes.c_int
@@ -236,6 +286,9 @@ def check(root):
     positions converted with q-AQUA's own bohr; and the self-consistency of the driver (order round trip, the
     long range against the LTP2011 point charges).  Returns True if everything passes."""
     qa = QAqua(root)
+    print(f"  library        {os.path.join(qa.root, 'libqaqua.so')}")
+    for f in loaded_runtime():
+        print(f"  runtime        {f}")
     ok = True
     for name, (E_ref, G_ref) in _BENCHMARKS.items():
         xq = _read_xyz_qaqua_order(os.path.join(qa.src, name)) / AUANG          # q-AQUA order, bohr

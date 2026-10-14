@@ -3,6 +3,8 @@ Skipped unless a build exists: $QAQUA_ROOT or external/qaqua/build (sh external/
 import importlib
 import math
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +28,19 @@ def qa():
 def prism(qa):
     xq = Q._read_xyz_qaqua_order(os.path.join(qa.src, "t01_prism.xyz")) / Q.AUANG
     return qa.from_qaqua_order(xq.ravel(), 6)                    # bohr, O, H, H per molecule
+
+
+@pytest.mark.skipif(shutil.which("ldd") is None, reason="no ldd")
+def test_library_carries_its_runtime():
+    """the build loads without the compiler's environment: with LD_LIBRARY_PATH unset every library libqaqua.so needs
+    resolves, and the Fortran runtime resolves to the copy build.sh put in ROOT/runtime (a build made before that
+    fails here: sh external/qaqua/build.sh --relink)."""
+    env = {k: v for k, v in os.environ.items() if k != "LD_LIBRARY_PATH"}
+    out = subprocess.run(["ldd", os.path.join(ROOT, "libqaqua.so")], env=env, capture_output=True, text=True).stdout
+    assert "not found" not in out, out
+    runtime = [line.split() for line in out.splitlines() if Q._RUNTIME_NAME.match(line.strip())]
+    rt_dir = os.path.realpath(os.path.join(ROOT, Q.RUNTIME_DIR))
+    assert all(os.path.dirname(os.path.realpath(r[2])) == rt_dir for r in runtime), out
 
 
 def test_authors_benchmarks_and_long_range(capsys):

@@ -17,7 +17,7 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
 
     pip install -e .            # jax, optax, numpy, scipy, PyYAML (tested with jax 0.10, optax 0.2.8, numpy 2.4, scipy 1.17)
     sh external/qaqua/build.sh  # only for E3-Q: the q-AQUA truth, needs gfortran (or FC=ifort); ~10 min
-    pytest -q tests/            # 279 tests, ~6 min on a CPU; the 10 q-AQUA tests are skipped without the build
+    pytest -q tests/            # 285 tests, ~6 min on a CPU; the 11 q-AQUA tests are skipped without the build
 
 For GPUs install the matching `jax[cuda]` wheel first.
 
@@ -59,6 +59,8 @@ sh external/qaqua/build.sh            # clones q-AQUA, compiles its Fortran with
                                       # checks the authors' trimer and hexamer benchmarks; FC=ifort for the Intel compiler
 python scripts/run_experiment.py --config configs/water_qaqua.yaml --out_dir results/e3q
 ```
+
+The build copies the compiler's Fortran runtime (libgfortran, and libquadmath where that compiler uses it) to `external/qaqua/build/runtime`, which `libqaqua.so` finds through its RPATH, so the library loads in a batch job or another conda env without the compiler's module or env. A build made before this (`OSError: libgfortran.so.5: cannot open shared object file`) is repaired in seconds by `sh external/qaqua/build.sh --relink`, run in a shell where the compiler it was built with is available.
 
 The truth is q-AQUA on rigid monomers at the harness geometry, minus its 1-body term (`sseft.qaqua`, `sseft.water.QAquaTruth`): its 2-body term is the bare point-charge Coulomb of the monomers' LTP2011 charges beyond 7.8 Å, its 3- and 4-body terms vanish beyond 9 and 7.5 Å, so the pinned-charge dagger `M_1p` is exact on its dimer tail, and the rungs pinning sources of the PW truth's polarisable model (`M_16*`, `*emb`) and the far and ion parts are refused. Two parts: (a) the dimer ladder at φ = 0 (`M_inf`, `M_G`, `M_A`, `M_1`, `M_1mu`, `M_1p`; r_c = 5 Å, K = 8) with the learned monomer dipole against the LTP2011 dipole; (c) the clusters (`M_inf`, `M_1p`, `M_S0p`, `M_S2p`, `M_1mu`; ℓ₁ = 0.75 Å, K = 4, the E3-R schedule), every trained model also read on the raw CCSD(T) 2-, 3- and 4-body sets of the q-AQUA repository (frames with near-rigid monomers inside the training domain), with the PES's own error on the same frames as the reference and the 3-body set by largest O–O distance — beyond 7–9 Å the PES's 3-body term is switched off, the CCSD(T) labels are not. Every trained model's parameters are saved next to the json (`<out>_<rung>_seed<k>.params.pkl`).
 
