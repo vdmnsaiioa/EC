@@ -291,3 +291,41 @@ now different models; their v0.0.5–v0.0.7 numbers stand as recorded under the 
 
 The 34 physics tests of v0.0.7, 196 configuration tests (selection, data, model, training, dispatch — the expensive
 parts mocked) and 5 fragment-neutrality tests.
+
+## v0.0.8 → v0.0.9 — E3-Q set up: q-AQUA v1 as the truth (`sseft/qaqua.py`, `external/qaqua/`, `configs/water_qaqua.yaml`)
+
+No experiment run yet; pre-registered in `notes/e3q-preregistration.md` with the numbers computed from the PES
+(`scratch/e3q_preregistration.py`).
+
+**The truth.** q-AQUA v1 (Yu et al. 2022) built with gfortran through a C interface that initialises once and re-sizes
+q-AQUA's work arrays for any number of waters (`external/qaqua/build.sh`, `qaqua_capi.f90`): the authors' trimer and
+prism-hexamer benchmarks reproduced to the printed 1e-8 in every energy and gradient component; two monomers 12 Å
+apart interact by exactly their LTP2011 point charges (4e-13); the energy's rounding noise is 2e-11 (dimer) to 8e-11
+(hexamer) hartree, so finite differences below 1e-3 bohr are noise-dominated while the gradient integrates to the
+energy to within the noise. On rigid monomers at the harness geometry the interaction energy is q-AQUA minus its 1-body
+term (`sseft.water.QAquaTruth`); the generators of `sseft.water` take a truth (PW by default, bit-for-bit as before:
+`tests/test_water_truths.py` holds values recorded from v0.0.8).
+
+**The experiment.** `configs/water_qaqua.yaml` runs (a) the dimer ladder at φ = 0 (R_e = 2.9346 Å; window
+[3.96, 7.13] Å; r_c = 5 Å for 12 identifying nodes; M_∞, M_G, M_A, M_1, M_1μ, M_1†; K = 8) and (c) the clusters (the
+E3-R design and schedule at ℓ₁ = 0.75 Å; M_∞, M_1†, M_S0†, M_S2†, M_1μ; K = 4), every cluster model also read on the raw
+CCSD(T) 2-/3-/4-body sets of the q-AQUA repository (near-rigid frames inside the training domain: 4940 / 4673 / 267),
+the 3-body set by largest O–O distance — beyond the PES's switch at 7–9 Å the CCSD(T) labels are not zero, the PES is.
+The harness's configuration gained several water parts in one file (`experiment.part` as a list, per-part overrides
+under `parts`, `run_experiment.py --out_dir` running them in sequence after `--validate_only` checks every part), the
+water `truth` mapping and the dimer design as a `data` mapping; trained parameters are saved per seed on q-AQUA.
+
+**The predictions that matter** (§4 of the note): M_1† exact on the tail (≤ 1e-8 from the 8 Å row); M_1's learned
+dipole biased by the window, not the class — the identifying nodes lie in the CCSD(T) fit, 13–24 % away from the point
+charges, and the class minimum with a linear charge response is 1.763 D against 1.851 (registered 1.71–1.82 D), the
+alternatives 1.47 D (the response not learned) and 2.10 D (forces ignored) being diagnostic; M_S0† at 25–55 % of the
+hexamers' non-additive energy (0.915 kcal/mol; fixed-coefficient floor 20 %); and on the raw CCSD(T) trimers beyond
+the PES's switch (7–9 Å: the PES 48 %; beyond 9 Å: 100 %), M_S0† below the PES — a model trained on q-AQUA carrying
+many-body physics that q-AQUA drops.
+
+### Tests (`pytest -q tests/`, 279 tests; the 10 q-AQUA tests are skipped without the build)
+
+v0.0.8's 236, the q-AQUA driver and truth (benchmarks, atom order, separated monomers, the gradient by path
+integration, the exact many-body decomposition, the pre-registered R_e / dipole coefficient / charges / raw-set count,
+the model-side subset expansion vanishing for a pairwise model), the multi-part configuration (merging, refusals,
+`--validate_only`, the dispatcher's validate-then-run sequence), and the PW generators against v0.0.8's values.

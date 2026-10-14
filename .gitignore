@@ -9,3 +9,6 @@ dist/
 results/*.out
 results/*.pkl
 results/*.params.pkl
+
+# the q-AQUA build (external/qaqua/build.sh)
+/external/qaqua/build

@@ -152,7 +152,7 @@ def _mock_cluster_runtime(module, monkeypatch):
         fits.append(list(structs))
         return {}, {"time": 0.0}
 
-    def pair_structure(positions):
+    def pair_structure(positions, **kwargs):
         result = structure(2)
         result.positions = module.ang_to_bohr(positions)
         result.info["pair"] = True
@@ -164,9 +164,9 @@ def _mock_cluster_runtime(module, monkeypatch):
         return np.array([s.energy for s in structs]), None
 
     monkeypatch.setattr(module.W, "cluster_dataset", dataset)
-    monkeypatch.setattr(module.W, "monomer_structure", lambda: structure(1, energy=0))
+    monkeypatch.setattr(module.W, "monomer_structure", lambda truth=None: structure(1, energy=0))
     monkeypatch.setattr(module.W, "water_structure", pair_structure)
-    monkeypatch.setattr(module.W, "pair_additive_energy", lambda positions, n: 4.0 * n * (n - 1) / 2)
+    monkeypatch.setattr(module.W, "pair_additive_energy", lambda positions, n, truth=None: 4.0 * n * (n - 1) / 2)
     monkeypatch.setattr(module.T, "fit", fit)
     monkeypatch.setattr(module.T, "predict", predict)
     monkeypatch.setattr(module, "configure", lambda rung, args: SimpleNamespace(pin_mu=False, pin_alpha=False))

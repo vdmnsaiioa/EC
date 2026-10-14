@@ -262,6 +262,31 @@ def predict(params, rung, structures):
     return E, [F[i, :s.n_atoms] for i, s in enumerate(structures)]
 
 
+_ENERGY_FNS = {}
+
+
+def predict_energies(params, rung, structures, chunk=256):
+    """interaction energies (hartree) only -- no forces -- for many structures: grouped by atom count and evaluated in
+    chunks of one shape per group (the last chunk padded with repeats of its first structure), so that one compilation
+    serves each group; params enter as an argument, so the compilation is reused across seeds."""
+    key = repr(rung)
+    if key not in _ENERGY_FNS:
+        _ENERGY_FNS[key] = jax.jit(lambda p, b: jax.vmap(lambda bb: M.energy_single(p, rung, bb)[0])(b))
+    f = _ENERGY_FNS[key]
+    out = np.zeros(len(structures))
+    groups = {}
+    for i, s in enumerate(structures):
+        groups.setdefault(s.n_atoms, []).append(i)
+    for idx in groups.values():
+        size = min(chunk, len(idx))
+        for i0 in range(0, len(idx), size):
+            sel = idx[i0:i0 + size]
+            batch = [structures[i] for i in sel]
+            batch += [batch[0]] * (size - len(batch))
+            out[sel] = np.asarray(f(params, pad_batch(batch, n_freq=rung.K)))[:len(sel)]
+    return out
+
+
 def predict_aux(params, rung, structures):
     data = pad_batch(structures, n_freq=rung.K)
     aux = jax.jit(lambda b: M.aux_batched(params, rung, b))(data)

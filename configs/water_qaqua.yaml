@@ -1,0 +1,109 @@
+# E3-Q: E3 on q-AQUA v1, the first E3 on a published CCSD(T) potential -- the water analogue of E1 on the published
+# Ar2 / Ne2 curves.  Pre-registration with the numbers computed from the PES: notes/e3q-preregistration.md.
+#
+#   sh external/qaqua/build.sh                                                  # once: the truth (gfortran, ~10 min)
+#   python scripts/run_experiment.py --config configs/water_qaqua.yaml --out_dir results/e3q
+#
+# runs the two parts below in sequence (each checked first), writing results/e3q/{dimer,clusters}.json, the cluster
+# cache and every trained model's parameters; --part dimer or --part clusters runs one.  Every value of the
+# experiment is in this file; explicit flags override it.
+#
+# The truth: q-AQUA v1 (Q. Yu et al., J. Phys. Chem. Lett. 13, 5068 (2022); github.com/jmbowma/q-AQUA, commit 91c90d2)
+# on rigid monomers at the harness geometry (r_OH 0.9572 A, HOH 104.52 deg); the interaction energy is q-AQUA minus
+# its 1-body term.  Its 2-body term is exactly the point-charge Coulomb of the monomers' LTP2011 charges beyond
+# 7.8 A (switched from the CCSD(T) fit over 6.5-7.8 A), its 3-body term is switched to zero over 7-9 A and its 4-body
+# term over 5.8-7.5 A: no induction and no dispersion at long range.  The dagger rungs pin those LTP2011 charges;
+# the rungs that pin sources of the PW truth's polarisable model (embedded dipoles, alpha, the M_16 family) are
+# refused on this truth.
+experiment:
+  type: water
+  part: [dimer, clusters]
+
+truth:
+  name: qaqua
+  root: external/qaqua/build        # the build directory of external/qaqua/build.sh
+  heldout:                          # clusters part: the raw CCSD(T) n-body sets of the q-AQUA repository, read with every
+    sets: [2b, 3b, 4b]              # trained model, against the labels and with the PES's own error on the same frames
+    rigid_tolerance: {oh_angstrom: 0.03, angle_degrees: 5.0}     # frames whose every monomer is this close to the rigid
+    strict_tolerance: {oh_angstrom: 0.02, angle_degrees: 3.0}    # geometry; the strict subset is reported separately
+    max_pair_energy_kcal: 2.0       # the training domain: every pair's q-AQUA 2-body energy at most this (the training
+                                    # clusters' pairs span -4.8 to +1.2 kcal/mol; the raw 2-body set reaches +37)
+    max_frames: null                # per set; null: every frame within the tolerances
+
+model:                              # shared by both parts; each part sets its own cutoff and band edge below
+  charges: null                     # each rung's own source: the p rungs pin the LTP2011 charges, M_1 / M_1mu learn theirs
+  charge_neutrality: fragment       # learned charges: every molecule exactly neutral
+  rs_over_l1: 0.0                   # no radial switch in the band-field input (the own fragment is excluded regardless)
+  features: 16
+  analytic_envelope_angstrom: 4.0   # M_A (l = 4 A, N = 4)
+
+training:                           # shared schedule; seeds, step counts, batch and chunk per part below
+  adam:
+    learning_rate: 0.003
+    final_learning_rate_ratio: 0.01
+    beta1: 0.9
+    beta2: 0.999
+    epsilon: 1.0e-8
+    epsilon_root: 0.0
+    gradient_clip_norm: null
+  readout:                          # only the band-field rungs (M_S0p, M_S2p) have a read-out: frozen during Adam,
+    freeze_during_adam: true        # its order-0 sector set by the linear solve, then L-BFGS on everything (E3-R)
+    linear_solve: true
+    ridge: 1.0e-8
+  lbfgs:
+    learning_rate: null
+    memory_size: 10
+    scale_init_precond: true
+    max_linesearch_steps: 20
+    readout_only: false
+  loss:
+    energy_weight: 1.0
+    force_weight: 1.0
+    far_weight: 1.0                 # unused here (the far and ion parts only)
+  energy_scale: null
+  verbose: false
+
+parts:
+  dimer:                            # (a) the fixed-orientation dimer ladder, p* = 3, and (b) the learned monomer dipole
+    rungs: [M_inf, M_G, M_A, M_1, M_1mu, M_1p]
+    model:
+      r_cut_angstrom: 5.0           # 12 window nodes with every intermolecular pair beyond r_c (only 2 at 6 A)
+      band_edge_angstrom: null      # the rungs' own 1.5 A
+    data:
+      re_angstrom: null             # null: the truth's own minimum at phi = 0 (q-AQUA, rigid: 2.9346 A)
+      window_lower_over_re: 1.35
+      window_ratio: 1.8             # window [3.96, 7.13] A
+      window_nodes: 40
+      phi_degrees: 0.0              # acceptor dipole along the O-O axis (dipole-dipole coefficient -0.649 a.u.)
+      sigma: 1.0e-9                 # label noise (hartree); q-AQUA's own rounding noise is 2e-11 for a dimer
+      train_seed: 0
+      monomer_references: 4
+      eval_max_angstrom: 500.0
+      eval_points: 61
+    training:
+      seeds: [0, 1, 2, 3, 4, 5, 6, 7]
+      adam: {steps: 1500, batch_size: null}       # full batch, as the dimer ladders of E1 and the rehearsal
+      lbfgs: {steps: 300, chunk_size: 48}
+  clusters:                         # (c) the clusters, and the held-out CCSD(T) n-body sets
+    rungs: [M_inf, M_1p, M_S0p, M_S2p, M_1mu]
+    model:
+      r_cut_angstrom: 6.0
+      band_edge_angstrom: 0.75      # below the hydrogen bond (the rehearsal's and E3-R's band edge)
+    data:                           # the pre-registered cluster design (as the rehearsal and E3-R)
+      train_sizes: [3, 4, 5]
+      test_sizes: [6, 2]
+      n_train: 12
+      n_test: 8
+      train_seed: 0
+      test_seed: 100
+      sigma: 1.0e-9
+      monomer_references: 4
+      mc_steps: 300
+      temperature_kelvin: 300.0
+      radius_angstrom: null
+      min_oo_angstrom: 2.7
+      min_atom_distance_angstrom: 1.7
+    training:
+      seeds: [0, 1, 2, 3]
+      adam: {steps: 1000, batch_size: 12}
+      lbfgs: {steps: 300, chunk_size: 6}

@@ -24,6 +24,7 @@ is -C3/R^3 with C3 from the point-charge dipoles, the induction tail -C6_ind/R^6
 dipole)^2 R^6, and the non-additive cluster energy is the self-consistent dipole part.
 """
 import math
+import os
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -79,13 +80,15 @@ def dimer_positions(R_OO_ang, phi_deg=0.0):
     return np.concatenate([donor, acceptor])
 
 
-def water_structure(pos_ang, energy=None, forces=None, pinned_q=True, info=None):
+def water_structure(pos_ang, energy=None, forces=None, pinned_q=True, info=None, charges=None):
+    """n waters (O, H, H each) with fragments per molecule; pinned charges: `charges` (3n,) when given (a truth's own,
+    e.g. q-AQUA's LTP2011 charges at each molecule's geometry), else the PW truth's monomer charges."""
     n = len(pos_ang) // 3
     Z = np.tile([8, 1, 1], n)
     st = Structure(ang_to_bohr(np.asarray(pos_ang, float)), Z, energy=energy, forces=forces, info=info or {},
                    frag=np.repeat(np.arange(n), 3))
     if pinned_q:
-        st.pinned = {"q": np.tile(monomer_charges(), n)}
+        st.pinned = {"q": np.tile(monomer_charges(), n) if charges is None else np.asarray(charges, float).copy()}
     return st
 
 
@@ -165,26 +168,130 @@ def pw_components(pos_ang, n_mol, n_ion=0):
     return {k: (float(v) if v.ndim == 0 else np.array(v)) for k, v in c.items()}
 
 
+# ---------------------------------------------------------------- truths --------------------------------------
+class PWTruth:
+    """the synthetic polarisable water truth of the rehearsal, the default of every generator below (its calls are
+    exactly the ones the generators always made, so that every PW data set is bit-for-bit what it was)."""
+    name = "pw"
+    r_e = 2.86                     # A: the dimer minimum at phi = 0 as recorded for the rehearsal (rounded, and kept so)
+
+    def energy(self, pos_ang, n_mol):
+        return pw_energy_forces(pos_ang, n_mol)[0]
+
+    def energy_forces(self, pos_ang, n_mol):
+        return pw_energy_forces(pos_ang, n_mol)
+
+    def molecule_charges(self, pos_ang):
+        return np.tile(monomer_charges(), len(pos_ang) // 3)
+
+    def describe(self):
+        return {"name": self.name, "r_e_angstrom": self.r_e}
+
+
+PW_TRUTH = PWTruth()
+
+
+class QAquaTruth:
+    """q-AQUA v1 (sseft.qaqua; external/qaqua/build.sh builds it): interaction energies (its 1-body term removed) and
+    forces of rigid or flexible monomers, and the monomers' LTP2011 charges -- the charges its 2-body term reduces
+    to beyond 7.8 A -- for the pinned-charge rungs.  r_e is the rigid dimer's minimum at phi = 0, computed."""
+    name = "qaqua"
+
+    def __init__(self, root):
+        from .qaqua import QAqua
+        self.qa = QAqua(root)
+        self.r_e = dimer_minimum(self)
+
+    def energy(self, pos_ang, n_mol):
+        return self.qa.interaction_energy(ang_to_bohr(np.asarray(pos_ang, float)))
+
+    def energy_forces(self, pos_ang, n_mol):
+        return self.qa.interaction_energy_forces(ang_to_bohr(np.asarray(pos_ang, float)))
+
+    def molecule_charges(self, pos_ang):
+        return self.qa.molecule_charges(ang_to_bohr(np.asarray(pos_ang, float)))
+
+    def describe(self):
+        commit = None
+        head = os.path.join(self.qa.root, "q-AQUA", ".git", "HEAD")
+        try:
+            ref = open(head).read().strip()
+            path = os.path.join(self.qa.root, "q-AQUA", ".git", ref[5:]) if ref.startswith("ref: ") else None
+            commit = (open(path).read().strip() if path and os.path.exists(path) else ref)[:7]
+        except OSError:
+            pass
+        return {"name": self.name, "root": self.qa.root, "commit": commit, "r_e_angstrom": self.r_e}
+
+
+_QAQUA = {}
+
+
+def qaqua_truth(root):
+    """one QAquaTruth per build directory and process (the library keeps module state)."""
+    key = os.path.abspath(os.path.expanduser(root))
+    if key not in _QAQUA:
+        _QAQUA[key] = QAquaTruth(key)
+    return _QAQUA[key]
+
+
+def dimer_minimum(truth, phi_deg=0.0, bracket=(2.5, 3.5), tol=1e-7):
+    """the O-O distance (A) minimising the truth's rigid fixed-orientation dimer energy: golden section on `bracket`."""
+    f = lambda R: truth.energy(dimer_positions(R, phi_deg), 2)
+    g = (math.sqrt(5.0) - 1.0) / 2.0
+    a, b = bracket
+    c, d = b - g * (b - a), a + g * (b - a)
+    fc, fd = f(c), f(d)
+    while b - a > tol:
+        if fc < fd:
+            b, d, fd = d, c, fc; c = b - g * (b - a); fc = f(c)
+        else:
+            a, c, fc = c, d, fd; d = a + g * (b - a); fd = f(d)
+    return 0.5 * (a + b)
+
+
+def molecular_dipoles(truth, pos_ang):
+    """(n, 3) dipole vectors (e bohr) of the truth's charges on each molecule (neutral, so origin-free)."""
+    pos = ang_to_bohr(np.asarray(pos_ang, float)).reshape(-1, 3, 3)
+    q = np.asarray(truth.molecule_charges(pos_ang)).reshape(-1, 3)
+    return np.einsum("mi,mia->ma", q, pos)
+
+
+def dipole_dipole_coefficient(truth, phi_deg=0.0):
+    """lim E R^3 (hartree bohr^3) of the fixed-orientation dimer for point dipoles of the truth's charges:
+    mu_d.mu_a - 3 (mu_d.z)(mu_a.z)."""
+    mu = molecular_dipoles(truth, dimer_positions(10.0, phi_deg))
+    return float(mu[0] @ mu[1] - 3.0 * mu[0, 2] * mu[1, 2])
+
+
 # ---------------------------------------------------------------- data sets --------------------------------
-def dimer_scan(R_OO_ang, sigma=0.0, rng=None):
-    """fixed-orientation dimers at the O-O separations given (A), with the truth's energies and forces."""
+def dimer_scan(R_OO_ang, sigma=0.0, rng=None, truth=None, phi_deg=0.0):
+    """fixed-orientation dimers at the O-O separations given (A), with the truth's energies and forces (PW unless a
+    truth is given) and its charges pinned."""
+    truth = truth or PW_TRUTH
     rng = rng or np.random.default_rng(0)
     out = []
     for R in np.atleast_1d(R_OO_ang):
-        pos = dimer_positions(float(R))
-        E, F = pw_energy_forces(pos, 2)
+        pos = dimer_positions(float(R), phi_deg)
+        E, F = truth.energy_forces(pos, 2)
         if sigma > 0: E += rng.normal() * sigma
-        out.append(water_structure(pos, energy=E, forces=F, info={"R": float(ang_to_bohr(R)), "R_A": float(R)}))
+        out.append(water_structure(pos, energy=E, forces=F, info={"R": float(ang_to_bohr(R)), "R_A": float(R)},
+                                   charges=truth.molecule_charges(pos)))
     return out
 
 
-def monomer_structure():
-    return water_structure(monomer_positions(), energy=0.0, forces=np.zeros((3, 3)), info={"R": np.inf})
+def monomer_structure(truth=None):
+    """an isolated rigid monomer: interaction energy and forces exactly zero for any truth; the truth's charges pinned."""
+    truth = truth or PW_TRUTH
+    pos = monomer_positions()
+    return water_structure(pos, energy=0.0, forces=np.zeros((3, 3)), info={"R": np.inf},
+                           charges=truth.molecule_charges(pos))
 
 
-def random_cluster(n_mol, rng, radius_ang=None, min_OO=2.7, min_any=1.7, mc_steps=300, T_K=300.0):
+def random_cluster(n_mol, rng, radius_ang=None, min_OO=2.7, min_any=1.7, mc_steps=300, T_K=300.0, energy=None):
     """n rigid monomers placed at random in a sphere and relaxed by a short rigid-body Metropolis run on the truth
-    (so that the clusters are hydrogen-bonded rather than random packings).  Returns positions (3n, 3) in A."""
+    (so that the clusters are hydrogen-bonded rather than random packings).  energy(pos_ang, n_mol): the truth's
+    energy (default the PW truth's).  Returns positions (3n, 3) in A."""
+    energy = energy or PW_TRUTH.energy
     radius_ang = radius_ang or (1.9 * n_mol ** (1 / 3) + 0.8)
     if n_mol > 1 and 2 * radius_ang <= min_OO:
         raise ValueError("cluster radius must exceed half the minimum oxygen separation")
@@ -215,7 +322,7 @@ def random_cluster(n_mol, rng, radius_ang=None, min_OO=2.7, min_any=1.7, mc_step
             raise ValueError("could not generate a non-overlapping water cluster; increase radius_ang or reduce min_any")
         Os = place(); Rs = [random_rotation(rng) for _ in range(n_mol)]; pos = assemble(Os, Rs)
     kT = T_K * 3.166811563e-6
-    E = pw_energy_forces(pos, n_mol)[0]
+    E = energy(pos, n_mol)
     for step in range(mc_steps):
         m = rng.integers(n_mol)
         Os2 = Os.copy(); Rs2 = list(Rs)
@@ -224,21 +331,23 @@ def random_cluster(n_mol, rng, radius_ang=None, min_OO=2.7, min_any=1.7, mc_step
         if np.linalg.norm(Os2[m]) > radius_ang: continue
         pos2 = assemble(Os2, Rs2)
         if not ok(pos2): continue
-        E2 = pw_energy_forces(pos2, n_mol)[0]
+        E2 = energy(pos2, n_mol)
         if E2 < E or rng.random() < math.exp(-(E2 - E) / kT):
             Os, Rs, pos, E = Os2, Rs2, pos2, E2
     return pos
 
 
-def cluster_dataset(sizes, n_per_size, seed=0, sigma=0.0, **kw):
-    """clusters with the truth's interaction energies and forces (monomers at zero)."""
+def cluster_dataset(sizes, n_per_size, seed=0, sigma=0.0, truth=None, **kw):
+    """clusters relaxed on the truth (PW unless given) with its interaction energies and forces (monomers at zero)
+    and its charges pinned."""
+    truth = truth or PW_TRUTH
     rng = np.random.default_rng(seed); out = []
     for n in sizes:
         for k in range(n_per_size):
-            pos = random_cluster(n, rng, **kw)
-            E, F = pw_energy_forces(pos, n)
+            pos = random_cluster(n, rng, energy=truth.energy, **kw)
+            E, F = truth.energy_forces(pos, n)
             if sigma > 0: E += rng.normal() * sigma
-            out.append(water_structure(pos, energy=E, forces=F, info={"n": n, "k": k}))
+            out.append(water_structure(pos, energy=E, forces=F, info={"n": n, "k": k}, charges=truth.molecule_charges(pos)))
     return out
 
 
@@ -328,13 +437,14 @@ def ion_response_decomposition(st):
     return dict(y=y, es=es, piece2=piece2, response=y - es - piece2)
 
 
-def pair_additive_energy(pos_ang, n_mol):
+def pair_additive_energy(pos_ang, n_mol, truth=None):
     """sum over molecule pairs of the truth's dimer energies (for the non-additive energy E - E_pairs)."""
+    truth = truth or PW_TRUTH
     pos = np.asarray(pos_ang, float); tot = 0.0
     for a in range(n_mol):
         for b in range(a + 1, n_mol):
             p = np.concatenate([pos[3 * a:3 * a + 3], pos[3 * b:3 * b + 3]])
-            tot += pw_energy_forces(p, 2)[0]
+            tot += truth.energy(p, 2)
     return tot
 
 
