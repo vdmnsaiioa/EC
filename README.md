@@ -17,18 +17,20 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
 
     pip install -e .            # jax, optax, numpy, scipy, PyYAML (tested with jax 0.10, optax 0.2.8, numpy 2.4, scipy 1.17)
     sh external/qaqua/build.sh  # only for E3-Q: the q-AQUA truth, needs gfortran (or FC=ifort); ~10 min
-    pytest -q tests/            # 285 tests, ~6 min on a CPU; the 11 q-AQUA tests are skipped without the build
+    sh external/qaqua/build_pol.sh  # only for E3-QP: the q-AQUA-pol truth, likewise
+    pytest -q tests/            # 306 tests, ~6 min on a CPU; the 18 q-AQUA and q-AQUA-pol tests are skipped without the builds
 
 For GPUs install the matching `jax[cuda]` wheel first.
 
 ## Experiment selection with YAML
 
-Select an experiment using `configs/dimer.yaml`, `configs/water.yaml`, `configs/water_qaqua.yaml`, or `configs/toy.yaml`:
+Select an experiment using `configs/dimer.yaml`, `configs/water.yaml`, `configs/water_qaqua.yaml`, `configs/water_qaqua_pol.yaml`, or `configs/toy.yaml`:
 
 ```sh
 python scripts/run_experiment.py --config configs/dimer.yaml --lbfgs 300
 python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl --out results/e3r_clusters_yaml.json
 python scripts/run_experiment.py --config configs/water_qaqua.yaml --out_dir results/e3q      # both parts of E3-Q
+python scripts/run_experiment.py --config configs/water_qaqua_pol.yaml --out_dir results/e3qp # both parts of E3-QP
 python scripts/run_experiment.py --config configs/toy.yaml
 ```
 
@@ -48,7 +50,7 @@ Each original script also accepts `--config`, provided its experiment type match
 
 `experiment.part` may list several water parts. Shared `model`, `training` and `truth` mappings apply to all of them, and a `parts` mapping gives each part its own `rungs`, `model`, `data` and `training`, merged over the shared ones key by key (`data` exists per part only: the dimer design or the cluster data sets). `scripts/run_experiment.py` first checks every part (`--validate_only`), then runs them in sequence, each writing `<out_dir>/<part>.json` and `<part>_cache.pkl` (default `--out_dir results/<config name>`); a failed part is reported and the next one still runs. `--part dimer` runs one part alone, and explicit flags apply to every part they are given to.
 
-The `truth` mapping (water only) selects the truth and its settings — `name: pw` (the synthetic polarisable water of the rehearsal, the default) or `name: qaqua` with `root` (the build directory of `external/qaqua/build.sh`), and `heldout`: the raw CCSD(T) n-body sets read in the clusters part (`sets`, `rigid_tolerance`, `strict_tolerance`, `max_pair_energy_kcal`, `max_frames`; the flags `--truth`, `--qaqua_root`, `--heldout*`). The dimer part's `data` mapping is its design: `re_angstrom` (null: the truth's own dimer minimum at φ = 0), `window_lower_over_re`, `window_ratio`, `window_nodes`, `phi_degrees`, `sigma`, `train_seed` (of the label noise), `monomer_references`, `eval_max_angstrom`, `eval_points` (the same names as flags).
+The `truth` mapping (water only) selects the truth and its settings — `name: pw` (the synthetic polarisable water of the rehearsal, the default), `name: qaqua` or `name: qaqua_pol` with `root` (the build directory of `external/qaqua/build.sh` or `build_pol.sh`; omitted: `external/qaqua/build` or `external/qaqua/build_pol`), and `heldout`: the raw CCSD(T) n-body sets read in the clusters part (`sets`, `rigid_tolerance`, `strict_tolerance`, `max_pair_energy_kcal`, `max_frames`; the flags `--truth`, `--qaqua_root`, `--heldout*`). The dimer part's `data` mapping is its design: `re_angstrom` (null: the truth's own dimer minimum at φ = 0), `window_lower_over_re`, `window_ratio`, `window_nodes`, `phi_degrees`, `sigma`, `train_seed` (of the label noise), `monomer_references`, `eval_max_angstrom`, `eval_points` (the same names as flags).
 
 ### E3-Q: water on q-AQUA v1
 
@@ -63,6 +65,18 @@ python scripts/run_experiment.py --config configs/water_qaqua.yaml --out_dir res
 The build copies the compiler's Fortran runtime (libgfortran, and libquadmath where that compiler uses it) to `external/qaqua/build/runtime`, which `libqaqua.so` finds through its RPATH, so the library loads in a batch job or another conda env without the compiler's module or env. A build made before this (`OSError: libgfortran.so.5: cannot open shared object file`) is repaired in seconds by `sh external/qaqua/build.sh --relink`, run in a shell where the compiler it was built with is available.
 
 The truth is q-AQUA on rigid monomers at the harness geometry, minus its 1-body term (`sseft.qaqua`, `sseft.water.QAquaTruth`): its 2-body term is the bare point-charge Coulomb of the monomers' LTP2011 charges beyond 7.8 Å, its 3- and 4-body terms vanish beyond 9 and 7.5 Å, so the pinned-charge dagger `M_1p` is exact on its dimer tail, and the rungs pinning sources of the PW truth's polarisable model (`M_16*`, `*emb`) and the far and ion parts are refused. Two parts: (a) the dimer ladder at φ = 0 (`M_inf`, `M_G`, `M_A`, `M_1`, `M_1mu`, `M_1p`; r_c = 5 Å, K = 8) with the learned monomer dipole against the LTP2011 dipole; (c) the clusters (`M_inf`, `M_1p`, `M_S0p`, `M_S2p`, `M_1mu`; ℓ₁ = 0.75 Å, K = 4, the E3-R schedule), every trained model also read on the raw CCSD(T) 2-, 3- and 4-body sets of the q-AQUA repository (frames with near-rigid monomers inside the training domain), with the PES's own error on the same frames as the reference and the 3-body set by largest O–O distance — beyond 7–9 Å the PES's 3-body term is switched off, the CCSD(T) labels are not. Every trained model's parameters are saved next to the json (`<out>_<rung>_seed<k>.params.pkl`).
+
+### E3-QP: water on q-AQUA-pol, hundreds of training clusters
+
+`configs/water_qaqua_pol.yaml` is the controlled follow-up of E3-Q (`notes/e3q-results.md`): the same rungs and held-out CCSD(T) sets on q-AQUA-pol (Q. Yu et al., J. Chem. Theory Comput. 19, 3446 (2023); github.com/jmbowma/q-AQUA-pol, CC0), whose long range is TTM3-F's — geometry-dependent site charges, one Thole-smeared polarisable site per molecule with self-consistent induced dipoles and no cutoff, an O–O C₆ term — under CCSD(T) corrections that vanish beyond 7 Å; pre-registered in `notes/e3qp-preregistration.md` (`scratch/e3qp_preregistration.py`).
+
+```sh
+sh external/qaqua/build_pol.sh        # clones q-AQUA-pol (and q-AQUA for its raw CCSD(T) sets), builds external/qaqua/build_pol/libqaqua_pol.so,
+                                      # checks the authors' hexamer and TTM3-F's pieces at 12 A; --relink as for build.sh
+python scripts/run_experiment.py --config configs/water_qaqua_pol.yaml --out_dir results/e3qp
+```
+
+The pinned charges are the monomers' dipole-surface charges on O, H, H (TTM3-F's sites have their dipole, not their quadrupole: the daggers' tail errors are computed in the note), the `M_16` daggers also pin TTM3-F's polarisability and O–O C₆ in the dispersion band, and the embedded daggers are refused. (a) The dimer ladder as E3-Q plus `M_16p`, L-BFGS 1000; (c) the clusters with 300 training clusters (100 per size) and 160 probe configurations, 24 test hexamers and dimers, 80 test probes — `M_inf`, `M_1p`, `M_S0p`, `M_S2p`, `M_1mu`, `M_16p`, `M_16S0p` — every model read on the probes (the probe's interaction and its non-additive part, the many-body induction of a distant molecule) and on the raw CCSD(T) sets.
 
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
@@ -120,6 +134,8 @@ Sizes are numbers of water molecules, and sampling counts are **per size**. Thes
 `train_seed` controls dataset generation independently of model initialization. Test sizes use seeds `test_seed + 100 * index` in the configured list order (defaults: size 6 uses 100; size 2 uses 200). `sigma` adds training energy noise in hartree. Test labels remain noiseless. `monomer_references` controls the number of isolated monomer references added to training.
 
 `mc_steps` sets the number of rigid-body Metropolis relaxation attempts at `temperature_kelvin`. `radius_angstrom: null` chooses a generation radius of `1.9 * size**(1/3) + 0.8` Å for each size. `min_oo_angstrom` sets the initial oxygen separation, and `min_atom_distance_angstrom` sets the intermolecular atom distance floor during generation and relaxation. Use a radius large enough to place the requested molecules. Impossible diameter/separation combinations are rejected, and placement retries are bounded with an informative error.
+
+Probe configurations (any truth): `probe_distances_angstrom` (a list), `probe_train` and `probe_test` (per distance and core; 0, the default, means none), `probe_train_cores`, `probe_test_cores` and `probe_seed` (the test probes use +100) add a relaxed trimer with one monomer at each distance — the training probes weighted by `training.loss.far_weight`, the test probes read with every model (the probe's interaction with the trimer and its non-additive part, by distance). Without probes the dataset settings are those of before, so older caches stay valid.
 
 CLI overrides remain available, for example `--n_train 20 --test_sizes 4,6 --mc_steps 500`. The `data` mapping currently applies only to `water` with `part: clusters`; omit it for other parts. Existing selection-only configs keep the previous defaults.
 
@@ -283,6 +299,7 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
     python scripts/e3_water.py --part ion --rungs M_16p,M_16S0p --l1 0.75 --rs_over_l1 0 --train_far 1 --train_far_cores 8 \
         --test_cores 4 --extra_far 2 --seeds 2 --steps 1000 --lbfgs 300      # E3-R: the band-field response on an ion probe
     python scripts/run_experiment.py --config configs/water_qaqua.yaml --out_dir results/e3q   # E3-Q (after external/qaqua/build.sh)
+    python scripts/run_experiment.py --config configs/water_qaqua_pol.yaml --out_dir results/e3qp  # E3-QP (after build_pol.sh)
     python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl \
         --out results/e3r_clusters_yaml.json                                  # E3-R R1, the cluster protocol from YAML
     sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
@@ -338,8 +355,8 @@ CCSD(T) data when they exist.  Every part saves its json after each rung.
     scripts/      the experiments (each prints its table and writes a json)
     tests/        pytest (fast; the ladder and the toy are scripts)
     notes/        the pre-registration and result notes of the experiments run from this repository
-    configs/      the YAML configurations (configs/water_qaqua.yaml: E3-Q)
-    external/     the q-AQUA build script and its C interface (the build itself, external/qaqua/build/, is not committed)
+    configs/      the YAML configurations (configs/water_qaqua.yaml: E3-Q; configs/water_qaqua_pol.yaml: E3-QP)
+    external/     the q-AQUA and q-AQUA-pol build scripts and their C interfaces (the builds, external/qaqua/build*/, are not committed)
     scratch/      one-off computations quoted in the notes (not part of the package)
     results/      the logs and jsons of every run quoted in RESULTS.md
     RESULTS.md    running log of the regression numbers per commit

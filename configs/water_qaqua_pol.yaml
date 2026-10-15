@@ -1,0 +1,118 @@
+# E3-QP: E3 on q-AQUA-pol -- q-AQUA's CCSD(T) corrections on TTM3-F's polarisable long range -- with hundreds of
+# training clusters.  The controlled follow-up of E3-Q (configs/water_qaqua.yaml, notes/e3q-results.md): the same raw
+# CCSD(T) sets held out, the same rungs, a truth whose long range has many-body induction and dispersion.
+# Pre-registration with the numbers computed from the PES: notes/e3qp-preregistration.md.
+#
+#   sh external/qaqua/build_pol.sh                                               # once: the truth (gfortran, ~10 min)
+#   python scripts/run_experiment.py --config configs/water_qaqua_pol.yaml --out_dir results/e3qp
+#
+# runs the two parts below in sequence (each checked first), writing results/e3qp/{dimer,clusters}.json, the cluster
+# cache and every trained model's parameters; --part dimer or --part clusters runs one.  Every value of the
+# experiment is in this file; explicit flags override it.
+#
+# The truth: q-AQUA-pol (Q. Yu et al., J. Chem. Theory Comput. 19, 3446 (2023); github.com/jmbowma/q-AQUA-pol, commit
+# 3a38dc4) on rigid monomers at the harness geometry (r_OH 0.9572 A, HOH 104.52 deg); the interaction energy is
+# q-AQUA-pol minus its Partridge-Schwenke 1-body term.  It is TTM3-F everywhere -- geometry-dependent charges on the H
+# atoms and the M-site, one Thole-smeared polarisable site per molecule (1.444 A^3) with self-consistent induced
+# dipoles and no cutoff, an O-O C6/R^6 + exponential term -- plus CCSD(T) corrections switched off over 6.5-7.0 A
+# (2- and 3-body) and 5.5-6.5 A (4-body).  Beyond 7 A: permanent electrostatics, many-body induction and dispersion.
+# The dagger rungs pin the monomers' dipole-surface charges on O, H, H (the charges TTM3-F moves to its sites, same
+# dipole); the M_16 rungs also pin TTM3-F's polarisability and O-O C6 in the dispersion band; the embedded daggers
+# (TTM3-F's induced dipoles sit on the M-site) are not set up.
+experiment:
+  type: water
+  part: [dimer, clusters]
+
+truth:
+  name: qaqua_pol
+  root: external/qaqua/build_pol    # the build directory of external/qaqua/build_pol.sh
+  heldout:                          # clusters part: the raw CCSD(T) n-body sets of the q-AQUA repository (as E3-Q), read
+    sets: [2b, 3b, 4b]              # with every trained model, against the labels and with the PES's own error
+    rigid_tolerance: {oh_angstrom: 0.03, angle_degrees: 5.0}
+    strict_tolerance: {oh_angstrom: 0.02, angle_degrees: 3.0}
+    max_pair_energy_kcal: 2.0       # the training domain, on q-AQUA-pol's 2-body energies
+    max_frames: null
+
+model:                              # shared by both parts; each part sets its own cutoff and band edge below
+  charges: null                     # each rung's own source: the p rungs pin the dipole-surface charges, M_1 / M_1mu learn
+  charge_neutrality: fragment
+  rs_over_l1: 0.0
+  features: 16
+  analytic_envelope_angstrom: 4.0
+
+training:                           # shared schedule; seeds, step counts, batch and chunk per part below
+  adam:
+    learning_rate: 0.003
+    final_learning_rate_ratio: 0.01
+    beta1: 0.9
+    beta2: 0.999
+    epsilon: 1.0e-8
+    epsilon_root: 0.0
+    gradient_clip_norm: null
+  readout:                          # the band-field rungs (M_S0p, M_S2p, M_16S0p): read-out frozen during Adam, its
+    freeze_during_adam: true        # order-0 sector set by the linear solve, then L-BFGS on everything (E3-R)
+    linear_solve: true
+    ridge: 1.0e-8
+  lbfgs:
+    learning_rate: null
+    memory_size: 10
+    scale_init_precond: true
+    max_linesearch_steps: 20
+    readout_only: false
+  loss:
+    energy_weight: 1.0
+    force_weight: 1.0
+    far_weight: 1.0                 # the probe configurations in the clusters part's training set
+  energy_scale: null
+  verbose: false
+
+parts:
+  dimer:                            # (a) the fixed-orientation dimer ladder, p* = 3, and (b) the learned monomer dipole
+    rungs: [M_inf, M_G, M_A, M_1, M_1mu, M_1p, M_16p]
+    model:
+      r_cut_angstrom: 5.0
+      band_edge_angstrom: null      # the rungs' own 1.5 A
+    data:
+      re_angstrom: null             # null: the truth's own minimum at phi = 0 (q-AQUA-pol, rigid: 2.9299 A)
+      window_lower_over_re: 1.35
+      window_ratio: 1.8
+      window_nodes: 40
+      phi_degrees: 0.0
+      sigma: 1.0e-9
+      train_seed: 0
+      monomer_references: 4
+      eval_max_angstrom: 500.0
+      eval_points: 61
+    training:
+      seeds: [0, 1, 2, 3, 4, 5, 6, 7]
+      adam: {steps: 1500, batch_size: null}       # full batch
+      lbfgs: {steps: 1000, chunk_size: 48}        # E3-Q's 300 left M_1's charge scale short of its class minimum
+  clusters:                         # (c) the clusters, the probes, and the held-out CCSD(T) n-body sets
+    rungs: [M_inf, M_1p, M_S0p, M_S2p, M_1mu, M_16p, M_16S0p]
+    model:
+      r_cut_angstrom: 6.0
+      band_edge_angstrom: 0.75
+    data:
+      train_sizes: [3, 4, 5]
+      test_sizes: [6, 2]
+      n_train: 100                  # per size: 300 training clusters (E3-Q: 12, i.e. 36)
+      n_test: 24                    # per size: 24 hexamers and 24 dimers held out
+      train_seed: 0
+      test_seed: 100
+      sigma: 1.0e-9
+      monomer_references: 4
+      mc_steps: 300
+      temperature_kelvin: 300.0
+      radius_angstrom: null
+      min_oo_angstrom: 2.7
+      min_atom_distance_angstrom: 1.7
+      probe_distances_angstrom: [8.0, 10.0, 12.0, 15.0]   # a relaxed trimer and one monomer at these distances
+      probe_train: 5                # per distance and core: 160 probe configurations in the training set (8 cores)
+      probe_train_cores: 8
+      probe_test: 10                # per distance and core: 80 held out (2 other cores)
+      probe_test_cores: 2
+      probe_seed: 400               # the test probes: 500
+    training:
+      seeds: [0, 1, 2, 3]
+      adam: {steps: 2000, batch_size: 32}
+      lbfgs: {steps: 500, chunk_size: 64}

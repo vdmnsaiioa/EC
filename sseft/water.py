@@ -212,15 +212,44 @@ class QAquaTruth:
         return self.qa.molecule_charges(ang_to_bohr(np.asarray(pos_ang, float)))
 
     def describe(self):
-        commit = None
-        head = os.path.join(self.qa.root, "q-AQUA", ".git", "HEAD")
-        try:
-            ref = open(head).read().strip()
-            path = os.path.join(self.qa.root, "q-AQUA", ".git", ref[5:]) if ref.startswith("ref: ") else None
-            commit = (open(path).read().strip() if path and os.path.exists(path) else ref)[:7]
-        except OSError:
-            pass
-        return {"name": self.name, "root": self.qa.root, "commit": commit, "r_e_angstrom": self.r_e}
+        return {"name": self.name, "root": self.qa.root, "commit": _git_commit(os.path.join(self.qa.root, "q-AQUA")),
+                "r_e_angstrom": self.r_e}
+
+
+class QAquaPolTruth(QAquaTruth):
+    """q-AQUA-pol (sseft.qaqua.QAquaPol; external/qaqua/build_pol.sh builds it): interaction energies (its
+    Partridge-Schwenke 1-body term removed) and forces, the monomers' dipole-surface charges on O, H, H (the charges
+    TTM3-F moves to its H atoms and M-site, keeping their dipole) for the pinned-charge rungs, and TTM3-F's static
+    polarisability and O-O C6 (atomic units) for the pinned dispersion band.  Beyond 7 A the truth is TTM3-F:
+    electrostatics, many-body induction and dispersion, at every distance."""
+    name = "qaqua_pol"
+
+    def __init__(self, root):
+        from .qaqua import QAquaPol
+        self.qa = QAquaPol(root)
+        self.alpha, self.c6 = self.qa.ttm_constants()
+        self.r_e = dimer_minimum(self)
+
+    def describe(self):
+        return {"name": self.name, "root": self.qa.root, "commit": _git_commit(os.path.join(self.qa.root, "q-AQUA-pol")),
+                "data_commit": _git_commit(os.path.join(self.qa.root, "q-AQUA")), "r_e_angstrom": self.r_e,
+                "alpha_bohr3": self.alpha, "c6_oo": self.c6}
+
+
+def _git_commit(repo):
+    """the short commit of a clone (read from .git, without git), or None."""
+    try:
+        ref = open(os.path.join(repo, ".git", "HEAD")).read().strip()
+        path = os.path.join(repo, ".git", ref[5:]) if ref.startswith("ref: ") else None
+        if path and os.path.exists(path):
+            return open(path).read().strip()[:7]
+        if path:                                          # a packed ref (a fresh clone)
+            for line in open(os.path.join(repo, ".git", "packed-refs")):
+                if line.strip().endswith(ref[5:]):
+                    return line.split()[0][:7]
+        return ref[:7]
+    except OSError:
+        return None
 
 
 _QAQUA = {}
@@ -231,6 +260,14 @@ def qaqua_truth(root):
     key = os.path.abspath(os.path.expanduser(root))
     if key not in _QAQUA:
         _QAQUA[key] = QAquaTruth(key)
+    return _QAQUA[key]
+
+
+def qaqua_pol_truth(root):
+    """one QAquaPolTruth per build directory and process."""
+    key = ("pol", os.path.abspath(os.path.expanduser(root)))
+    if key not in _QAQUA:
+        _QAQUA[key] = QAquaPolTruth(key[1])
     return _QAQUA[key]
 
 
@@ -351,25 +388,28 @@ def cluster_dataset(sizes, n_per_size, seed=0, sigma=0.0, truth=None, **kw):
     return out
 
 
-def probe_configurations(n_core, distances_ang, n_per_distance, seed=0, mc_steps=300, n_cores=1):
+def probe_configurations(n_core, distances_ang, n_per_distance, seed=0, mc_steps=300, n_cores=1, truth=None, **kw):
     """relaxed core clusters of n_core molecules (n_cores different ones) plus one probe monomer at a distance d (A, O
     to the core's centre of mass) in a random direction and orientation: the far-field induction test.  Beyond
     E_0's cutoff the probe's interaction with the core is electrostatics (which pinned charges give exactly), the
     interaction of the core's environment-induced dipoles with the probe (environment-dependent sources), and the
     responses to the far field (the band-field read-out).  Returns (structures, core_energies) with the core's own
-    interaction energy so that E - E_core is the probe's interaction."""
+    interaction energy so that E - E_core is the probe's interaction.  truth: PW unless given (the same calls as
+    before for PW); kw: random_cluster's geometry settings for the cores."""
+    truth = truth or PW_TRUTH
     rng = np.random.default_rng(seed); out = []; cores = []
     for c in range(n_cores):
-        core = random_cluster(n_core, rng, mc_steps=mc_steps)
+        core = random_cluster(n_core, rng, mc_steps=mc_steps, energy=truth.energy, **kw)
         com = core[0::3].mean(axis=0)
-        E_core = pw_energy_forces(core, n_core)[0]
+        E_core = truth.energy(core, n_core)
         for d in distances_ang:
             for k in range(n_per_distance):
                 u = rng.normal(size=3); u /= np.linalg.norm(u)
                 probe = com + d * u + monomer_positions() @ random_rotation(rng).T
                 pos = np.concatenate([core, probe])
-                E, F = pw_energy_forces(pos, n_core + 1)
-                out.append(water_structure(pos, energy=E, forces=F, info={"d": float(d), "k": k, "core": c, "E_core": E_core}))
+                E, F = truth.energy_forces(pos, n_core + 1)
+                out.append(water_structure(pos, energy=E, forces=F, info={"d": float(d), "k": k, "core": c, "E_core": E_core},
+                                           charges=truth.molecule_charges(pos)))
                 cores.append(E_core)
     return out, np.array(cores)
 

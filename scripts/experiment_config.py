@@ -28,7 +28,7 @@ FIELDS = {
 }
 PARTS = ("dimer", "clusters", "far", "ion")
 PART_SECTIONS = {"rungs", "model", "data", "training"}       # what a part may override under parts.<part>
-TRUTH_NAMES = ("pw", "qaqua")
+TRUTH_NAMES = ("pw", "qaqua", "qaqua_pol")
 HELDOUT_NAMES = ("2b", "3b", "4b")
 # The design of the water dimer part (its data mapping): the window [lower x R_e, ratio x that] with R_e the truth's own
 # dimer minimum unless given, log-uniform nodes, the fixed orientation's acceptor tilt, label noise and its seed, the
@@ -50,6 +50,15 @@ CLUSTER_DEFAULTS = {
     "radius_angstrom": None, "min_oo_angstrom": 2.7,
     "min_atom_distance_angstrom": 1.7, "sigma": 1e-9,
     "monomer_references": 4,
+}
+# Probe configurations in the clusters part (its data mapping too): a relaxed trimer and one monomer at each distance
+# (A, the probe's O to the trimer's O centroid) in random directions and orientations, `probe_train` per distance and
+# core on `probe_train_cores` cores in the training set (weighted by training.loss.far_weight), `probe_test` per
+# distance and core on `probe_test_cores` other cores read with every model.  Both counts 0 (the default): none, and the
+# dataset settings of the run are those of before.
+CLUSTER_PROBE_DEFAULTS = {
+    "probe_distances_angstrom": "8,10,12,15", "probe_train": 0, "probe_train_cores": 8,
+    "probe_test": 0, "probe_test_cores": 2, "probe_seed": 400,
 }
 
 # Each YAML field maps to the existing or shared CLI destination and a validation
@@ -295,11 +304,19 @@ def _validate_resolved_training(args, kind, rungs):
 def validate_cluster_data(data):
     if not isinstance(data, dict):
         raise ValueError("data must be a mapping")
-    unknown = set(data) - set(CLUSTER_DEFAULTS)
+    unknown = set(data) - set(CLUSTER_DEFAULTS) - set(CLUSTER_PROBE_DEFAULTS)
     if unknown:
         raise ValueError(f"unsupported data fields: {', '.join(sorted(map(str, unknown)))}")
     for key, value in data.items():
-        if key in ("train_sizes", "test_sizes"):
+        if key == "probe_distances_angstrom":
+            if (not isinstance(value, list) or not value or len(set(value)) != len(value)
+                    or any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in value)):
+                raise ValueError("data.probe_distances_angstrom must be a nonempty list of distinct positive distances")
+        elif key in CLUSTER_PROBE_DEFAULTS:
+            minimum = 1 if key.endswith("_cores") else 0
+            if type(value) is not int or value < minimum:
+                raise ValueError(f"data.{key} must be an integer >= {minimum}")
+        elif key in ("train_sizes", "test_sizes"):
             if (not isinstance(value, list) or not value
                     or any(type(v) is not int or v < 2 for v in value)
                     or len(set(value)) != len(value)):
@@ -348,7 +365,7 @@ def validate_data(part, data):
 
 
 def validate_truth(truth, kind):
-    """the water truth mapping -- name (pw or qaqua), root (the q-AQUA build directory), heldout (the raw CCSD(T)
+    """the water truth mapping -- name (pw, qaqua or qaqua_pol), root (the q-AQUA (-pol) build directory), heldout (the raw CCSD(T)
     n-body sets read in the clusters part: sets, rigid_tolerance and strict_tolerance as {oh_angstrom,
     angle_degrees}, max_pair_energy_kcal (the training domain: every pair's truth 2-body energy at most this; null:
     no cap), max_frames) -- returned as the CLI argument defaults it sets."""
@@ -362,7 +379,7 @@ def validate_truth(truth, kind):
     defaults = {}
     if "name" in truth:
         if truth["name"] not in TRUTH_NAMES:
-            raise ValueError("truth.name must be pw or qaqua")
+            raise ValueError("truth.name must be pw, qaqua or qaqua_pol")
         defaults["truth"] = truth["name"]
     if "root" in truth:
         if not isinstance(truth["root"], str) or not truth["root"]:
@@ -597,6 +614,9 @@ def parse_selection(parser, kind, argv=None, *, rungs=None, systems=None, valida
             resolved = {key: getattr(args, key, default) for key, default in CLUSTER_DEFAULTS.items()}
             for key in ("train_sizes", "test_sizes"):
                 resolved[key] = [int(v) for v in resolved[key].split(',')]
+            if hasattr(args, "probe_train"):
+                resolved.update({key: getattr(args, key) for key in CLUSTER_PROBE_DEFAULTS})
+                resolved["probe_distances_angstrom"] = [float(v) for v in str(resolved["probe_distances_angstrom"]).split(',')]
             validate_cluster_data(resolved)
         except (ValueError, AttributeError) as exc:
             parser.error(str(exc))

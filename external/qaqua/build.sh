@@ -72,55 +72,11 @@ EOF
 fi
 compile "$HERE/qaqua_capi.f90"
 
-# 4. link, with the compiler's run-time libraries copied to DEST/runtime and found there through the RPATH: a DT_RPATH
-#    (--disable-new-dtags), which also serves the runtime's own dependencies (libgfortran -> libquadmath) and which
-#    LD_LIBRARY_PATH does not override, so the library runs on the runtime it was compiled against
-RT="$DEST/runtime"
-rm -rf "$RT" && mkdir -p "$RT"
-$FC $FFLAGS -shared -o "$DEST/libqaqua.so" "$OBJ"/*.o -Wl,--disable-new-dtags,-rpath,'$ORIGIN/runtime'
-
-needed() {      # the libraries an ELF file needs (its DT_NEEDED; with neither readelf nor objdump, ldd's closure)
-  if command -v readelf >/dev/null 2>&1; then readelf -d "$1" | sed -n 's/.*(NEEDED).*\[\(.*\)\]$/\1/p'
-  elif command -v objdump >/dev/null 2>&1; then objdump -p "$1" | awk '$1 == "NEEDED" {print $2}'
-  else ldd "$1" 2>/dev/null | awk '$2 == "=>" {print $1}'; fi
-}
-system_library() {   # the C library's parts and libgcc_s: on every Linux system, never bundled
-  case "$1" in
-    ld-linux*|ld64.so*|libc.so*|libm.so*|libmvec.so*|libdl.so*|libpthread.so*|librt.so*|libutil.so*|libresolv.so*|libgcc_s.so*) return 0 ;;
-  esac
-  return 1
-}
-locate() {      # the file of library $1: the compiler's own (what it linked), else what this shell's loader resolves
-  p=$($FC -print-file-name="$1" 2>/dev/null || true)
-  case "$p" in /*) if [ -e "$p" ]; then echo "$p"; return 0; fi ;; esac
-  ldd "$DEST/libqaqua.so" 2>/dev/null | awk -v n="$1" '$1 == n && $3 ~ /^\// {print $3; exit}'
-}
-queue=$(needed "$DEST/libqaqua.so")
-seen=" "
-while :; do
-  set -- $queue
-  [ $# -gt 0 ] || break
-  name=$1; shift; queue="$*"
-  case "$seen" in *" $name "*) continue ;; esac
-  seen="$seen$name "
-  if system_library "$name"; then continue; fi
-  file=$(locate "$name")
-  [ -n "$file" ] || { echo "error: cannot find $name (needed by libqaqua.so): build where $FC's environment is loaded"; exit 1; }
-  cp -L "$file" "$RT/$name"
-  echo "  bundled $name ($file)"
-  queue="$queue $(needed "$RT/$name")"
-done
-
-# 5. the library resolves every library it needs without the compiler's environment (LD_LIBRARY_PATH unset)
-if command -v ldd >/dev/null 2>&1; then
-  resolved=$(env -u LD_LIBRARY_PATH ldd "$DEST/libqaqua.so" 2>&1 || true)
-  if printf '%s\n' "$resolved" | grep -q "not found"; then
-    printf '%s\n' "$resolved"
-    echo "error: libqaqua.so does not find all its libraries without the compiler's environment"; exit 1
-  fi
-  printf '%s\n' "$resolved" | grep -F "$RT/" | sed 's/ *(0x[0-9a-f]*)$//' || true
-fi
+# 4. link, with the compiler's run-time libraries copied to DEST/runtime and found there through the RPATH; the
+#    library must then resolve every library it needs without the compiler's environment (external/qaqua/runtime.sh)
+. "$HERE/runtime.sh"
+link_with_runtime "$DEST/libqaqua.so" "$OBJ"/*.o
 echo "built $DEST/libqaqua.so"
 
-# 6. the authors' benchmarks (README of qAQUA_v1: the trimer and the prism hexamer, energies and gradients)
+# 5. the authors' benchmarks (README of qAQUA_v1: the trimer and the prism hexamer, energies and gradients)
 "$PYTHON" "$REPO_ROOT/sseft/qaqua.py" --check "$DEST"

@@ -343,3 +343,37 @@ and otherwise says how to repair the build, and `qaqua.py --check` prints which 
 system's libgfortran and libquadmath removed (a runtime needing libquadmath, as GCC ≤ 12's): the benchmarks and the
 q-AQUA tests pass on the relinked build. Tests: `tests/test_qaqua_loader.py` (the loader with a fake `ctypes.CDLL`,
 the script's syntax) and the build's runtime resolution in `tests/test_qaqua.py`.
+
+## v0.0.9 → v0.0.10 — E3-Q read; E3-QP set up: q-AQUA-pol as the truth, hundreds of training clusters, the probe reading
+
+**E3-Q read** (`notes/e3q-results.md`, the run of 14 Oct): the far-field reading registered as the sharpest held —
+beyond 9 Å, where q-AQUA's 3-body term is zero, M_S0† and M_S2† cut the error on the raw CCSD(T) trimers from 100 to
+69 % on every seed — but everywhere the truth has many-body energy it lies within E₀'s reach, and M_∞ beat every
+long-range rung on the hexamers (54 % against M_S0†'s 70 %); M_1's dipole (1.683 ± 0.058 D against 1.71–1.82) tracked
+the window fit across seeds (unconverged at L-BFGS 300). q-AQUA v1 has no polarisation at long range, so it cannot be
+the truth of a long-range polarisation test.
+
+**The truth.** q-AQUA-pol (Yu et al., JCTC 2023; github.com/jmbowma/q-AQUA-pol, CC0): TTM3-F everywhere — site
+charges on H and an M-site, one Thole-smeared polarisable site per molecule with self-consistent induced dipoles and
+no cutoff, an O–O C₆ term — plus CCSD(T) corrections switched off by 7 Å. Built by `external/qaqua/build_pol.sh`
+through `qaqua_pol_capi.f90` (v1's names and conventions, plus TTM3-F's pieces and induced dipoles); the authors'
+hexamer reproduced (6e-9 kcal/mol, gradients within 5e-9), TTM3-F's electrostatics, induction, C₆ term and induced
+dipoles at 12 Å recomputed independently to 2e-13. Against the raw CCSD(T) trimers its error is 22 % at 7–9 Å and
+21 % beyond 9 Å (v1: 48 and 100 %). `sseft.qaqua.QAquaPol`, `sseft.water.QAquaPolTruth` (`truth.name: qaqua_pol`);
+the pinned charges are the dipole-surface charges (TTM3-F's dipole, not its M-site quadrupole: no dagger is exact on
+this tail, and the daggers' errors are computed), the M_16 daggers pin TTM3-F's α and C₆, the embedded daggers are
+refused. The build scripts share `external/qaqua/runtime.sh` (the runtime bundling of the v0.0.9 fix).
+
+**The experiment** (`configs/water_qaqua_pol.yaml`, `notes/e3qp-preregistration.md`): the dimer ladder as E3-Q plus
+M_16†, L-BFGS 1000; the clusters with 300 training clusters and 160 probe configurations (a relaxed trimer and a
+molecule at 8–15 Å; `data.probe_*`, any truth), 24 test hexamers and dimers and 80 test probes, rungs M_∞, M_1†,
+M_S0†, M_S2†, M_1μ, M_16†, M_16S0†, Adam 2000 (batch 32) → linear solve → L-BFGS 500. The probe reading — the probe's
+interaction and its non-additive part, the long-range many-body induction — is new; the raw CCSD(T) readings are
+E3-Q's.
+
+### Tests (`pytest -q tests/`, 306 tests; the 18 q-AQUA and q-AQUA-pol tests are skipped without their builds)
+
+`tests/test_qaqua_pol.py` (the benchmark and TTM3-F's long range, the corrections vanishing beyond 7 Å, the gradient
+by path integration, the pre-registered constants, the probe reading on the truth, the held-out counts) and
+`tests/test_water_pol_config.py` (the refusals, the probe data's validation and settings, the shipped config, the
+pinned oscillator with a truth's α and C₆, the PW probe generator against values recorded at 4a81a84).

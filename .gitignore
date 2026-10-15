@@ -10,5 +10,6 @@ results/*.out
 results/*.pkl
 results/*.params.pkl
 
-# the q-AQUA build (external/qaqua/build.sh)
+# the q-AQUA builds (external/qaqua/build.sh, build_pol.sh)
 /external/qaqua/build
+/external/qaqua/build_pol

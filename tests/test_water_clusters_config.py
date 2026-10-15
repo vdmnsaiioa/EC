@@ -163,12 +163,18 @@ def _mock_cluster_runtime(module, monkeypatch):
             pair_batches.append(list(structs))
         return np.array([s.energy for s in structs]), None
 
+    def predict_energies(params, rung, structs, chunk=256):
+        if structs and all(s.info.get("pair") for s in structs):
+            pair_batches.append(list(structs))
+        return np.array([s.energy for s in structs])
+
     monkeypatch.setattr(module.W, "cluster_dataset", dataset)
     monkeypatch.setattr(module.W, "monomer_structure", lambda truth=None: structure(1, energy=0))
     monkeypatch.setattr(module.W, "water_structure", pair_structure)
     monkeypatch.setattr(module.W, "pair_additive_energy", lambda positions, n, truth=None: 4.0 * n * (n - 1) / 2)
     monkeypatch.setattr(module.T, "fit", fit)
     monkeypatch.setattr(module.T, "predict", predict)
+    monkeypatch.setattr(module.T, "predict_energies", predict_energies)
     monkeypatch.setattr(module, "configure", lambda rung, args: SimpleNamespace(pin_mu=False, pin_alpha=False))
     monkeypatch.setattr(module, "_save", lambda *args: None)
     return calls, fits, pair_batches
@@ -208,10 +214,11 @@ def test_arbitrary_cluster_sizes_reach_sampling_and_evaluation(water_script, tmp
         assert values["energy_rmse"] == [0.0]
         assert values["nonadditive_rmse"] == [0.0]
     assert result["reference_nonadditive"]["4"] == [-8.0, -8.0]
-    assert sorted(len(batch) for batch in pair_batches) == [1, 1, 6, 6]
+    # every test cluster's dimers, evaluated in one batch per size: two 2-clusters (1 pair each), two 4-clusters (6 each)
+    assert sorted(len(batch) for batch in pair_batches) == [2, 12]
     expected_pairs = {(float(5 * i), float(5 * j)) for i in range(4) for j in range(i + 1, 4)}
     for batch in pair_batches:
-        if len(batch) == 6:
+        if len(batch) == 12:
             assert {tuple(np.round(water_script.bohr_to_ang(s.positions)[[0, 3], 0], 12)) for s in batch} == expected_pairs
     assert "hexamer" not in result["M_inf"]
     assert "nadd6_truth" not in result

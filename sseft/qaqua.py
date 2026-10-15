@@ -18,6 +18,7 @@ functions' and the charges' derivatives (central differences, h = 1e-3 bohr): th
 relative.  The library keeps module state and is not thread-safe.
 
     python sseft/qaqua.py --check external/qaqua/build      # the authors' benchmarks (README of qAQUA_v1)
+    python sseft/qaqua.py --check external/qaqua/build_pol  # q-AQUA-pol's benchmark and TTM3-F's long range
 
 This module imports only numpy, ctypes and the standard library, so that the build script can run the check without JAX.
 """
@@ -32,26 +33,27 @@ import sys
 import numpy as np
 
 AUANG = 0.5291772083                 # q-AQUA's bohr in Angstrom (constants.f90); used to reproduce its benchmarks
+AUKCAL = 627.51                      # q-AQUA-pol's hartree in kcal/mol (its constants.f90): TTM3-F's kcal/mol over this
 DEBYE_PER_E_BOHR = 2.541746473       # e a0 in Debye
 RUNTIME_DIR = "runtime"              # build.sh copies the compiler's run-time libraries here (in libqaqua.so's RPATH)
 _RUNTIME_NAME = re.compile(r"(libgfortran|libquadmath|libifcore|libifport|libimf|libsvml|libintlc|libirng)\.so")
 _preloaded = []                      # handles of run-time libraries loaded by load_library, kept for the process
 
 _RUNTIME_HELP = """\
-libqaqua.so is linked against the run-time library of the Fortran compiler that built it (libgfortran, libquadmath),
+{lib} is linked against the run-time library of the Fortran compiler that built it (libgfortran, libquadmath),
 which this environment does not provide.  Relink the build so that it carries that runtime, in a shell where the
-compiler you built with is available (the same module or conda env as for build.sh), then run again:
-    sh external/qaqua/build.sh --relink        # seconds: reuses the compiled objects
+compiler you built with is available (the same module or conda env as for the build script), then run again:
+    sh {script} --relink        # seconds: reuses the compiled objects
 or make the compiler's runtime visible to this process, e.g.
     export LD_LIBRARY_PATH="$(dirname "$(gfortran -print-file-name=libgfortran.so.5)"):$LD_LIBRARY_PATH\""""
 
 
-def load_library(root):
-    """ctypes handle of root/libqaqua.so.  The library finds the compiler's run-time libraries that build.sh copies to
-    root/runtime through its RPATH; should the loader not find them that way (a build without that RPATH), they are
-    loaded here first, in an order that satisfies their dependencies on one another.  If libqaqua.so still does not
-    load, the error says how to repair the build or the environment."""
-    path = os.path.join(root, "libqaqua.so")
+def load_library(root, name="libqaqua.so", script="external/qaqua/build.sh"):
+    """ctypes handle of root/<name>.  The library finds the compiler's run-time libraries that the build script copies
+    to root/runtime through its RPATH; should the loader not find them that way (a build without that RPATH), they
+    are loaded here first, in an order that satisfies their dependencies on one another.  If the library still does
+    not load, the error says how to repair the build or the environment."""
+    path = os.path.join(root, name)
     try:
         return ctypes.CDLL(path)
     except OSError as e:
@@ -70,7 +72,7 @@ def load_library(root):
     try:
         return ctypes.CDLL(path)
     except OSError as e:
-        raise OSError(f"cannot load {path}: {e}\n{_RUNTIME_HELP}") from first
+        raise OSError(f"cannot load {path}: {e}\n{_RUNTIME_HELP.format(lib=name, script=script)}") from first
 
 
 def loaded_runtime():
@@ -85,19 +87,37 @@ def loaded_runtime():
 
 class QAqua:
     """the q-AQUA library at `root` (the build directory: libqaqua.so, qAQUA_v1/{src,coef}, q-AQUA/*_data.xyz)."""
+    LIBRARY = "libqaqua.so"
+    SCRIPT = "external/qaqua/build.sh"
+    NAME = "q-AQUA"
+
+    def _layout(self):
+        """the source directory (pes_init's working directory) and the coefficient files it reads."""
+        coef = os.path.join(self.root, "qAQUA_v1", "coef")
+        return os.path.join(self.root, "qAQUA_v1", "src"), [os.path.join(coef, f) for f in (
+            "coef_2b_v8_cbs.dat", "coef_3b_v6_5.0-9.5.dat", "coef_3b_v9_2.0-7.0.dat", "coef_4b_v3.dat")]
 
     def __init__(self, root):
         self.root = os.path.abspath(os.path.expanduser(root))
-        lib_path = os.path.join(self.root, "libqaqua.so")
-        self.src = os.path.join(self.root, "qAQUA_v1", "src")
-        coef = os.path.join(self.root, "qAQUA_v1", "coef")
-        needed = [lib_path] + [os.path.join(coef, f) for f in ("coef_2b_v8_cbs.dat", "coef_3b_v6_5.0-9.5.dat",
-                                                                "coef_3b_v9_2.0-7.0.dat", "coef_4b_v3.dat")]
-        missing = [p for p in needed if not os.path.isfile(p)]
+        lib_path = os.path.join(self.root, self.LIBRARY)
+        self.src, coef_files = self._layout()
+        missing = [p for p in [lib_path] + coef_files if not os.path.isfile(p)]
         if missing:
-            raise FileNotFoundError(f"incomplete q-AQUA build at {self.root} (missing {missing[0]}); "
-                                    "run: sh external/qaqua/build.sh")
-        lib = load_library(self.root)
+            raise FileNotFoundError(f"incomplete {self.NAME} build at {self.root} (missing {missing[0]}); "
+                                    f"run: sh {self.SCRIPT}")
+        lib = load_library(self.root, self.LIBRARY, self.SCRIPT)
+        self._bind(lib)
+        self.lib = lib
+        if not lib.qaqua_ready():
+            cwd = os.getcwd()
+            os.chdir(self.src)                    # pes_init reads its coefficients relative to the source directory
+            try:
+                lib.qaqua_init(2)
+            finally:
+                os.chdir(cwd)
+
+    @staticmethod
+    def _bind(lib):
         f64 = np.ctypeslib.ndpointer(dtype=np.float64, flags="C_CONTIGUOUS")
         dp = ctypes.POINTER(ctypes.c_double)
         lib.qaqua_init.argtypes = [ctypes.c_int]; lib.qaqua_init.restype = ctypes.c_int
@@ -107,14 +127,6 @@ class QAqua:
         lib.qaqua_onebody.argtypes = [f64, dp]; lib.qaqua_onebody.restype = None
         lib.qaqua_onebody_gradient.argtypes = [f64, dp, f64]; lib.qaqua_onebody_gradient.restype = None
         lib.qaqua_charges.argtypes = [f64, f64, f64]; lib.qaqua_charges.restype = None
-        self.lib = lib
-        if not lib.qaqua_ready():
-            cwd = os.getcwd()
-            os.chdir(self.src)                    # pes_init reads '../coef/*.dat'
-            try:
-                lib.qaqua_init(2)
-            finally:
-                os.chdir(cwd)
 
     # ------------------------------------------------------------------ atom order --------------------------------
     @staticmethod
@@ -189,8 +201,9 @@ class QAqua:
         return np.concatenate([self.charges(P[3 * i:3 * i + 3])[0] for i in range(len(P) // 3)])
 
     def nbody(self, pos_bohr, max_order=4):
-        """the many-body decomposition of the interaction energy by the subset energies (exact for q-AQUA, which is
-        a 4-body-truncated expansion): {k: sum of the k-body terms} for k = 2..max_order."""
+        """the many-body decomposition of the interaction energy by the subset energies: {k: sum of the k-body terms}
+        for k = 2..max_order (all of it for q-AQUA v1, a 4-body-truncated expansion; q-AQUA-pol's induction has
+        terms of every order)."""
         P = np.asarray(pos_bohr, dtype=np.float64)
         n = len(P) // 3
         sub = lambda idx: np.concatenate([P[3 * i:3 * i + 3] for i in idx])
@@ -202,6 +215,54 @@ class QAqua:
                     e -= sum(terms[frozenset(s)] for s in itertools.combinations(idx, j))
                 terms[frozenset(idx)] = e
         return {k: float(sum(v for s, v in terms.items() if len(s) == k)) for k in range(2, min(max_order, n) + 1)}
+
+
+class QAquaPol(QAqua):
+    """q-AQUA-pol (Q. Yu, C. Qu, P. L. Houston, A. Nandi, R. Conte, J. M. Bowman, J. Chem. Theory Comput. 19, 3446
+    (2023); github.com/jmbowma/q-AQUA-pol, CC0) at `root`, the build directory of external/qaqua/build_pol.sh:
+    libqaqua_pol.so, q-AQUA-pol/q-AQUA-pol/{src, coef_qAQUA-pol} and q-AQUA/*_data.xyz (the raw CCSD(T) sets of the
+    q-AQUA v1 repository).  TTM3-F everywhere -- the Partridge-Schwenke monomer, geometry-dependent charges on the
+    H atoms and the M-site, one Thole-smeared polarisable site per molecule (the M-site) with self-consistent induced
+    dipoles and no cutoff, an O-O C6/R^6 + exponential term -- plus CCSD(T) corrections switched off over
+    6.5-7.0 A (2- and 3-body) and 5.5-6.5 A (4-body).  So beyond 7 A the interaction is TTM3-F's: permanent
+    electrostatics, many-body induction and dispersion.  The interface is QAqua's (the 1-body term is TTM3-F's
+    Partridge-Schwenke energy, the monomer charges its dipole-surface charges on O, H, H) plus TTM3-F's pieces."""
+    LIBRARY = "libqaqua_pol.so"
+    SCRIPT = "external/qaqua/build_pol.sh"
+    NAME = "q-AQUA-pol"
+
+    def _layout(self):
+        base = os.path.join(self.root, "q-AQUA-pol", "q-AQUA-pol")
+        coef = os.path.join(base, "coef_qAQUA-pol")
+        return os.path.join(base, "src"), [os.path.join(coef, f) for f in (
+            "coeff_diff_2b.dat", "coeff_diff_3b.dat", "coeff_diff_3b_lr_4th.dat", "coeff_grp200_diff")]
+
+    @staticmethod
+    def _bind(lib):
+        QAqua._bind(lib)
+        f64 = np.ctypeslib.ndpointer(dtype=np.float64, flags="C_CONTIGUOUS")
+        dp = ctypes.POINTER(ctypes.c_double)
+        lib.qaqua_ttm.argtypes = [ctypes.c_int, f64, f64, f64, f64, f64]; lib.qaqua_ttm.restype = None
+        lib.qaqua_ttm_constants.argtypes = [dp, dp]; lib.qaqua_ttm_constants.restype = None
+
+    def ttm(self, pos_bohr):
+        """TTM3-F alone at pos_bohr (3n, 3), O, H, H per molecule: its total, the Partridge-Schwenke sum (intra), the
+        electrostatics of its site charges (elec), the induction -1/2 sum mu.E_q (ind) and the O-O C6 + exponential
+        term (vdw), all in hartree; its induced dipoles mu (n, 3) on the M-sites (e bohr), the M-sites (n, 3, bohr)
+        and the site charges (n, 3: H1, H2, M; e)."""
+        P = np.asarray(pos_bohr, dtype=np.float64)
+        n = len(P) // 3
+        comp = np.zeros(5); mu = np.zeros(3 * n); rm = np.zeros(3 * n); qs = np.zeros(3 * n)
+        self.lib.qaqua_ttm(n, self.to_qaqua_order(P), comp, mu, rm, qs)
+        return dict(zip(("total", "intra", "elec", "ind", "vdw"), comp.tolist()),
+                    mu=mu.reshape(n, 3), msites=rm.reshape(n, 3), site_charges=qs.reshape(n, 3))
+
+    def ttm_constants(self):
+        """TTM3-F's static polarisability on the M-site and its O-O dispersion coefficient, in atomic units with the
+        potential's own constants (bohr = 0.5291772083 A, hartree = 627.51 kcal/mol): (alpha bohr^3, C6 E_h bohr^6)."""
+        a = ctypes.c_double(); c6 = ctypes.c_double()
+        self.lib.qaqua_ttm_constants(ctypes.byref(a), ctypes.byref(c6))
+        return a.value / AUANG ** 3, c6.value / AUKCAL / AUANG ** 6
 
 
 # ---------------------------------------------------------------------- the raw CCSD(T) n-body sets ----------------
@@ -275,6 +336,17 @@ _BENCHMARKS = {   # README of qAQUA_v1: total energy (hartree) and gradient (har
 }
 
 
+_POL_BENCHMARK = ("hexamer.xyz", -45.7738923286911, [    # README of q-AQUA-pol: the total energy x 627.51 (kcal/mol, as
+    # their getpot prints it) and the gradient (hartree/bohr, q-AQUA order, 8 decimals)
+    [0.00394754, -0.00182171, 0.00069273], [-0.00228976, -0.00142203, 0.00400568], [-0.00075949, -0.00061204, 0.00420559],
+    [-0.00292673, -0.00130259, -0.00122316], [-0.00168868, -0.00239567, 0.00269531], [-0.00187900, -0.00180394, -0.00272606],
+    [0.00003051, -0.00049893, -0.00338875], [0.00253757, 0.00353316, -0.00065256], [-0.00338173, 0.00147785, -0.00057620],
+    [0.00113714, 0.00272610, 0.00042893], [-0.00328271, 0.00208605, -0.00000976], [0.00267610, 0.00330605, -0.00039869],
+    [-0.00129751, 0.00319493, -0.00475530], [0.00379564, 0.00193308, -0.00310067], [0.00382317, 0.00406095, 0.00004663],
+    [-0.00307279, -0.00295002, 0.00401148], [0.00213928, -0.00433354, 0.00042017], [0.00049144, -0.00517769, 0.00032463]])
+TTM3F_CHARGECON = 18.22234397655801030455      # TTM3-F's sqrt(kcal/mol A) per e (model_mod.f90)
+TTM3F_VDW_D, TTM3F_VDW_E = 0.10211829e6, 0.37170376e1    # its O-O exponential, kcal/mol and 1/A (ttm3f_mod.f90)
+
 def _read_xyz_qaqua_order(path):
     with open(path) as fh:
         rows = [l.split() for l in fh.read().split("\n")[2:] if l.strip()]
@@ -284,7 +356,10 @@ def _read_xyz_qaqua_order(path):
 def check(root):
     """the README benchmarks: energies to 1e-8 hartree and gradients to 1e-8 hartree/bohr (the printed precision),
     positions converted with q-AQUA's own bohr; and the self-consistency of the driver (order round trip, the
-    long range against the LTP2011 point charges).  Returns True if everything passes."""
+    long range against the LTP2011 point charges).  Returns True if everything passes.  A q-AQUA-pol build
+    (libqaqua_pol.so at root) is checked by check_pol."""
+    if os.path.isfile(os.path.join(os.path.abspath(os.path.expanduser(root)), QAquaPol.LIBRARY)):
+        return check_pol(root)
     qa = QAqua(root)
     print(f"  library        {os.path.join(qa.root, 'libqaqua.so')}")
     for f in loaded_runtime():
@@ -316,6 +391,61 @@ def check(root):
     print("q-AQUA check " + ("passed" if ok else "FAILED"))
     return ok
 
+
+def check_pol(root):
+    """q-AQUA-pol: the README benchmark (the hexamer's total energy to 1e-6 kcal/mol -- the polynomials' rounding noise
+    is ~1e-10 hartree -- and its gradient to the printed 1e-8 hartree/bohr), and the long range: two monomers 12 A
+    apart interact by TTM3-F alone (the CCSD(T) corrections vanish beyond 7 A), and its pieces are recomputed here from
+    the site charges, the M-sites and the polarisability -- the electrostatics of point charges, the self-consistent
+    point-dipole induction (no smearing left at 12 A) and the O-O C6 term -- to 1e-10 relative.  Returns True if
+    everything passes."""
+    qa = QAquaPol(root)
+    print(f"  library        {os.path.join(qa.root, qa.LIBRARY)}")
+    for f in loaded_runtime():
+        print(f"  runtime        {f}")
+    ok = True
+    name, E_ref, G_ref = _POL_BENCHMARK
+    xq = _read_xyz_qaqua_order(os.path.join(qa.src, name)) / AUANG
+    n = len(xq) // 3
+    pos = qa.from_qaqua_order(xq.ravel(), n)
+    E, G = qa.total_energy_gradient(pos)
+    Gq = qa.to_qaqua_order(G).reshape(-1, 3)
+    dE = abs(E * AUKCAL - E_ref); dG = float(np.max(np.abs(Gq - np.array(G_ref))))
+    passed = dE <= 1e-6 and dG <= 1.5e-8
+    ok &= passed
+    print(f"  {name:14s} E = {E * AUKCAL:.10f} kcal/mol (README {E_ref:.10f}, |dE| {dE:.1e}); max |dG| {dG:.1e}  "
+          f"{'ok' if passed else 'FAIL'}")
+    # the long range: TTM3-F's pieces at 12 A against their definitions, in TTM3-F's units (A, e, kcal/mol)
+    mono = np.array([[0.0, 0.0, 0.0], [0.7572, 0.0, 0.5865], [-0.7572, 0.0, 0.5865]])
+    rot = np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]])
+    A = np.concatenate([mono, mono @ rot.T + np.array([0.3, -0.2, 12.0])])          # A
+    P = A / AUANG
+    E_int = qa.interaction_energy(P)
+    t = qa.ttm(P)
+    k = TTM3F_CHARGECON ** 2
+    sites = [np.vstack([A[3 * m + 1], A[3 * m + 2], t["msites"][m] * AUANG]) for m in range(2)]     # H1, H2, M
+    q = t["site_charges"]
+    elec = k * sum(q[0, i] * q[1, j] / np.linalg.norm(sites[0][i] - sites[1][j]) for i in range(3) for j in range(3))
+    alpha_A3 = qa.ttm_constants()[0] * AUANG ** 3
+    field = [sum(q[1 - m, j] * (sites[m][2] - sites[1 - m][j]) / np.linalg.norm(sites[m][2] - sites[1 - m][j]) ** 3
+                 for j in range(3)) for m in range(2)]                                # at each M-site, e / A^2
+    R = sites[0][2] - sites[1][2]; r = np.linalg.norm(R)
+    Tdd = (3.0 * np.outer(R, R) / r ** 2 - np.eye(3)) / r ** 3
+    M = np.block([[np.eye(3), -alpha_A3 * Tdd], [-alpha_A3 * Tdd, np.eye(3)]])
+    mu = np.linalg.solve(M, alpha_A3 * np.concatenate(field)).reshape(2, 3)           # e A
+    ind = -0.5 * k * float(np.sum(mu * np.array(field)))
+    roo = np.linalg.norm(A[0] - A[3])
+    vdw = -qa.ttm_constants()[1] * AUKCAL * AUANG ** 6 / roo ** 6 + TTM3F_VDW_D * np.exp(-TTM3F_VDW_E * roo)
+    rel = lambda a, b: abs(a - b) / abs(b)
+    checks = {"TTM3-F alone": (E_int, t["total"] - t["intra"], 1e-12), "electrostatics": (t["elec"], elec / AUKCAL, 1e-10),
+              "induction": (t["ind"], ind / AUKCAL, 1e-10), "dispersion": (t["vdw"], vdw / AUKCAL, 1e-10),
+              "induced dipoles": (float(np.linalg.norm(t["mu"] * AUANG)), float(np.linalg.norm(mu)), 1e-10)}
+    for label, (got, want, tol) in checks.items():
+        passed = rel(got, want) <= tol
+        ok &= passed
+        print(f"  12 A {label:16s} {got:+.6e} vs {want:+.6e} (rel. diff {rel(got, want):.1e})  {'ok' if passed else 'FAIL'}")
+    print("q-AQUA-pol check " + ("passed" if ok else "FAILED"))
+    return ok
 
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--check":
