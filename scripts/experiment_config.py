@@ -14,6 +14,7 @@ MODEL_FIELDS = {
     "charges": ("charges", "charge_mode"),
     "charge_neutrality": ("charge_neutrality", "neutrality"),
     "band_edge_angstrom": ("l1", "optional_positive"),
+    "response_edge_angstrom": ("response_edge", "optional_positive"),   # the read-out's own band edge (null: the band edge)
     "rs_over_l1": ("rs_over_l1", "nonnegative"),
     "r_cut_angstrom": ("rcut", "positive"),
     "features": ("F", "positive_int"),
@@ -58,8 +59,10 @@ CLUSTER_DEFAULTS = {
 # dataset settings of the run are those of before.
 CLUSTER_PROBE_DEFAULTS = {
     "probe_distances_angstrom": "8,10,12,15", "probe_train": 0, "probe_train_cores": 8,
-    "probe_test": 0, "probe_test_cores": 2, "probe_seed": 400,
+    "probe_test": 0, "probe_test_cores": 2, "probe_seed": 400, "probe_train_core_sizes": "3",
 }
+# the training probes' cores may be clusters of several sizes (`probe_train_core_sizes`, molecules; one seed per size,
+# the first size's being probe_seed); the test probes' cores stay trimers.  [3] keeps the dataset settings of before.
 
 # Each YAML field maps to the existing or shared CLI destination and a validation
 # rule. Keeping this table shared makes YAML and CLI values follow the same rules.
@@ -84,6 +87,11 @@ TRAINING_FIELDS = {
         "freeze_during_adam": ("freeze_readout", "bool"),
         "linear_solve": ("readout_linear_solve", "bool"),
         "ridge": ("readout_ridge", "nonnegative"),
+        "orders": ("readout_orders", "readout_orders"),                    # zero: the order-0 columns; all: every order's
+        "far_weight": ("readout_far_weight", "optional_positive"),         # the training probes' weight in the solve
+        "stage": ("readout_stage", "readout_stage"),                       # after_adam, or far_first (matched, then held)
+        "solve_iterations": ("readout_solve_iterations", "positive_int"),  # Gauss-Newton steps (the mutual response)
+        "ridge_selection": ("readout_ridge_selection", "ridge_selection"),  # fixed: ridge; groups: on held-out cores
     },
     "lbfgs": {
         "steps": ("lbfgs", "nonnegative_int"),
@@ -93,13 +101,17 @@ TRAINING_FIELDS = {
         "scale_init_precond": ("lbfgs_scale_init_precond", "bool"),
         "max_linesearch_steps": ("lbfgs_max_linesearch_steps", "positive_int"),
         "readout_only": ("lbfgs_readout_only", "bool"),
+        "freeze_readout": ("lbfgs_freeze_readout", "bool"),                # keep the solved read-out through the polish
     },
     "loss": {
         "energy_weight": ("w_energy", "nonnegative"),
         "force_weight": ("w_force", "nonnegative"),
         "far_weight": ("w_far", "positive"),
+        "far_labels": ("far_labels", "far_labels"),                        # total, or the probe's interaction energy
     },
 }
+CHOICES = {"readout_orders": ("zero", "all"), "ridge_selection": ("fixed", "groups"), "readout_stage": ("after_adam", "far_first"),
+           "far_labels": ("total", "interaction")}
 
 
 def _validate_training_value(name, value, rule):
@@ -110,6 +122,8 @@ def _validate_training_value(name, value, rule):
         valid, description = value in CHARGE_MODES, "pinned, learned, or null"
     elif rule == "neutrality":
         valid, description = value in NEUTRALITY_MODES, "fragment or structure"
+    elif rule in CHOICES:
+        valid, description = value in CHOICES[rule], " or ".join(CHOICES[rule])
     elif rule == "seeds":
         valid = (isinstance(value, list) and bool(value)
                  and all(type(v) is int and v >= 0 for v in value)
@@ -178,6 +192,8 @@ def _training_defaults(kind):
         "lbfgs_learning_rate": None, "lbfgs_memory_size": 10,
         "lbfgs_scale_init_precond": True, "lbfgs_max_linesearch_steps": 20,
         "lbfgs_readout_only": False,
+        "readout_orders": "zero", "readout_far_weight": None, "readout_solve_iterations": 1, "readout_stage": "after_adam",
+        "readout_ridge_selection": "fixed", "lbfgs_freeze_readout": False, "far_labels": "total",
         "w_energy": 1.0, "w_force": 0.0 if kind == "x2b_toy" else 1.0,
         "w_far": 1.0, "energy_scale": None,
         "verbose": kind == "x2b_toy", "model_seeds": None,
@@ -190,9 +206,11 @@ def add_training_arguments(parser, kind):
     parser.set_defaults(_training_kind=kind)
     parser._training_kind = kind
     integer_fields = {"steps", "lbfgs", "batch", "lbfgs_chunk",
-                      "lbfgs_memory_size", "lbfgs_max_linesearch_steps"}
+                      "lbfgs_memory_size", "lbfgs_max_linesearch_steps", "readout_solve_iterations"}
     boolean_fields = {"freeze_readout", "readout_linear_solve", "verbose",
-                      "lbfgs_scale_init_precond", "lbfgs_readout_only"}
+                      "lbfgs_scale_init_precond", "lbfgs_readout_only", "lbfgs_freeze_readout"}
+    choice_fields = {"readout_orders": "readout_orders", "readout_ridge_selection": "ridge_selection",
+                     "far_labels": "far_labels", "readout_stage": "readout_stage"}
     help_text = {
         "steps": "Adam steps (readout frozen when --freeze_readout is enabled)",
         "lbfgs": "L-BFGS steps after Adam and the optional linear readout solve",
@@ -200,6 +218,13 @@ def add_training_arguments(parser, kind):
         "freeze_readout": "freeze the field-response readout during Adam",
         "readout_linear_solve": "fit order-0 readout coefficients before L-BFGS",
         "lbfgs_readout_only": "train only the field-response readout during L-BFGS",
+        "lbfgs_freeze_readout": "keep the solved field-response readout during L-BFGS",
+        "readout_orders": "readout output columns the linear solve fits: zero (order 0) or all",
+        "readout_far_weight": "the training probes' weight in the readout solve (omitted: their training weight)",
+        "readout_stage": "readout solve after Adam (after_adam), or first on the probes E_0 cannot see, then held (far_first)",
+        "readout_solve_iterations": "Gauss-Newton steps of the readout solve",
+        "readout_ridge_selection": "readout solve ridge: fixed, or groups (chosen on held-out probe cores)",
+        "far_labels": "training probes' labels: total, or interaction (the probe's interaction energy)",
         "energy_scale": "positive target normalization; omitted means automatic",
     }
     for destination, default in defaults.items():
@@ -209,6 +234,8 @@ def add_training_arguments(parser, kind):
         kwargs = {"default": default}
         if destination in boolean_fields:
             kwargs["action"] = argparse.BooleanOptionalAction
+        elif destination in choice_fields:
+            kwargs["choices"] = CHOICES[choice_fields[destination]]
         elif destination != "model_seeds":
             kwargs["type"] = int if destination in integer_fields else float
         if destination in help_text:
@@ -251,6 +278,10 @@ def training_kwargs(args):
         "lbfgs_scale_init_precond": value("lbfgs_scale_init_precond"),
         "lbfgs_max_linesearch_steps": value("lbfgs_max_linesearch_steps"),
         "lbfgs_readout_only": value("lbfgs_readout_only"),
+        "readout_orders": value("readout_orders"),
+        "readout_solve_iterations": value("readout_solve_iterations"),
+        "readout_ridge_selection": value("readout_ridge_selection"),
+        "lbfgs_freeze_readout": value("lbfgs_freeze_readout"),
     }
 
 
@@ -299,6 +330,10 @@ def _validate_resolved_training(args, kind, rungs):
             raise ValueError("training.lbfgs.readout_only requires every selected model to have field response")
         if args.lbfgs == 0:
             raise ValueError("training.lbfgs.readout_only requires training.lbfgs.steps > 0")
+    if args.lbfgs_freeze_readout and args.lbfgs_readout_only:
+        raise ValueError("training.lbfgs.freeze_readout and readout_only exclude each other")
+    if args.lbfgs_freeze_readout and response and not args.readout_linear_solve:
+        raise ValueError("training.lbfgs.freeze_readout keeps the solved read-out: it needs training.readout.linear_solve")
 
 
 def validate_cluster_data(data):
@@ -312,6 +347,10 @@ def validate_cluster_data(data):
             if (not isinstance(value, list) or not value or len(set(value)) != len(value)
                     or any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in value)):
                 raise ValueError("data.probe_distances_angstrom must be a nonempty list of distinct positive distances")
+        elif key == "probe_train_core_sizes":
+            if (not isinstance(value, list) or not value or len(set(value)) != len(value)
+                    or any(type(v) is not int or v < 2 for v in value)):
+                raise ValueError("data.probe_train_core_sizes must be a nonempty list of distinct integers >= 2")
         elif key in CLUSTER_PROBE_DEFAULTS:
             minimum = 1 if key.endswith("_cores") else 0
             if type(value) is not int or value < minimum:
@@ -463,8 +502,8 @@ def validate_model(model, kind):
             continue
         _validate_training_value(f"model.{key}", model[key], rule)
         value = model[key]
-        if key == "band_edge_angstrom" and value is None:
-            value = 0.0                                   # --l1 0: the rung's own band edge
+        if key in ("band_edge_angstrom", "response_edge_angstrom") and value is None:
+            value = 0.0                                   # --l1 0: the rung's own band edge; --response_edge 0: the band edge
         defaults[destination] = value
     return defaults
 
@@ -475,7 +514,7 @@ def _validate_resolved_model(args):
         if not hasattr(args, destination):
             continue
         value = getattr(args, destination)
-        if key == "band_edge_angstrom":
+        if key in ("band_edge_angstrom", "response_edge_angstrom"):
             value = None if value == 0 else value
         _validate_training_value(f"model.{key}", value, rule)
 
@@ -615,8 +654,9 @@ def parse_selection(parser, kind, argv=None, *, rungs=None, systems=None, valida
             for key in ("train_sizes", "test_sizes"):
                 resolved[key] = [int(v) for v in resolved[key].split(',')]
             if hasattr(args, "probe_train"):
-                resolved.update({key: getattr(args, key) for key in CLUSTER_PROBE_DEFAULTS})
+                resolved.update({key: getattr(args, key, CLUSTER_PROBE_DEFAULTS[key]) for key in CLUSTER_PROBE_DEFAULTS})
                 resolved["probe_distances_angstrom"] = [float(v) for v in str(resolved["probe_distances_angstrom"]).split(',')]
+                resolved["probe_train_core_sizes"] = [int(v) for v in str(resolved["probe_train_core_sizes"]).split(',')]
             validate_cluster_data(resolved)
         except (ValueError, AttributeError) as exc:
             parser.error(str(exc))

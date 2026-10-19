@@ -245,6 +245,23 @@ class QAquaPol(QAqua):
         lib.qaqua_ttm.argtypes = [ctypes.c_int, f64, f64, f64, f64, f64]; lib.qaqua_ttm.restype = None
         lib.qaqua_ttm_constants.argtypes = [dp, dp]; lib.qaqua_ttm_constants.restype = None
 
+    # q-AQUA-pol's energy-only routine (getpot -> pot3b in pes_shell.f90 at 3a38dc4) blends its short- and long-range
+    # 3-body fits for trimers whose largest O-O is 5.0-5.5 A with a switch value it never computes (f_switch is not
+    # called before (1 - s) e32 + s e31; q-AQUA v1's pot3b calls it), so its energy there is not the potential's: up to
+    # 0.04 kcal/mol per trimer and 0.09 kcal/mol on relaxed hexamers.  The gradient routine (pot_gd) computes the
+    # switch, and its energy is the potential (its forces integrate to it; the authors' benchmark hexamer agrees with
+    # both).  The truth's energy is therefore the gradient routine's; the energy-only routine is kept for the cheap
+    # Metropolis relaxation of geometries (interaction_energy_sampling), which it drove in E3-QP, so that the data sets
+    # are reproduced bit for bit -- the labels and every reference come from interaction_energy(_forces).
+    def interaction_energy(self, pos_bohr):
+        """E(all) - sum_i E_1b(i) by the gradient routine (see above): zero for separated monomers at any geometry."""
+        return self.interaction_energy_forces(pos_bohr)[0]
+
+    def interaction_energy_sampling(self, pos_bohr):
+        """the energy-only routine's interaction energy (3.6x cheaper on a hexamer; off in the 3-body blend region, see
+        above): for driving a Metropolis relaxation only."""
+        return QAqua.interaction_energy(self, pos_bohr)
+
     def ttm(self, pos_bohr):
         """TTM3-F alone at pos_bohr (3n, 3), O, H, H per molecule: its total, the Partridge-Schwenke sum (intra), the
         electrostatics of its site charges (elec), the induction -1/2 sum mu.E_q (ind) and the O-O C6 + exponential
@@ -256,6 +273,40 @@ class QAquaPol(QAqua):
         self.lib.qaqua_ttm(n, self.to_qaqua_order(P), comp, mu, rm, qs)
         return dict(zip(("total", "intra", "elec", "ind", "vdw"), comp.tolist()),
                     mu=mu.reshape(n, 3), msites=rm.reshape(n, 3), site_charges=qs.reshape(n, 3))
+
+    def induction(self, pos_bohr, order=None):
+        """TTM3-F's induction energy (hartree) at pos_bohr (3n, 3) re-evaluated from its sites: the permanent field of
+        the other molecules' H and M-site charges at each M-site (Thole-smeared, a = 0.175 with the H and M factors of
+        ttm3f_mod.f90), the M-M dipole tensor, and -1/2 mu.E_q with mu = (1/alpha - T)^-1 E_q (order None: the library's
+        self-consistent value to its convergence), or the series in alpha through `order` (1: first order, -1/2 alpha
+        |E_q|^2; 2: + the alpha^2 E.T.E term).  Returns (energy, mu (n, 3) e bohr)."""
+        P = np.asarray(pos_bohr, dtype=np.float64); n = len(P) // 3
+        t = self.ttm(P); RM, qs = t["msites"], t["site_charges"]
+        a3 = AUANG ** 3; alpha = 1.444 / a3; fH, fM, a = 0.496 / a3, 0.837 / a3, 0.175
+        def thole(r, pol12):
+            e = np.exp(-a * (r / pol12 ** (1 / 6)) ** 3)
+            ts1 = (1 - e) / r ** 3
+            return ts1, (ts1 - e * a / pol12 ** 0.5) / r ** 2
+        Eq = np.zeros((n, 3)); Tm = np.zeros((3 * n, 3 * n))
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                for site, q, f in ((P[3 * j + 1], qs[j, 0], fH), (P[3 * j + 2], qs[j, 1], fH), (RM[j], qs[j, 2], fM)):
+                    R = RM[i] - site
+                    Eq[i] += thole(np.linalg.norm(R), f * fM)[0] * q * R
+                R = RM[i] - RM[j]; ts1, ts2 = thole(np.linalg.norm(R), fM * fM)
+                Tm[3 * i:3 * i + 3, 3 * j:3 * j + 3] = 3 * ts2 * np.outer(R, R) - ts1 * np.eye(3)
+        e = Eq.reshape(-1)
+        if order is None:
+            mu = np.linalg.solve(np.eye(3 * n) / alpha - Tm, e)
+        else:
+            mu = np.zeros_like(e); term = alpha * e
+            for _ in range(order):
+                mu = mu + term; term = alpha * (Tm @ term)
+        # TTM3-F's Coulomb constant (CHARGECON^2 kcal A/mol) over the atomic unit's in the potential's own units
+        kappa = TTM3F_CHARGECON ** 2 / (AUKCAL * AUANG)
+        return -0.5 * kappa * float(mu @ e), mu.reshape(n, 3)
 
     def ttm_constants(self):
         """TTM3-F's static polarisability on the M-site and its O-O dispersion coefficient, in atomic units with the

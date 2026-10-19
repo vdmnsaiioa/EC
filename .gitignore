@@ -13,3 +13,4 @@ results/*.params.pkl
 # the q-AQUA builds (external/qaqua/build.sh, build_pol.sh)
 /external/qaqua/build
 /external/qaqua/build_pol
+/scratch/matched_*.pkl

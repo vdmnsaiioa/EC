@@ -28,6 +28,11 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
     M_1p              Coulomb band, q pinned                                   (v1 dagger)
     M_S0p, M_S2p      M_1p + band-field inputs at order 0 / 2                  (v1.5 dagger)
     M_S0, M_S2        M_1 + band-field inputs (q learned)
+    M_16p, M_16S0p    the daggers with the dispersion band on the truth's alpha and C6 (E3-R, E3-QP)
+    M_1pm, M_16pm     q-AQUA-pol: the truth's permanent charges exactly (TTM3-F's H charges and M-site, a virtual site)
+    M_16S0pm, M_16S2pm   + the read-out (coefficients from the species), first order in the polarisabilities, order 0 / 2
+    M_16C0pm, M_16C2pm   + the read-out with its induced dipoles' mutual fields to all orders (self-consistent)
+    M_16C0p           M_16C0pm's response on the dipole-surface charges (the control for the sources)
 """
 from experiment_config import (CLUSTER_DEFAULTS, CLUSTER_PROBE_DEFAULTS, DIMER_DEFAULTS, add_training_arguments, parse_selection,
                                training_kwargs, training_seeds)
@@ -68,6 +73,20 @@ RUNGS = {
     "M_16p": M.with_rung(M.RUNGS["M_1"], pin_q=True, dispersion=True, pin_alpha=True),
     "M_16S0p": M.with_rung(M.RUNGS["M_1"], pin_q=True, dispersion=True, pin_alpha=True, band_fields=0),
     "M_16S2p": M.with_rung(M.RUNGS["M_1"], pin_q=True, dispersion=True, pin_alpha=True, band_fields=2),
+    # E3-QP2 (q-AQUA-pol): the truth's permanent charges exactly -- TTM3-F's H charges and its M-site as a virtual site
+    # (Rung.msites) -- the exact dagger, and the read-out on it at first order (S) or with the induced dipoles' mutual
+    # fields to all orders (C: self-consistent, the alpha^2 T terms and beyond), at order 0 or with the orders 1-2
+    # (the read-out's coefficients from the species alone, matched on the far field: Rung.bf_species, training.readout.stage)
+    "M_1pm": M.with_rung(M.RUNGS["M_1"], pin_q=True, msites=True),
+    "M_16pm": M.with_rung(M.RUNGS["M_1"], pin_q=True, msites=True, dispersion=True, pin_alpha=True),
+    "M_16S0pm": M.with_rung(M.RUNGS["M_1"], pin_q=True, msites=True, dispersion=True, pin_alpha=True, band_fields=0, bf_species=True),
+    "M_16S2pm": M.with_rung(M.RUNGS["M_1"], pin_q=True, msites=True, dispersion=True, pin_alpha=True, band_fields=2, bf_species=True),
+    "M_16C0pm": M.with_rung(M.RUNGS["M_1"], pin_q=True, msites=True, dispersion=True, pin_alpha=True, band_fields=0, bf_species=True,
+                            bf_mutual=-1),
+    "M_16C2pm": M.with_rung(M.RUNGS["M_1"], pin_q=True, msites=True, dispersion=True, pin_alpha=True, band_fields=2, bf_species=True,
+                            bf_mutual=-1),
+    # the control: the same self-consistent response on the dipole-surface charges q3 (E3-QP's sources, their quadrupole off)
+    "M_16C0p": M.with_rung(M.RUNGS["M_1"], pin_q=True, dispersion=True, pin_alpha=True, band_fields=0, bf_species=True, bf_mutual=-1),
 }
 C6_OO_TRUTH = 45.4
 
@@ -153,6 +172,10 @@ def validate_water_args(a):
                 raise ValueError(f"rungs {', '.join(bad)} pin embedded induced dipoles, which are not set up for q-AQUA-pol "
                                  "(TTM3-F's sit on the M-site); its permanent-source daggers M_16p, M_16S0p, M_16S2p pin TTM3-F's "
                                  "alpha and C6")
+        if a.truth == "qaqua":
+            bad = [n for n in names if RUNGS[n].msites]
+            if bad:
+                raise ValueError(f"rungs {', '.join(bad)} pin TTM3-F's site charges, which only q-AQUA-pol has")
         root = os.path.abspath(os.path.expanduser(truth_root(a)))
         lib, script = TRUTH_LIBRARIES[a.truth]
         if not os.path.isfile(os.path.join(root, lib)):
@@ -169,6 +192,27 @@ def validate_water_args(a):
             raise ValueError("the strict near-rigid tolerance must not exceed the rigid tolerance (it selects a subset)")
     elif sets:
         raise ValueError("the held-out raw CCSD(T) sets need a q-AQUA truth (--truth qaqua or qaqua_pol)")
+    else:
+        bad = [n for n in names if RUNGS[n].msites]
+        if bad:
+            raise ValueError(f"rungs {', '.join(bad)} pin TTM3-F's site charges, which only q-AQUA-pol has (--truth qaqua_pol)")
+    if getattr(a, "readout_far_weight", None) is not None and not (a.part == "clusters" and getattr(a, "probe_train", 0) > 0):
+        raise ValueError("training.readout.far_weight weights the training probes in the read-out's solve: the clusters part "
+                         "with data.probe_train > 0")
+    if getattr(a, "far_labels", "total") == "interaction" and a.part != "clusters":
+        raise ValueError("training.loss.far_labels: interaction labels the clusters part's training probes")
+    if getattr(a, "readout_ridge_selection", "fixed") == "groups" and a.part != "clusters":
+        raise ValueError("training.readout.ridge_selection: groups holds out clusters and probe cores: the clusters part")
+    if getattr(a, "readout_stage", "after_adam") == "far_first":
+        if not (a.part == "clusters" and getattr(a, "probe_train", 0) > 0 and getattr(a, "far_labels", "total") == "interaction"):
+            raise ValueError("training.readout.stage: far_first matches the read-out on the training probes' interaction "
+                             "energies: the clusters part with data.probe_train > 0 and training.loss.far_labels: interaction")
+        bad = [n for n in names if RUNGS[n].band_fields >= 0 and not RUNGS[n].bf_species]
+        if bad:
+            raise ValueError(f"training.readout.stage: far_first needs a read-out independent of E_0 (the species read-out); "
+                             f"rungs {', '.join(bad)} read E_0's features")
+        if not getattr(a, "lbfgs_freeze_readout", False):
+            raise ValueError("training.readout.stage: far_first keeps the matched read-out: set training.lbfgs.freeze_readout")
 
 
 def restore_fragment_charges(structs):
@@ -199,11 +243,25 @@ def save_params(a, name, seed, params):
 
 def pin_sources(a, *sets, n_core=None, truth=None):
     """apply the pins the requested rungs need to the given structure lists: embedded sources for "emb" rungs, the
-    dispersion alpha for "16" rungs (the truth's alpha and C6: PW's unless the truth has its own)."""
+    dispersion alpha for "16" rungs (the truth's alpha and C6: PW's unless the truth has its own), the truth's site
+    model for the site-model rungs (q-AQUA-pol's TTM3-F charges)."""
+    site_model = any(RUNGS[name].msites for name in a.rungs.split(","))
     for structs in sets:
         if needs(a, "emb"): pin_embedded(structs, n_core=n_core)
         elif needs(a, "16"): pin_dispersion(structs, truth)
+        if site_model: W.pin_site_model(structs, truth)
     return sets
+
+
+def pin_for(rung, structs, truth):
+    """the pins one rung needs on structures built for a reading (sub-clusters, dimers, held-out frames)."""
+    if rung.pin_mu:
+        pin_embedded(structs)
+    elif rung.pin_alpha:
+        pin_dispersion(structs, truth)
+    if rung.msites:
+        W.pin_site_model(structs, truth)
+    return structs
 
 
 def pin_embedded(structs, n_core=None, self_energy=True):
@@ -238,6 +296,8 @@ def configure(rung, a):
         kw["l1"] = ang_to_bohr(a.l1)                                                   # the band edge (default 1.5 A)
     if rung.band_fields >= 0:
         kw["bf_rs"] = kw.get("l1", rung.l1) * a.rs_over_l1
+        if getattr(a, "response_edge", 0) > 0:
+            kw["bf_l"] = ang_to_bohr(a.response_edge)                                  # the response's own band edge
     return M.with_rung(rung, **kw)
 
 
@@ -254,6 +314,10 @@ def model_record(name, a):
             "band_fields": int(rung.band_fields) if rung.band_fields >= 0 else None,
             "band_edge_angstrom": ang(rung.l1),
             "near_source_switch_angstrom": ang(rung.bf_rs) if rung.band_fields >= 0 else None,
+            **({"response_edge_angstrom": ang(rung.bf_l)} if rung.band_fields >= 0 and rung.bf_l > 0 else {}),
+            **({"site_model": True} if rung.msites else {}),
+            **({"readout_coefficients": "species"} if rung.bf_species else {}),
+            **({"mutual_response": int(rung.bf_mutual)} if rung.bf_mutual else {}),
             "r_cut_angstrom": ang(rung.e0["r_cut"]), "features": int(rung.e0["F"]),
             "analytic_envelope_angstrom": ang(rung.lA), "periodic": bool(rung.periodic)}
 
@@ -296,6 +360,9 @@ def _save(a, results):
                 results[name]["model"] = model_record(name, a)
                 results[name]["training"] = {"seeds": training_seeds(a), "far_weight": a.w_far if hasattr(a, "w_far") else 1.0,
                                              **training_kwargs(a)}
+                for key in ("far_labels", "readout_far_weight", "readout_stage"):
+                    if getattr(a, key, None) not in (None, "total", "after_adam"):
+                        results[name]["training"][key] = getattr(a, key)
     old.update(results)
     json.dump(old, open(a.out, "w"), indent=1)
 
@@ -452,6 +519,9 @@ def cluster_data_settings(a, truth=None):
     if probes_requested(a):                         # likewise the settings of runs without probe configurations
         settings.update({key: getattr(a, key, default) for key, default in CLUSTER_PROBE_DEFAULTS.items()})
         settings["probe_distances_angstrom"] = [float(v) for v in str(settings["probe_distances_angstrom"]).split(',')]
+        sizes = [int(v) for v in str(settings.pop("probe_train_core_sizes")).split(',')]
+        if sizes != [3]:                            # and trimer cores alone keep the settings of before
+            settings["probe_train_core_sizes"] = sizes
     return settings
 
 
@@ -460,37 +530,77 @@ def probes_requested(a):
 
 
 def probe_parts(structs):
-    """the cores (the first three molecules) and the probe's three dimers (core molecule i + the probe, the last
-    molecule) of probe configurations, as positions in A."""
-    cores, pairs = [], []
-    for st in structs:
-        pos = bohr_to_ang(st.positions)
-        cores.append(pos[:9])
-        pairs += [np.concatenate([pos[3 * i:3 * i + 3], pos[9:12]]) for i in range(3)]
-    return cores, pairs
+    """the cores (every molecule but the last) and the probe's dimers (core molecule i + the probe, the last molecule)
+    of probe configurations, as positions in A, with the configuration each dimer belongs to."""
+    cores, pairs, owner = [], [], []
+    for k, st in enumerate(structs):
+        pos = bohr_to_ang(st.positions); n = len(pos) // 3
+        cores.append(pos[:3 * (n - 1)])
+        pairs += [np.concatenate([pos[3 * i:3 * i + 3], pos[3 * (n - 1):]]) for i in range(n - 1)]
+        owner += [k] * (n - 1)
+    return cores, pairs, np.array(owner)
 
 
 def probe_truth(structs, truth):
-    """the truth's probe interaction E(core + probe) - E(core) and its non-additive part (minus the three dimer
+    """the truth's probe interaction E(core + probe) - E(core) and its non-additive part (minus the probe's dimer
     energies) for every probe configuration, and -- for a truth with TTM3-F's pieces -- the probe's induction (the
-    change of the induction energy, its pairwise part included)."""
-    _, pairs = probe_parts(structs)
+    change of the induction energy, its pairwise part included) and the non-additive induction through first and
+    second order in the polarisability (TTM3-F re-evaluated from its sites: the share of alpha^2 T and beyond)."""
+    _, pairs, owner = probe_parts(structs)
     inter = np.array([st.energy - st.info["E_core"] for st in structs])
-    E_pairs = np.array([truth.energy(p, 2) for p in pairs]).reshape(-1, 3)
-    out = dict(d=np.array([st.info["d"] for st in structs]), interaction=inter, nonadditive=inter - E_pairs.sum(axis=1))
+    E_pairs = np.bincount(owner, weights=[truth.energy(p, 2) for p in pairs], minlength=len(structs))
+    out = dict(d=np.array([st.info["d"] for st in structs]), interaction=inter, nonadditive=inter - E_pairs)
     if hasattr(getattr(truth, "qa", None), "ttm"):
-        out["induction"] = np.array([truth.qa.ttm(st.positions)["ind"] - truth.qa.ttm(st.positions[:9])["ind"] for st in structs])
+        out["induction"] = np.array([truth.qa.ttm(st.positions)["ind"] - truth.qa.ttm(st.positions[:-3])["ind"] for st in structs])
+    if hasattr(getattr(truth, "qa", None), "induction"):
+        for key, order in (("nonadditive_induction_first", 1), ("nonadditive_induction_second", 2)):
+            ind = lambda P: truth.qa.induction(P, order)[0]
+            pair_ind = np.bincount(owner, weights=[ind(ang_to_bohr(p)) for p in pairs], minlength=len(structs))
+            out[key] = np.array([ind(st.positions) - ind(st.positions[:-3]) for st in structs]) - pair_ind
+    return out
+
+
+def far_field_blind(structs, rcut_ang):
+    """the probe configurations whose probe has no atom within r_c of any core atom: E_0 (cutoff r_c, messages along
+    pairs within it) sees the probe and the core as disconnected, so the probe's interaction energy is the bands' and the
+    read-out's alone."""
+    out = []
+    for st in structs:
+        pos = bohr_to_ang(st.positions)
+        gap = np.linalg.norm(pos[:-3, None, :] - pos[None, -3:, :], axis=-1).min()
+        out.append(gap > rcut_ang)
+    return np.array(out, dtype=bool)
+
+
+def probe_interaction_labels(structs, truth):
+    """training probes relabelled with the probe's interaction energy and its forces: E(core + probe) - E(core) and
+    F(all) - F(core), with the core and the probe as the subtraction groups (Structure.sub), so that the model's energy
+    is the same difference.  The cluster energy, common to every probe of a core, leaves the label: what remains is the
+    pairwise electrostatics and dispersion of the probe with the core (the pinned bands' part beyond r_c) and the
+    induction, the signal the read-out is matched on.  Copies; the originals keep their totals for the readings."""
+    from dataclasses import replace
+    out, cache = [], {}
+    for st in structs:
+        n = st.n_atoms // 3; core = bohr_to_ang(st.positions[:3 * (n - 1)])
+        key = core.tobytes()
+        if key not in cache:
+            cache[key] = truth.energy_forces(core, n - 1)
+        E_core, F_core = cache[key]
+        if abs(E_core - st.info["E_core"]) > 1e-9:                # the same core (to the A-bohr round trip's noise)
+            raise ValueError("the probe configuration's core energy does not match the truth's")
+        F = np.array(st.forces, float); F[:3 * (n - 1)] -= F_core
+        out.append(replace(st, energy=st.energy - st.info["E_core"], forces=F, sub=np.repeat([0, 1], [3 * (n - 1), 3]),
+                           info={**st.info, "label": "interaction"}))
     return out
 
 
 def probe_model(params, rung, structs, truth, a):
     """the model's probe interaction and its non-additive part, as probe_truth (each sub-structure with its own pins)."""
-    cores, pairs = probe_parts(structs)
-    cores = [W.water_structure(p, charges=truth.molecule_charges(p)) for p in cores]
-    pairs = [W.water_structure(p, charges=truth.molecule_charges(p)) for p in pairs]
-    pin_sources(a, cores, pairs, truth=truth)
+    cores, pairs, owner = probe_parts(structs)
+    cores = pin_for(rung, [W.water_structure(p, charges=truth.molecule_charges(p)) for p in cores], truth)
+    pairs = pin_for(rung, [W.water_structure(p, charges=truth.molecule_charges(p)) for p in pairs], truth)
     inter = T.predict_energies(params, rung, structs) - T.predict_energies(params, rung, cores)
-    return inter, inter - T.predict_energies(params, rung, pairs).reshape(-1, 3).sum(axis=1)
+    return inter, inter - np.bincount(owner, weights=T.predict_energies(params, rung, pairs), minlength=len(structs))
 
 
 def probe_metrics(model, ref):
@@ -548,12 +658,17 @@ def prepare_heldout(a, truth):
     return sets
 
 
-def model_nbody(params, rung, frames, charges, n):
+def model_nbody(params, rung, frames, charges, n, truth=None):
     """the model's n-body energy of each frame (A, (frames, 3n, 3)) by the subset expansion over its sub-clusters, the
-    same decomposition as the truth's: E_int of every subset of 2..n molecules, each with its molecules' charges."""
+    same decomposition as the truth's: E_int of every subset of 2..n molecules, each with its molecules' charges and
+    the rung's other pins (the dispersion alpha, the site model).  Before v0.0.11 the held-out frames carried the
+    charges only: the M_16 rungs' 2-body readings lacked their dispersion band (their 3- and 4-body readings are
+    unaffected -- the band is pairwise)."""
     subsets = [c for k in range(2, n + 1) for c in itertools.combinations(range(n), k)]
     atoms = {c: np.concatenate([np.arange(3 * i, 3 * i + 3) for i in c]) for c in subsets}
     structs = [W.water_structure(p[atoms[c]], charges=q[atoms[c]]) for p, q in zip(frames, charges) for c in subsets]
+    if truth is not None:
+        pin_for(rung, structs, truth)
     E = T.predict_energies(params, rung, structs).reshape(len(frames), len(subsets))
     out = np.zeros(len(frames))
     for f in range(len(frames)):
@@ -605,15 +720,21 @@ def run_clusters(a, truth=None):
                  for i, n in enumerate(settings["test_sizes"])}
         if probes_requested(a):
             # a relaxed trimer (relaxed as the clusters are) and one monomer at each distance, in random directions and
-            # orientations: the training ones identify the read-out's response to a distant molecule
+            # orientations: the training ones identify the read-out's response to a distant molecule; with
+            # probe_train_core_sizes the training cores are also tetramers, pentamers ... (one seed per size, the first
+            # size's being probe_seed, so that [3] gives the probes of before)
             core_geometry = {k: v for k, v in geometry.items() if k != "mc_steps"}
+            sizes = {"train": settings.get("probe_train_core_sizes", [3]), "test": [3]}
             for key, seed, n_cores in (("train", settings["probe_seed"], settings["probe_train_cores"]),
                                        ("test", settings["probe_seed"] + 100, settings["probe_test_cores"])):
                 count = settings[f"probe_{key}"]
-                if count:
-                    probes[key] = W.probe_configurations(3, settings["probe_distances_angstrom"], count, seed=seed,
-                                                         mc_steps=settings["mc_steps"], n_cores=n_cores, truth=truth,
-                                                         **core_geometry)[0]
+                for k, n_core in enumerate(sizes[key] if count else []):
+                    made = W.probe_configurations(n_core, settings["probe_distances_angstrom"], count, seed=seed + 1000 * k,
+                                                  mc_steps=settings["mc_steps"], n_cores=n_cores, truth=truth,
+                                                  **core_geometry)[0]
+                    for st in made:
+                        st.info.update(n_core=n_core, core_id=1000 * k + st.info["core"])
+                    probes[key] += made
         if a.cache:
             with open(a.cache, "wb") as fh:
                 pickle.dump(dict(dataset_config=settings, train=train, tests=tests,
@@ -622,6 +743,9 @@ def run_clusters(a, truth=None):
     pin_sources(a, probes["train"], probes["test"], n_core=3, truth=truth)
     for st in probes["train"]:
         st.weight = a.w_far                                          # training.loss.far_weight
+    far_train = probes["train"]
+    if probes["train"] and getattr(a, "far_labels", "total") == "interaction":
+        far_train = probe_interaction_labels(probes["train"], truth)
     nadd_truth = {n: np.array([s.energy - W.pair_additive_energy(bohr_to_ang(s.positions), n, truth)
                               for s in structs]) for n, structs in tests.items()}
     train_count = len(train) - settings["monomer_references"]
@@ -682,8 +806,31 @@ def run_clusters(a, truth=None):
         heldout_runs = {key: [] for key in heldout}
         probe_runs = {key: [] for key in probe_ref}
         fitted_options = []
+        fit_kwargs = training_kwargs(a)
+        if rung.band_fields >= 0 and getattr(a, "readout_stage", "after_adam") == "far_first":
+            # the response matched on the far field before E_0 is trained: solved on the training probes E_0 cannot see
+            # (no probe atom within r_c of the core: their interaction energy is the bands' and the read-out's alone),
+            # the ridge chosen on held-out cores, then held while E_0 learns the rest
+            blind = far_field_blind(far_train, a.rcut)
+            if not blind.any():
+                raise ValueError("no training probe lies beyond r_c of its core: nothing to match the response on")
+            idx = np.flatnonzero(blind)
+            # energies only: the truth's atomic forces on a rigid monomer carry the flux of its geometry-dependent charges
+            # (TTM3-F's dipole-surface charges), which pinned charges cannot represent; its energies carry no such term
+            fit_kwargs.update(readout_first=True, readout_solve_subset=len(train) + idx, readout_solve_w_force=0.0,
+                              readout_solve_groups=np.array([far_train[i].info.get("core_id", far_train[i].info["core"]) for i in idx]))
+            print(f"  {name}: the read-out matched on {len(idx)} of {len(far_train)} training probes (beyond r_c of their "
+                  f"cores), before E_0", flush=True)
+        elif rung.band_fields >= 0 and getattr(a, "readout_far_weight", None) is not None and far_train:
+            # the read-out matched on the far field: the training probes (their interaction with the core, where E_0 sees
+            # nothing beyond r_c) weighted up in the solve, the clusters keeping the response sane in the near field
+            fit_kwargs["readout_solve_weights"] = np.array([st.weight for st in train] + [a.readout_far_weight] * len(far_train))
+        if rung.band_fields >= 0 and getattr(a, "readout_ridge_selection", "fixed") == "groups" and "readout_solve_groups" not in fit_kwargs:
+            # the ridge on held-out groups of the training set: each cluster one group, the probes by core
+            fit_kwargs["readout_solve_groups"] = np.array([f"c{i}" for i in range(len(train))]
+                                                          + [f"p{st.info.get('core_id', st.info['core'])}" for st in far_train])
         for seed in training_seeds(a):
-            params, info = T.fit(rung, train + probes["train"], seed=seed, **training_kwargs(a))
+            params, info = T.fit(rung, train + far_train, seed=seed, **fit_kwargs)
             fitted_options.append(info.get("training_options", {"seed": seed, **training_kwargs(a)}))
             if truth.name != "pw":
                 save_params(a, name, seed, params)
@@ -697,10 +844,7 @@ def run_clusters(a, truth=None):
                         for j in range(i + 1, n):
                             pair = np.concatenate([pos[3*i:3*i+3], pos[3*j:3*j+3]])
                             dims.append(W.water_structure(pair, charges=truth.molecule_charges(pair))); owner.append(k)
-                if rung.pin_mu:
-                    pin_embedded(dims)
-                elif rung.pin_alpha:
-                    pin_dispersion(dims, truth)
+                pin_for(rung, dims, truth)
                 pair_energies = T.predict_energies(params, rung, dims)
                 nadd_model = energies - np.bincount(owner, weights=pair_energies, minlength=len(structs))
                 energy_rmse = float(np.sqrt(np.mean((energies - np.array([st.energy for st in structs])) ** 2)))
@@ -711,11 +855,18 @@ def run_clusters(a, truth=None):
                       f"non-additive rmse {nonadd_rmse * kcal:.3f} kcal/mol; {info['time']:.0f} s", flush=True)
             for key, ref in probe_ref.items():
                 m = probe_metrics(probe_model(params, rung, probes[key], truth, a), ref)
+                if rung.bf_mutual != 0 and key == "test":
+                    # the model's own expansion: its read-out truncated at first and at second order in its polarisabilities
+                    m["model_orders"] = {str(k): probe_metrics(probe_model(params, M.with_rung(rung, bf_mutual=k), probes[key],
+                                                                           truth, a), ref) for k in (1, 2)}
                 probe_runs[key].append(m)
                 print(f"  {name} seed {seed}: probes ({key}) {probe_summary(m)}", flush=True)
+                for k, mk in m.get("model_orders", {}).items():
+                    print(f"  {name} seed {seed}: probes ({key}), its read-out through order {k} in the polarisabilities: "
+                          f"{probe_summary(mk)}", flush=True)
             for key, d in heldout.items():
                 t1 = time.time()
-                m = heldout_metrics(model_nbody(params, rung, d["pos"], d["charges"], d["n"]), d)
+                m = heldout_metrics(model_nbody(params, rung, d["pos"], d["charges"], d["n"], truth), d)
                 heldout_runs[key].append(m)
                 far = m["by_largest_oo_angstrom"]
                 print(f"  {name} seed {seed}: held-out {key} rmse {m['rmse_model'] * kcal:.4f} kcal/mol (PES {m['rmse_pes'] * kcal:.4f}, "
@@ -870,6 +1021,8 @@ def main():
     ap.add_argument("--train_far_cores", type=int, default=8, help="number of different core trimers in the far-field training set")
     ap.add_argument("--test_cores", type=int, default=1)
     ap.add_argument("--l1", type=float, default=0.0, help="band edge l_1 in A (0: the rung's default, 1.5 A); YAML model.band_edge_angstrom")
+    ap.add_argument("--response_edge", type=float, default=0.0,
+                    help="the read-out's band edge in A: its band field and dipole tensor (0: the band edge); YAML model.response_edge_angstrom")
     ap.add_argument("--w_far", type=float, default=1.0, help="training weight of the far-field configurations (energies and forces)")
     ap.add_argument("--cache", default="", help="pickle of the generated data sets of the part (written if absent, read if present)")
     ap.add_argument("--base_cache", default="", help="ion part: a far-part cache whose base (dimer window + clusters) is reused")
@@ -900,6 +1053,8 @@ def main():
     ap.add_argument("--probe_test_cores", type=int, default=CLUSTER_PROBE_DEFAULTS["probe_test_cores"])
     ap.add_argument("--probe_seed", type=int, default=CLUSTER_PROBE_DEFAULTS["probe_seed"],
                     help="seed of the training probes (the test probes: +100)")
+    ap.add_argument("--probe_train_core_sizes", default=CLUSTER_PROBE_DEFAULTS["probe_train_core_sizes"],
+                    help="molecules in the training probes' cores, comma-separated (one seed per size: probe_seed + 1000 k)")
     # the dimer design (YAML: the data mapping of the dimer part)
     ap.add_argument("--re_angstrom", type=float, default=None, help="dimer minimum R_e (A) setting the window; omitted: the truth's own")
     ap.add_argument("--window_lower_over_re", type=float, default=1.35)

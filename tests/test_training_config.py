@@ -77,6 +77,8 @@ def test_all_training_values_are_forwarded_to_fit(tmp_path):
         "lbfgs_scale_init_precond": False, "lbfgs_max_linesearch_steps": 9,
         "lbfgs_readout_only": True, "w_energy": 2.0, "w_force": 0.5,
         "scale": 0.02, "verbose": False,
+        "readout_orders": "zero", "readout_solve_iterations": 1, "readout_ridge_selection": "fixed",
+        "lbfgs_freeze_readout": False,
     }
 
 

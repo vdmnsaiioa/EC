@@ -10,12 +10,15 @@ The model: E_0 + IR bands on learned (or pinned) sources [+ band-field inputs], 
     M_16p   Coulomb + dispersion pinned            --             the same architecture with sources from an independent calculation (dagger)
     M_S     as M_16p (or M_6)    pinned/learned    order k        v1.5: band fields read at the atom, degree 2
     M_G     global pair block    --                --             the null: an unconstrained function of r with no envelope
+Pinned sources may be a site model (Rung.msites: charges on the atoms and on virtual sites placed from them, e.g. TTM3-F's
+M-site), and the order-0 read-out's induced dipoles may act on each other (Rung.bf_mutual: the alpha^2 T terms and beyond).
 Energies in hartree, positions in bohr; forces by autodiff.
 """
 from dataclasses import dataclass, field, replace
 import jax
 import jax.numpy as jnp
 from . import e0 as E0, heads as H, bands as B, bandfields as BF, kernels as kn, ewald as EW
+from .structure import pair_geometry
 from .units import ang_to_bohr
 
 
@@ -31,7 +34,16 @@ class Rung:
     bf_rs: float = 0.0                     # near-source exclusion radius of the band-field input (bohr; 0 = off; molecules: ~l_1)
     bf_fragments: bool = True              # exclude the own fragment's sources from the band-field input (structures with fragments)
     bf_E_ref: float = 0.01                 # unit of the field tensors in the read-out (a.u.; ~ an intermolecular field), see bandfields
+    bf_l: float = 0.0                      # the response's band edge (bohr): the band field read by the read-out and its dipole
+    # tensor smeared at bf_l instead of l1 (0: l1) -- the regulator of the response, which does what Thole damping does
     readout: str = "pair"                  # band-field read-out: "pair" (Taylor class on the structure) or "node" (L <= 2)
+    bf_mutual: int = 0                     # the order-0 read-out's induced dipoles: 0 first order (-1/2 E.C.E, as before);
+    # -1 self-consistent through their mutual fields (the band kernel's dipole tensor between fragments), all orders;
+    # k >= 2 the series through k-th order in the polarisabilities (2: + the alpha^2 T term)
+    bf_species: bool = False               # the read-out's coefficients from the species alone (bandfields.init_readout_species:
+    # fixed features, a fixed output unit), not from E_0's features: a response independent of E_0 and of the seed
+    msites: bool = False                   # the pinned charges of a site model (b["pin_q_site"] on the atoms and the virtual
+    # sites b["vs_w"], b["vs_q"], e.g. TTM3-F's H atoms and M-site) as the charge channel's sources, instead of b["pin_q"]
     pin_q: bool = False
     pin_mu: bool = False
     pin_alpha: bool = False
@@ -70,11 +82,17 @@ RUNGS = {
 
 
 def init_params(key, rung: Rung, energy_scale=1.0):
+    if rung.bf_mutual != 0 and (rung.band_fields < 0 or rung.readout != "pair" or rung.bf_mutual < -1):
+        raise ValueError("bf_mutual (-1, or a series order >= 1) needs the pair band-field read-out")
     k = jax.random.split(key, 4)
     p = {"e0": E0.init_e0(k[0], rung.e0), "heads": H.init_heads(k[1], rung.e0, rung.K, rung.one_oscillator, energy_scale)}
     if rung.analytic:
         p["A_coeffs"] = jnp.zeros(rung.NA + 1).at[0].set(1e-3)
-    if rung.band_fields >= 0:
+    if rung.bf_species and (rung.band_fields < 0 or rung.readout != "pair"):
+        raise ValueError("bf_species needs the pair band-field read-out")
+    if rung.band_fields >= 0 and rung.bf_species:
+        p["readout"] = BF.init_readout_species(rung.e0, rung.band_fields)
+    elif rung.band_fields >= 0:
         p["readout"] = (BF.init_readout_pair if rung.readout == "pair" else BF.init_readout)(k[2], rung.e0, rung.band_fields)
     if rung.global_block:
         F = rung.e0["F"]
@@ -113,10 +131,13 @@ def energy_single(params, rung: Rung, b):
     what the asymptotic measurements need (a learned reference would leave a constant that swamps any tail)."""
     E, aux = _total_energy(params, rung, b, b["mask"], subtract_atoms=True)
     if "frag_mask" in b and rung.fragments:
-        # E_int = E(all) - sum_f E(fragment f alone); the atom references cancel in the difference
+        # E_int = E(all) - sum_f E(fragment f alone); the atom references cancel in the difference.  With subtraction
+        # groups (b["sub_mask"], whole fragments each) the groups are subtracted instead: E(all) - E(core) - E(probe)
+        # is a probe's interaction energy with the cluster
+        groups = b.get("sub_mask", b["frag_mask"])
         E_all, aux = _total_energy(params, rung, b, b["mask"], subtract_atoms=False)
-        E_frag = jax.vmap(lambda fm: _total_energy(params, rung, b, fm, subtract_atoms=False)[0])(b["frag_mask"])
-        valid = jnp.any(b["frag_mask"], axis=1)
+        E_frag = jax.vmap(lambda fm: _total_energy(params, rung, b, fm, subtract_atoms=False)[0])(groups)
+        valid = jnp.any(groups, axis=1)
         E = E_all - jnp.sum(jnp.where(valid, E_frag, 0.0))
         aux["E_frag"] = E_frag
     if "pin_eself" in b:
@@ -144,8 +165,24 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
         E = jnp.zeros(())
     aux = {"E0": E}
     q = mu = alpha = None
+    sites = None
+    if rung.msites:
+        assert "vs_w" in b, "a site-model rung needs the site model's pins (pin_q_site, vs_w, vs_q)"
+        assert rung.charges and rung.pin_q and not rung.dipoles and not rung.periodic and rung.bf_fragments, \
+            "the site model pins the charges of open structures (no learned charges or dipoles, no cell; band fields by fragment)"
+        # the virtual sites of the fragments present in this evaluation (the whole structure, or one subtraction group)
+        fm = b["frag_mask"].astype(pos.dtype)                                     # (F,N)
+        present = (fm @ mask.astype(pos.dtype)) > 0.5                              # (F,) fragments with atoms here
+        vs_on = b["vs_mask"] & ((present.astype(pos.dtype) @ b["vs_frag_mask"].astype(pos.dtype)) > 0.5)
+        X_src = jnp.concatenate([pos, b["vs_w"] @ pos], axis=0)                   # atoms, then the sites
+        q_src = jnp.concatenate([b["pin_q_site"], b["vs_q"]])
+        on_src = jnp.concatenate([mask, vs_on])
+        frag_src = jnp.concatenate([b["frag_mask"], b["vs_frag_mask"]], axis=1)   # (F, N+V)
+        sites = (X_src, q_src, on_src, frag_src)
     if rung.charges:
-        if rung.pin_q:
+        if rung.msites:
+            q = b["pin_q_site"]
+        elif rung.pin_q:
             q = b["pin_q"]
         else:
             q = H.charges(hp, s, Z, mask, b["total_charge"])
@@ -158,6 +195,10 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
             mu = b["pin_mu"] if rung.pin_mu else H.dipoles(hp, s, v, mask)
         if not rung.coulomb_energy:
             Ec = jnp.zeros(())
+        elif sites is not None:
+            X_src, q_src, on_src, _ = sites
+            Ds, rs_, pms = pair_geometry(X_src, on_src)
+            Ec = B.coulomb_band(q_src, None, Ds, rs_, pms, rung.l1)
         elif rung.periodic:
             Ec = EW.coulomb_band_pbc(q, mu, pos, b["cell"], mask, rung.l1, rung.ewald_n_max, rung.ewald_b_max)
         else:
@@ -191,21 +232,40 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
         E = E + Eg; aux["E_G"] = Eg
     if rung.band_fields >= 0:
         assert q is not None, "band-field inputs need the charge channel"
+        l_bf = rung.bf_l if rung.bf_l > 0 else rung.l1                         # the response's band edge
         same_frag = None
         if rung.bf_fragments and "frag_mask" in b:
             fm = b["frag_mask"].astype(pos.dtype)                                 # (F,N): the own fragment's atoms are not sources
             same_frag = (fm.T @ fm) > 0.5
-        if rung.periodic:
-            Ef, gE, ggE = BF.band_field_tensors_pbc(pos, q, mask, b["cell"], rung.l1, rung.band_fields, rung.ewald_n_max,
+        if sites is not None:
+            X_src, q_src, on_src, frag_src = sites
+            same_src = (b["frag_mask"].astype(pos.dtype).T @ frag_src.astype(pos.dtype)) > 0.5      # (N, N+V)
+            src = mask[:, None] & on_src[None, :] & ~same_src
+            Ef, gE, ggE = BF.band_field_tensors_from(pos, X_src, q_src, src, l_bf, rung.band_fields, rung.bf_rs)
+        elif rung.periodic:
+            Ef, gE, ggE = BF.band_field_tensors_pbc(pos, q, mask, b["cell"], l_bf, rung.band_fields, rung.ewald_n_max,
                                                     rung.ewald_b_max, rung.bf_rs, D, pmask, excl_mask=same_frag)
         else:
-            Ef, gE, ggE = BF.band_field_tensors(pos, q, pmask, rung.l1, rung.band_fields, rung.bf_rs,
+            Ef, gE, ggE = BF.band_field_tensors(pos, q, pmask, l_bf, rung.band_fields, rung.bf_rs,
                                                 src_mask=None if same_frag is None else ~same_frag)
-        if rung.readout == "pair":
-            eps_bf = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s, r, D, pmask, mask, Ef, gE, ggE, rung.l1,
-                                             E_ref=rung.bf_E_ref, e_scale=hp["e_scale"])
+        s_ro, unit = s, hp["e_scale"]
+        if rung.bf_species:
+            s_ro, unit = params["readout"]["embed"][Z] * mask[:, None], BF.SPECIES_UNIT
+        if rung.bf_mutual != 0:
+            # the order-0 sector as local polarisabilities, their induced dipoles coupled through the band kernel's
+            # dipole tensor between atoms of different fragments (none within a fragment, as in the band field)
+            assert rung.readout == "pair" and not rung.periodic, "the mutual response is set up for the pair read-out, open"
+            eps_hi, C = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s_ro, r, D, pmask, mask, Ef, gE, ggE,
+                                                l_bf, E_ref=rung.bf_E_ref, e_scale=unit, tensor=True)
+            Tmask = pmask if same_frag is None else (pmask & ~same_frag)
+            _, mu_ind = BF.mutual_response(C, BF.band_dipole_tensor(pos, Tmask, l_bf), Ef, rung.bf_mutual)
+            eps_bf = eps_hi - 0.5 * jnp.sum(Ef * mu_ind, axis=-1)                  # per atom: -1/2 E_i . mu_i + the orders >= 1
+            aux["mu_ind"] = mu_ind
+        elif rung.readout == "pair":
+            eps_bf = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s_ro, r, D, pmask, mask, Ef, gE, ggE,
+                                             l_bf, E_ref=rung.bf_E_ref, e_scale=unit)
         else:
-            eps_bf = BF.response_energy(params["readout"], cfg, rung.band_fields, s, v, t, mask, Ef, gE, ggE, rung.l1)
+            eps_bf = BF.response_energy(params["readout"], cfg, rung.band_fields, s, v, t, mask, Ef, gE, ggE, l_bf)
         E = E + jnp.sum(eps_bf); aux["E_bf"] = jnp.sum(eps_bf); aux["eps_bf"] = eps_bf; aux["Efield"] = Ef
     return E, aux
 

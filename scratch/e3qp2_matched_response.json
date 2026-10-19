@@ -1,0 +1,644 @@
+{
+ "M_16pm": {
+  "probes": {
+   "count": 80,
+   "interaction_rmse": 1.533651382015765e-05,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 1.679037647183424e-05,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 2.6085790223705e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 2.950865044094497e-05,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 1.3458624198885361e-05,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 1.3394333608300907e-05,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 7.352942878960565e-06,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 7.252431603468838e-06,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 5.016556460394229e-06,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 4.990048140485711e-06,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   },
+   "blind_8": {
+    "count": 13,
+    "nonadditive": 0.9999999999938345
+   },
+   "raw3b_7": 0.999999999999692,
+   "raw3b_9": 1.0000000000007783
+  }
+ },
+ "M_16p": {
+  "probes": {
+   "count": 80,
+   "interaction_rmse": 3.621237249667694e-05,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 1.6790376471778614e-05,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 6.916775222089401e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 2.950865044088173e-05,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 1.78741490875125e-05,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 1.3394333608212826e-05,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 1.0085192212594536e-05,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 7.252431603503838e-06,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 6.322138284927783e-06,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 4.99004814029657e-06,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   },
+   "blind_8": {
+    "count": 13,
+    "nonadditive": 1.0000000000000753
+   },
+   "raw3b_7": 1.0000000000000138,
+   "raw3b_9": 0.99999999999959
+  }
+ },
+ "M_16S0pm": {
+  "probes": {
+   "count": 80,
+   "interaction_rmse": 5.657781927301066e-06,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 1.5138075763851363e-06,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 1.1198618609856504e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 2.5852673150465243e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 1.504960740219196e-06,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 1.4507840483773742e-06,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 4.235202616979224e-07,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 4.3154789561189846e-07,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 4.3433896542220676e-07,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 4.379937006430502e-07,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   },
+   "blind_8": {
+    "count": 13,
+    "nonadditive": 0.1251393928671933
+   },
+   "raw3b_7": 0.26947950818955696,
+   "raw3b_9": 0.19847884152836068
+  },
+  "solve": [
+   [
+    1.3363611901563352e-06,
+    1.2073077829878518e-08
+   ]
+  ],
+  "ridge": [
+   0.0001
+  ],
+  "hexamer_response_residual": 0.22515853761708898,
+  "hexamer_whole_rmse": 0.000737476491918102,
+  "dimer_rmse": 0.00016055033509028476
+ },
+ "M_16C0pm": {
+  "probes": {
+   "count": 80,
+   "interaction_rmse": 5.700070368043467e-06,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 1.309921896275673e-06,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 1.1331004674454732e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 2.3138490679534423e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 1.136588102110981e-06,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 1.1051191887356299e-06,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 3.780067638435335e-07,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 3.8649234198174537e-07,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 3.698922041650683e-07,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 3.728528347466016e-07,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   },
+   "blind_8": {
+    "count": 13,
+    "nonadditive": 0.11686019275394839
+   },
+   "raw3b_7": 0.29098594532219313,
+   "raw3b_9": 0.17135377672320318
+  },
+  "solve": [
+   [
+    1.3363611901563352e-06,
+    4.131708619121015e-08
+   ],
+   [
+    4.131708619121015e-08,
+    7.072310775494146e-09
+   ],
+   [
+    7.072310775494146e-09,
+    7.0662096039646014e-09
+   ],
+   [
+    7.0662096039646014e-09,
+    7.066204259416035e-09
+   ]
+  ],
+  "ridge": [
+   0.0001,
+   0.0001,
+   0.0001,
+   0.0001
+  ],
+  "hexamer_response_residual": 0.26838649345564647,
+  "order1": {
+   "count": 80,
+   "interaction_rmse": 5.245542006742562e-06,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 2.644637934396551e-06,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 1.0184834581411215e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 4.655399991377137e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 2.151570487878229e-06,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 2.1373199305076022e-06,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 1.0037776813429379e-06,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 1.016934111035163e-06,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 8.337644328121834e-07,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 8.374954716002235e-07,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   }
+  },
+  "order2": {
+   "count": 80,
+   "interaction_rmse": 5.649787517767077e-06,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 1.42817978588396e-06,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 1.1218789191861397e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 2.528277914415918e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 1.2086778106313292e-06,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 1.1818794000673786e-06,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 4.250704353955554e-07,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 4.3529960672321583e-07,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 4.2140019848198745e-07,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 4.245893625491575e-07,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   }
+  },
+  "hexamer_whole_rmse": 0.001040557963129687,
+  "dimer_rmse": 0.00016448322390839878
+ },
+ "M_16S2pm": {
+  "probes": {
+   "count": 80,
+   "interaction_rmse": 6.39123961480464e-06,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 7.687635123136174e-07,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 1.2746979414822528e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 1.2128866204700747e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 7.76234673093611e-07,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 7.692527374068683e-07,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 5.259314926657992e-07,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 5.238300892237862e-07,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 1.6476301403206348e-07,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 1.635471215264822e-07,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   },
+   "blind_8": {
+    "count": 13,
+    "nonadditive": 0.05450662507875979
+   },
+   "raw3b_7": 0.24541235961773739,
+   "raw3b_9": 0.22080878891109953
+  },
+  "solve": [
+   [
+    1.3363611901563352e-06,
+    4.0805907322870634e-09
+   ]
+  ],
+  "ridge": [
+   0.1
+  ],
+  "hexamer_response_residual": 0.25058662820735517,
+  "hexamer_whole_rmse": 0.0017421055437618466,
+  "dimer_rmse": 0.00031695024031901266
+ },
+ "M_16C2pm": {
+  "probes": {
+   "count": 80,
+   "interaction_rmse": 6.0748194992313556e-06,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 7.291185254208439e-07,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 1.2127769952823718e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 1.2725236106984839e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 6.117501241526181e-07,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 5.919476930103162e-07,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 3.647352185832131e-07,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 3.6488818484050593e-07,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 1.5379782273008637e-07,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 1.5360175118116907e-07,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   },
+   "blind_8": {
+    "count": 13,
+    "nonadditive": 0.06762829242784452
+   },
+   "raw3b_7": 0.2581424886964769,
+   "raw3b_9": 0.24871238119376346
+  },
+  "solve": [
+   [
+    1.3363611901563352e-06,
+    1.0938585099813794e-07
+   ],
+   [
+    1.0938585099813794e-07,
+    2.9479661010000962e-09
+   ],
+   [
+    2.9479661010000962e-09,
+    2.8670437671962396e-09
+   ],
+   [
+    2.8670437671962396e-09,
+    2.8672817334932463e-09
+   ]
+  ],
+  "ridge": [
+   0.1,
+   0.1,
+   0.1,
+   0.1
+  ],
+  "hexamer_response_residual": 0.21193213448849976,
+  "order1": {
+   "count": 80,
+   "interaction_rmse": 5.328164978086137e-06,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 2.416737341296962e-06,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 1.0385851114262301e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 4.204030531360284e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 2.003391926594665e-06,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 1.9995731653610697e-06,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 1.0918655862520749e-06,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 1.0966116234909822e-06,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 6.969326346246405e-07,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 6.983945176326797e-07,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   }
+  },
+  "order2": {
+   "count": 80,
+   "interaction_rmse": 5.946852123203112e-06,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 8.255403136062313e-07,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 1.1869873939240784e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 1.475738441385361e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 6.415069394944517e-07,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 6.257951493894832e-07,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 3.494993350227232e-07,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 3.5182355838514157e-07,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 1.8058911626418929e-07,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 1.8128404491188917e-07,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   }
+  },
+  "hexamer_whole_rmse": 0.0008725951373246229,
+  "dimer_rmse": 0.00023321131884126048
+ },
+ "M_16C0p": {
+  "probes": {
+   "count": 80,
+   "interaction_rmse": 3.084690724700326e-05,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 4.069808073366582e-06,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 5.915862098183391e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 7.437930057403896e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 1.5370465115496794e-05,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 2.5566601633401253e-06,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 7.733082239863086e-06,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 1.7645623983651512e-06,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 3.2144286511634976e-06,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 1.1315280945660932e-06,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   },
+   "blind_8": {
+    "count": 13,
+    "nonadditive": 0.41349627267127576
+   },
+   "raw3b_7": 0.378183716757846,
+   "raw3b_9": 0.3250099076544758
+  },
+  "solve": [
+   [
+    2.4094341698694077e-06,
+    1.2729834169632153e-06
+   ],
+   [
+    1.2729834169632153e-06,
+    1.1996026716821901e-06
+   ],
+   [
+    1.1996026716821901e-06,
+    1.1972501834178714e-06
+   ],
+   [
+    1.1972501834178714e-06,
+    1.1963128189079954e-06
+   ]
+  ],
+  "ridge": [
+   0.1,
+   0.1,
+   0.1,
+   0.1
+  ],
+  "hexamer_response_residual": 0.6398698356232971,
+  "order1": {
+   "count": 80,
+   "interaction_rmse": 3.132708216767761e-05,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 4.454223576548913e-06,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 6.03414800911823e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 8.127451429863794e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 1.4677795606196711e-05,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 2.9379199220045845e-06,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 7.6111368785484284e-06,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 1.8944907114645433e-06,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 3.3291140752247762e-06,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 1.041391094068334e-06,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   }
+  },
+  "order2": {
+   "count": 80,
+   "interaction_rmse": 3.087277099200406e-05,
+   "interaction_rms": 0.0001656867322243235,
+   "nonadditive_rmse": 3.97247924074279e-06,
+   "nonadditive_rms": 1.679037647179428e-05,
+   "by_distance_angstrom": {
+    "8": {
+     "count": 20,
+     "interaction_rmse": 5.925027585201868e-05,
+     "interaction_rms": 0.00029092995960881265,
+     "nonadditive_rmse": 7.275424471255344e-06,
+     "nonadditive_rms": 2.95086504409144e-05
+    },
+    "10": {
+     "count": 20,
+     "interaction_rmse": 1.5240074908687377e-05,
+     "interaction_rms": 0.0001329723229050824,
+     "nonadditive_rmse": 2.4631395697953322e-06,
+     "nonadditive_rms": 1.3394333608210888e-05
+    },
+    "12": {
+     "count": 20,
+     "interaction_rmse": 7.7018580704389e-06,
+     "interaction_rms": 7.993258542038694e-05,
+     "nonadditive_rmse": 1.7361586332511607e-06,
+     "nonadditive_rms": 7.252431603526728e-06
+    },
+    "15": {
+     "count": 20,
+     "interaction_rmse": 3.2153173092269302e-06,
+     "interaction_rms": 3.31251365574908e-05,
+     "nonadditive_rmse": 1.0532144584482594e-06,
+     "nonadditive_rms": 4.990048140286155e-06
+    }
+   }
+  },
+  "hexamer_whole_rmse": 0.0015415615159997996,
+  "dimer_rmse": 0.0003323482725540769
+ }
+}

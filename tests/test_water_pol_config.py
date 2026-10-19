@@ -92,7 +92,10 @@ def test_probe_settings_only_when_requested(modules):
     a.probe_test = 3
     settings = water.cluster_data_settings(a)
     assert settings["probe_distances_angstrom"] == [8.0, 10.0, 12.0, 15.0] and settings["probe_test"] == 3
-    assert set(settings) == set(config.CLUSTER_DEFAULTS) | set(config.CLUSTER_PROBE_DEFAULTS)
+    # trimer cores alone (the default) keep E3-QP's settings; other core sizes enter them
+    assert set(settings) == set(config.CLUSTER_DEFAULTS) | set(config.CLUSTER_PROBE_DEFAULTS) - {"probe_train_core_sizes"}
+    a.probe_train_core_sizes = "3,4,5"
+    assert water.cluster_data_settings(a)["probe_train_core_sizes"] == [3, 4, 5]
 
 
 def test_shipped_config_resolves(modules, monkeypatch, tmp_path):

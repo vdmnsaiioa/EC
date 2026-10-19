@@ -377,3 +377,47 @@ E3-Q's.
 by path integration, the pre-registered constants, the probe reading on the truth, the held-out counts) and
 `tests/test_water_pol_config.py` (the refusals, the probe data's validation and settings, the shipped config, the
 pinned oscillator with a truth's α and C₆, the PW probe generator against values recorded at 4a81a84).
+
+## v0.0.10 → v0.0.11 — E3-QP read; E3-QP2 set up: the truth's charges exactly, the response matched on the far field, the mutual response
+
+**E3-QP read** (`notes/e3qp-results.md`, the run of 15 Oct): the read-out carries far-field many-body induction — on
+the probes beyond r_c every read-out rung removes 40–50 % of the non-additive energy that M_∞ and the daggers cannot
+touch, and beyond 9 Å M_S0† cuts the CCSD(T) trimers' error from 100 to 57 % — but at half strength, learned from the
+clusters rather than the far field (worse than a fixed first-order form, training probes = test probes, order 2 ≈
+order 0). The daggers reproduced their computed tails; M_1μ's dipole and tail are the best learned-source result so
+far (1.90 D; 1–4 % from 10 Å). Found after the run: the M_16 rungs' raw 2-body readings lacked their dispersion band
+(a reading error, fixed: every reading applies the rung's pins; `scratch/e3qp_reread_2b.py` re-reads the saved models);
+q-AQUA-pol's energy-only routine leaves the switch of its 3-body blend (largest O–O 5.0–5.5 Å) unset — the labels came
+from the gradient routine and are unaffected, the PES's reference error in the 3-body 5–7 Å bin was 0.0097 for 0.0084
+kcal/mol; and, computed on the truth, the probes' non-additive energy is TTM3-F's induction, first order to 90 %, through
+α²T to 99 %.
+
+**The harness.**
+- *Site models as pinned sources* (`Rung.msites`; `Structure.pinned` q_site, vsite_w, vsite_q, vsite_frag): charges on
+  the atoms and on virtual sites placed linearly from them, in the Coulomb band and the band field (sources other than
+  the evaluation points: `bandfields.band_field_tensors_from`); `QAquaPolTruth.site_model` gives TTM3-F's H charges and
+  M-site. On q-AQUA-pol the dagger `M_16pm` misses the dimer tail by the induction alone (0.6 % at 7.8 Å, against 14 %).
+- *The mutual response* (`Rung.bf_mutual`; `bandfields.band_dipole_tensor`, `mutual_response`): the order-0 read-out
+  written as local polarisability tensors C_i, their induced dipoles coupled through the band kernel's dipole tensor
+  between fragments — self-consistent (−1) or the series through order k; at order 1 it is the read-out of before to
+  rounding.
+- *The species read-out* (`Rung.bf_species`, `bandfields.init_readout_species`): coefficients from fixed species
+  features with a fixed unit, independent of E₀ and of the seed.
+- *Subtraction groups* (`Structure.sub`): the model's energy E(all) − Σ_g E(group g) — a probe's interaction energy —
+  and `loss.far_labels: interaction` labels the training probes so.
+- *The solve* (`sseft.linear`): every order's columns (`orders="all"`), Gauss–Newton steps (`iterations`), the ridge
+  chosen on held-out groups and kept (`ridge_grid`, `groups`), the Jacobian by reverse mode per structure (1 + 3N
+  passes instead of one per coefficient; energies only: one); `T.fit` takes structure weights, a subset, the forces'
+  weight in the solve, `readout_first` (the solve before Adam) and `lbfgs_freeze_readout`; `readout.stage: far_first`
+  matches the read-out on the training probes beyond r_c, energies only.
+- *The truth*: q-AQUA-pol's energy is its gradient routine's (`QAquaPol.interaction_energy`); the energy-only routine
+  drives the Metropolis relaxation only (`sampling_energy`), so the data sets reproduce; `QAquaPol.induction` re-evaluates
+  TTM3-F's induction from its sites, self-consistent or through order k in α (to 1e-15 of the library).
+- `model.response_edge_angstrom` (the read-out's own band edge), training probes on cores of several sizes
+  (`data.probe_train_core_sizes`), the C rungs' probes read at first and second order of their own response.
+
+**The experiment** (`configs/water_qaqua_pol2.yaml`, `notes/e3qp2-preregistration.md`): the dimer's exact daggers;
+the clusters with E3-QP's data plus 384 training probes on 48 cores of 3–5 molecules, rungs M_∞, M_16†, M_16†ᵐ, M_16C0†
+(the control: q3), M_16S0†ᵐ, M_16C0†ᵐ, M_16S2†ᵐ, M_16C2†ᵐ. The matched responses are computed before the run: on the
+test probes at 10–15 Å they leave 3–11 % of the non-additive energy (M_16C2†ᵐ 4 / 5 / 3 %; E3-QP's read-outs 50–61 %),
+on the CCSD(T) trimers beyond 9 Å 17–25 % (the PES 21 %), and the same response on q3 19–24 %.

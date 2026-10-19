@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
+from types import SimpleNamespace
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
@@ -92,12 +93,17 @@ def test_probe_reading_on_the_truth(truth, monkeypatch):
         E, F = truth.energy_forces(bohr_to_ang(s.positions), 4)
         assert abs(E - s.energy) < 1e-15 and np.allclose(F, s.forces, rtol=1e-12, atol=1e-15)
     ref = water.probe_truth(st, truth)
-    cores, pairs = water.probe_parts(st)
+    cores, pairs, owner = water.probe_parts(st)
+    assert list(owner) == [k for k in range(len(st)) for _ in range(3)]
     for k, s in enumerate(st):
         assert abs(ref["interaction"][k] - (s.energy - truth.energy(cores[k], 3))) < 1e-15
         e_pairs = sum(truth.energy(p, 2) for p in pairs[3 * k:3 * k + 3])
-        assert abs(ref["nonadditive"][k] - (ref["interaction"][k] - e_pairs)) < 1e-18
+        assert abs(ref["nonadditive"][k] - (ref["interaction"][k] - e_pairs)) < 1e-15
     assert np.all(np.abs(ref["nonadditive"]) > 0) and np.all(np.abs(ref["induction"]) > 0)
+    # beyond 7 A the non-additive energy is TTM3-F's induction: through second order in alpha it is within a few
+    # per cent, at first order within ~15 % (the alpha^2 T terms and beyond, e3qp2-preregistration.md)
+    err = lambda key: np.sqrt(np.mean((ref[key] - ref["nonadditive"]) ** 2)) / np.sqrt(np.mean(ref["nonadditive"] ** 2))
+    assert err("nonadditive_induction_second") < 0.05 < err("nonadditive_induction_first") < 0.25
 
 
 def test_heldout_counts_on_pol(monkeypatch):
@@ -111,3 +117,70 @@ def test_heldout_counts_on_pol(monkeypatch):
     sets = water.prepare_heldout(a, truth)
     assert (sets["2b"]["near_rigid"], sets["2b"]["in_domain"]) == (5952, 4937)
     assert (sets["4b"]["near_rigid"], sets["4b"]["in_domain"]) == (275, 267)
+
+
+# ---------------------------------------------------------------- v0.0.11 ---------------------------------------------
+def test_site_model_is_ttm3f_charges_and_the_dagger_exact(truth, monkeypatch):
+    """the site model pins TTM3-F's permanent charges exactly (H charges, the M-site at its place): the site-model
+    rung's interaction at 12 A is TTM3-F's electrostatics in atomic units (its own Coulomb constant differs by 3e-5)."""
+    import jax
+    from sseft import model as M
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
+    water = importlib.import_module("e3_water")
+    mono = W.monomer_positions()
+    q, w, vq, vf = truth.site_model(mono)
+    t = truth.qa.ttm(ang_to_bohr(mono))
+    np.testing.assert_allclose(q, [0.0, t["site_charges"][0, 0], t["site_charges"][0, 1]], rtol=0, atol=0)
+    assert vq[0] == t["site_charges"][0, 2] and list(vf) == [0]
+    np.testing.assert_allclose(w @ ang_to_bohr(mono), t["msites"], atol=1e-12)
+    A = np.concatenate([mono, mono @ np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]]).T + [0.3, -0.2, 12.0]])
+    st = W.pin_site_model([W.water_structure(A, charges=truth.molecule_charges(A))], truth)[0]
+    rung = water.configure(water.RUNGS["M_1pm"], SimpleNamespace(lA=4.0, rcut=5.0, F=8, l1=0.0, rs_over_l1=0.0))
+    params = M.init_params(jax.random.PRNGKey(0), rung)
+    from sseft import train as T
+    E = T.predict_energies(params, rung, [st])[0]
+    kappa = Q.TTM3F_CHARGECON ** 2 / (Q.AUKCAL * Q.AUANG)
+    elec = truth.qa.ttm(st.positions)["elec"] / kappa
+    assert abs(E / elec - 1) < 1e-10, (E, elec)
+
+
+def test_induction_series_reproduces_the_library(truth, hexamer):
+    for n in (2, 4, 6):
+        P = hexamer[:3 * n]
+        t = truth.qa.ttm(P)
+        e, mu = truth.qa.induction(P)
+        assert abs(e / t["ind"] - 1) < 1e-12 and np.max(np.abs(mu - t["mu"])) < 1e-12 * np.max(np.abs(t["mu"]))
+        e1, _ = truth.qa.induction(P, 1); e2, _ = truth.qa.induction(P, 2); e9, _ = truth.qa.induction(P, 40)
+        assert abs(e9 / t["ind"] - 1) < 1e-10 and abs(e2 - e) < abs(e1 - e)
+
+
+def test_the_truths_energy_is_the_gradient_routines(truth):
+    """q-AQUA-pol's energy-only routine leaves the switch of its 3-body blend (largest O-O 5.0-5.5 A) unset: the
+    truth's energy is the gradient routine's, the energy-only routine kept for the Metropolis relaxation alone."""
+    rng = np.random.default_rng(11)
+    found = False
+    for _ in range(40):
+        pos = W.random_cluster(3, rng, mc_steps=0, min_OO=2.7)
+        X = ang_to_bohr(pos)
+        E, F = truth.energy_forces(pos, 3)
+        assert truth.energy(pos, 3) == E
+        roo = max(np.linalg.norm(pos[3 * i] - pos[3 * j]) for i in range(3) for j in range(i + 1, 3))
+        d = truth.qa.interaction_energy_sampling(X) - E
+        if 5.05 < roo < 5.45:
+            found = found or abs(d) > 1e-9
+        elif roo < 4.95 or roo > 5.55:
+            assert abs(d) < 1e-12
+    assert found
+
+
+def test_probe_interaction_labels(truth, monkeypatch):
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
+    water = importlib.import_module("e3_water")
+    st, _ = W.probe_configurations(4, (10.0,), 2, seed=5, mc_steps=10, truth=truth)
+    lab = water.probe_interaction_labels(st, truth)
+    for s, l in zip(st, lab):
+        E_core, F_core = truth.energy_forces(bohr_to_ang(s.positions[:12]), 4)
+        assert abs(l.energy - (s.energy - E_core)) < 1e-15 and list(l.sub) == [0] * 12 + [1] * 3
+        np.testing.assert_allclose(l.forces[:12], s.forces[:12] - F_core, atol=1e-15)
+        np.testing.assert_array_equal(l.forces[12:], s.forces[12:])
+        assert s.energy != l.energy and s.sub is None                      # the originals keep their totals

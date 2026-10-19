@@ -175,7 +175,8 @@ def _mock_cluster_runtime(module, monkeypatch):
     monkeypatch.setattr(module.T, "fit", fit)
     monkeypatch.setattr(module.T, "predict", predict)
     monkeypatch.setattr(module.T, "predict_energies", predict_energies)
-    monkeypatch.setattr(module, "configure", lambda rung, args: SimpleNamespace(pin_mu=False, pin_alpha=False))
+    monkeypatch.setattr(module, "configure", lambda rung, args: SimpleNamespace(pin_mu=False, pin_alpha=False, msites=False,
+                                                                                band_fields=-1, bf_mutual=0))
     monkeypatch.setattr(module, "_save", lambda *args: None)
     return calls, fits, pair_batches
 

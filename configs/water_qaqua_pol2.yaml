@@ -1,0 +1,119 @@
+# E3-QP2: the response field and its higher orders on q-AQUA-pol.  The follow-up of E3-QP (configs/water_qaqua_pol.yaml,
+# notes/e3qp-results.md): the same truth, clusters, test probes and raw CCSD(T) sets, with
+#   - the truth's permanent charges exactly: TTM3-F's H charges and its M-site as a virtual site (the *pm rungs);
+#   - the read-out's coefficients from the species alone (not E_0's features), matched on the far field before E_0 is
+#     trained: solved on the training probes E_0 cannot see -- their interaction energies, energies only -- with the
+#     ridge chosen on held-out cores, then held through Adam and the polish while E_0 learns the rest;
+#   - the induced dipoles' mutual fields to all orders (self-consistent: the C rungs), against first order (S), at
+#     order 0 and with the field-gradient orders 1-2 of the read-out;
+#   - training probes on 48 cores of 3, 4 and 5 molecules.
+# Pre-registration with the numbers computed from the PES and the matched responses: notes/e3qp2-preregistration.md.
+#
+#   sh external/qaqua/build_pol.sh                                               # once (E3-QP's build serves)
+#   python scripts/run_experiment.py --config configs/water_qaqua_pol2.yaml --out_dir results/e3qp2
+#
+# Every value of the experiment is in this file; explicit flags override it.
+experiment:
+  type: water
+  part: [dimer, clusters]
+
+truth:
+  name: qaqua_pol
+  root: external/qaqua/build_pol
+  heldout:
+    sets: [2b, 3b, 4b]
+    rigid_tolerance: {oh_angstrom: 0.03, angle_degrees: 5.0}
+    strict_tolerance: {oh_angstrom: 0.02, angle_degrees: 3.0}
+    max_pair_energy_kcal: 2.0
+    max_frames: null
+
+model:
+  charges: null
+  charge_neutrality: fragment
+  rs_over_l1: 0.0
+  features: 16
+  analytic_envelope_angstrom: 4.0
+
+training:
+  adam:
+    learning_rate: 0.003
+    final_learning_rate_ratio: 0.01
+    beta1: 0.9
+    beta2: 0.999
+    epsilon: 1.0e-8
+    epsilon_root: 0.0
+    gradient_clip_norm: null
+  readout:
+    freeze_during_adam: true
+    linear_solve: true
+    ridge: 1.0e-8
+  lbfgs:
+    learning_rate: null
+    memory_size: 10
+    scale_init_precond: true
+    max_linesearch_steps: 20
+    readout_only: false
+  loss:
+    energy_weight: 1.0
+    force_weight: 1.0
+    far_weight: 1.0
+  energy_scale: null
+  verbose: false
+
+parts:
+  dimer:                            # the exact daggers' tails (computed in the pre-registration); E3-QP's ladder stands
+    rungs: [M_1pm, M_16pm]
+    model:
+      r_cut_angstrom: 5.0
+      band_edge_angstrom: null
+    data:
+      re_angstrom: null
+      window_lower_over_re: 1.35
+      window_ratio: 1.8
+      window_nodes: 40
+      phi_degrees: 0.0
+      sigma: 1.0e-9
+      train_seed: 0
+      monomer_references: 4
+      eval_max_angstrom: 500.0
+      eval_points: 61
+    training:
+      seeds: [0, 1, 2, 3]
+      adam: {steps: 1500, batch_size: null}
+      lbfgs: {steps: 1000, chunk_size: 48}
+  clusters:
+    rungs: [M_inf, M_16p, M_16pm, M_16C0p, M_16S0pm, M_16C0pm, M_16S2pm, M_16C2pm]
+    model:
+      r_cut_angstrom: 6.0
+      band_edge_angstrom: 0.75
+    data:
+      train_sizes: [3, 4, 5]
+      test_sizes: [6, 2]
+      n_train: 100
+      n_test: 24
+      train_seed: 0
+      test_seed: 100
+      sigma: 1.0e-9
+      monomer_references: 4
+      mc_steps: 300
+      temperature_kelvin: 300.0
+      radius_angstrom: null
+      min_oo_angstrom: 2.7
+      min_atom_distance_angstrom: 1.7
+      probe_distances_angstrom: [8.0, 10.0, 12.0, 15.0]
+      probe_train: 2                # per distance and core: 384 training probes on 16 cores of each size
+      probe_train_cores: 16
+      probe_train_core_sizes: [3, 4, 5]
+      probe_test: 10                # E3-QP's 80 test probes (2 trimer cores x 4 distances x 10, seed 500)
+      probe_test_cores: 2
+      probe_seed: 400
+    training:
+      seeds: [0, 1, 2, 3]
+      adam: {steps: 2000, batch_size: 32}
+      readout:                      # the response matched on the far field, then held
+        stage: far_first            # solved before Adam on the training probes beyond r_c of their cores (energies only)
+        orders: all                 # every order's output columns (order 0 alone for the order-0 rungs)
+        solve_iterations: 4         # Gauss-Newton steps for the self-consistent response (one for the first-order rungs)
+        ridge_selection: groups     # the ridge from 1e-12..1e-1, chosen on every fifth training core, kept through the steps
+      lbfgs: {steps: 500, chunk_size: 64, freeze_readout: true}
+      loss: {far_labels: interaction}   # the training probes labelled with their interaction energy and its forces

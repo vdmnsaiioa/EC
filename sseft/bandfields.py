@@ -48,18 +48,65 @@ def band_field_tensors(positions, q, pmask, l, order, rs=0.0, src_mask=None):
     every other atom; for molecules the atoms of other fragments: the field that polarises a fragment is the
     field of the others, and the own fragment's near field is E_0's)."""
     src = pmask if src_mask is None else (pmask & src_mask)
+    return band_field_tensors_from(positions, positions, q, src, l, order, rs)
+
+
+def band_field_tensors_from(points, sources, q, src, l, order, rs=0.0):
+    """the band field tensors at the points (N,3) of the charges q (S,) at the sources (S,3), source j acting on point
+    i where src[i, j] (N,S): the atoms' fields of a source set that holds more than the atoms (a site model's virtual
+    sites)."""
     def V(x, i):
-        d = jnp.where(src[i][:, None], x[None, :] - positions, 1.0)      # excluded pairs get a finite dummy vector
+        d = jnp.where(src[i][:, None], x[None, :] - sources, 1.0)        # excluded pairs get a finite dummy vector
         rr = jnp.sqrt(jnp.sum(d * d, axis=-1))                              # so that no derivative is taken at r = 0
         w = src[i].astype(x.dtype) * near_weight(rr, rs)
         return jnp.sum(w * q * kn.g_long(rr, l))
     def E(x, i):
         return -jax.grad(V)(x, i)
-    idx = jnp.arange(positions.shape[0])
-    Ef = jax.vmap(E)(positions, idx)
-    gE = jax.vmap(jax.jacfwd(E))(positions, idx) if order >= 1 else None
-    ggE = jax.vmap(jax.jacfwd(jax.jacfwd(E)))(positions, idx) if order >= 2 else None
+    idx = jnp.arange(points.shape[0])
+    Ef = jax.vmap(E)(points, idx)
+    gE = jax.vmap(jax.jacfwd(E))(points, idx) if order >= 1 else None
+    ggE = jax.vmap(jax.jacfwd(jax.jacfwd(E)))(points, idx) if order >= 2 else None
     return Ef, gE, ggE
+
+
+# ---------------------------------------------------------------- the induced dipoles' mutual fields -----------
+# The order-0 read-out is -1/2 E_i . C_i . E_i at every atom: a local polarisability tensor C_i (environment-dependent)
+# responding to the band field of the permanent sources -- first order in the polarisabilities.  The induced dipoles
+# mu_i = C_i E_i are themselves sources; their fields, through the band kernel's dipole tensor between atoms of different
+# fragments, polarise the other fragments again:
+#     mu = C (E + T mu)  ->  mu = (1 - C T)^-1 C E,      E_resp = -1/2 E . mu = -1/2 E.C.E - 1/2 E.C T C.E - ...
+# the second-order term (alpha^2 T) and beyond; the exact solve is TTM3-F's self-consistency.  T is the Hessian of the
+# band kernel erf(r/l)/r, finite at short range (the band edge does what Thole damping does in a polarisable model).
+
+def band_dipole_tensor(positions, pmask, l):
+    """T (N,N,3,3): the field at i of a unit dipole at j through the band kernel, grad grad g(r_ij), on the pairs of
+    pmask (N,N) and zero elsewhere."""
+    D = positions[:, None, :] - positions[None, :, :]
+    r = jnp.sqrt(jnp.sum(D * D, axis=-1) + 1e-300)
+    r = jnp.where(pmask, r, 1.0)
+    n = D / r[..., None]
+    nn = n[..., :, None] * n[..., None, :]
+    T = kn.d2g_long(r, l)[..., None, None] * nn + (kn.dg_long(r, l) / r)[..., None, None] * (jnp.eye(3) - nn)
+    return jnp.where(pmask[..., None, None], T, 0.0)
+
+
+def mutual_response(C, T, E, order=-1):
+    """the response energy -1/2 E . mu of local polarisabilities C (N,3,3) to the field E (N,3), with the induced
+    dipoles' mutual fields through T (N,N,3,3): order -1 the self-consistent dipoles (1 - C T)^-1 C E, order k >= 1 the
+    Neumann series through k-th order in C (1: first order, -1/2 E.C.E)."""
+    N = E.shape[0]
+    e = E.reshape(-1)
+    c = jnp.einsum("ij,iab->iajb", jnp.eye(N, dtype=C.dtype), C).reshape(3 * N, 3 * N)
+    t = T.transpose(0, 2, 1, 3).reshape(3 * N, 3 * N)
+    ce = c @ e
+    if order == -1:
+        mu = jnp.linalg.solve(jnp.eye(3 * N) - c @ t, ce)
+    else:
+        mu = ce; term = ce
+        for _ in range(order - 1):
+            term = c @ (t @ term)
+            mu = mu + term
+    return -0.5 * jnp.dot(e, mu), mu.reshape(N, 3)
 
 
 # ---------------------------------------------------------------- pair read-out (default) --------------------
@@ -112,12 +159,37 @@ def init_readout_pair(key, cfg, order):
     return {"theta": theta, "iso": iso}                                              # node-level a(s_i) |E_i|^2
 
 
-def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l, E_ref=1.0, e_scale=1.0):
+SPECIES_KEY = 20261016                       # the species read-out's fixed initialisation (seed-independent)
+SPECIES_UNIT = 1e-3                          # its output unit (hartree): independent of the site energies' e_scale
+
+
+def init_readout_species(cfg, order):
+    """the pair read-out with coefficients from the species alone: fixed random species features (a table, not E_0's
+    features) through a hidden layer of the same width, so that the radial coefficients w_m(r; Z_i, Z_j) and the node
+    term a(Z_i) are free functions of the species pair once the output layers are solved (the hidden features of the
+    few species pairs are independent).  Deterministic: the response does not depend on the training seed or on E_0, so
+    that it can be matched on the far field before E_0 is trained, and stays what was matched."""
+    F = cfg["F"]
+    k = jax.random.split(jax.random.PRNGKey(SPECIES_KEY), 3)
+    p = init_readout_pair(k[0], cfg, order)
+    m = n_pair_invariants(order); nr = cfg.get("n_rbf_readout", cfg["n_rbf"])
+    theta = _mlp_init(k[1], [2 * F, F, m * nr], scale=1.0)
+    theta[-1] = {"w": jnp.zeros_like(theta[-1]["w"]), "b": jnp.zeros_like(theta[-1]["b"])}
+    iso = _mlp_init(k[2], [F, F, 1], scale=1.0)
+    iso[-1] = {"w": jnp.zeros_like(iso[-1]["w"]), "b": jnp.zeros_like(iso[-1]["b"])}
+    embed = jax.random.normal(jax.random.PRNGKey(SPECIES_KEY + 1), (cfg["n_species"], F))
+    return {**p, "theta": theta, "iso": iso, "embed": embed}
+
+
+def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l, E_ref=1.0, e_scale=1.0, tensor=False):
     """per-atom response energies (N,) of the pair read-out.  The field tensors enter in units of E_ref and the
     output in units of e_scale (the data-derived site-energy scale), so that the learned coefficients are O(1):
     a physical polarisability alpha is the coefficient alpha E_ref^2 / e_scale -- with E_ref = 0.01 a.u. and
     e_scale ~ 5e-3 E_h that is 0.2 for alpha = 9.72 a.u., against 9.72 without the scales (which Adam does not reach
-    from an O(0.1) initialisation in fields of 1e-3 a.u.: e3r-bandfield-response-preregistration.md section 6)."""
+    from an O(0.1) initialisation in fields of 1e-3 a.u.: e3r-bandfield-response-preregistration.md section 6).
+    tensor=True returns instead (the per-atom energies of the orders >= 1, the order-0 sector as the local
+    polarisability tensor C (N,3,3) in bohr^3): the order-0 energy is -1/2 E_i.C_i.E_i, the same numbers, and the
+    mutual response (mutual_response) builds on C."""
     from .e0 import rbf
     N, F = s.shape
     E = E / E_ref
@@ -135,8 +207,16 @@ def response_energy_pair(p, cfg, order, s, r, D, pmask, mask, E, gE, ggE, l, E_r
     G = gE * l if order >= 1 else None
     H = ggE * l ** 2 if order >= 2 else None
     inv = pair_invariants(n, E, G, H, order)                                            # (N,N,m)
+    iso = mlp(p["iso"], s)[..., 0]
+    if tensor:
+        # -1/2 E.C.E = sum_j (w_0 |E|^2 + w_1 (E.n)^2) - 1/2 iso |E|^2  ->  C = iso 1 - 2 sum_j (w_0 1 + w_1 n n)
+        w0 = jnp.sum(w[..., 0] * within, axis=1); nn = n[..., :, None] * n[..., None, :]
+        C = iso[:, None, None] * jnp.eye(3) - 2.0 * (w0[:, None, None] * jnp.eye(3)
+                                                     + jnp.einsum("ij,ijab->iab", w[..., 1] * within, nn))
+        eps_hi = jnp.sum(w[..., 2:] * inv[..., 2:] * within[..., None], axis=(1, 2))
+        return eps_hi * mask * e_scale, C * (mask * e_scale / E_ref ** 2)[:, None, None]
     eps = jnp.sum(w * inv * within[..., None], axis=(1, 2))
-    eps = eps - 0.5 * mlp(p["iso"], s)[..., 0] * jnp.sum(E * E, axis=-1)
+    eps = eps - 0.5 * iso * jnp.sum(E * E, axis=-1)
     return eps * mask * e_scale
 
 

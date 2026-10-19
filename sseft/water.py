@@ -228,12 +228,35 @@ class QAquaPolTruth(QAquaTruth):
         from .qaqua import QAquaPol
         self.qa = QAquaPol(root)
         self.alpha, self.c6 = self.qa.ttm_constants()
+        # TTM3-F's M-site, r_M = (1 - gamma) r_O + gamma/2 (r_H1 + r_H2), read back from the library on the monomer
+        X = ang_to_bohr(monomer_positions()); rM = self.qa.ttm(X)["msites"][0]
+        b = X[1] + X[2] - 2 * X[0]
+        self.gamma_m = float(2 * np.dot(rM - X[0], b) / np.dot(b, b))
+        if np.linalg.norm(rM - X[0] - 0.5 * self.gamma_m * b) > 1e-10:
+            raise RuntimeError("TTM3-F's M-site is not on the bisector as expected")
         self.r_e = dimer_minimum(self)
+
+    def sampling_energy(self, pos_ang, n_mol):
+        """the library's energy-only routine, for the Metropolis relaxation of geometries only (sseft.qaqua.QAquaPol:
+        off in the 3-body blend region at 5.0-5.5 A; it drove E3-QP's relaxations, so the data sets reproduce)."""
+        return self.qa.interaction_energy_sampling(ang_to_bohr(np.asarray(pos_ang, float)))
+
+    def site_model(self, pos_ang):
+        """TTM3-F's permanent charges at the molecules' geometry -- the truth's own permanent sources, exactly: the H
+        charges on the H atoms (none on O) and one virtual site per molecule, the M-site, with its charge.  Returns
+        (q_site (3n,), vsite_w (n, 3n): each M-site as a combination of its molecule's atoms, vsite_q (n,), vsite_frag (n,))."""
+        pos = np.asarray(pos_ang, float); n = len(pos) // 3
+        qs = self.qa.ttm(ang_to_bohr(pos))["site_charges"]                    # (n, 3): H1, H2, M
+        q_site = np.zeros(3 * n); w = np.zeros((n, 3 * n))
+        for m in range(n):
+            q_site[3 * m + 1:3 * m + 3] = qs[m, :2]
+            w[m, 3 * m:3 * m + 3] = [1 - self.gamma_m, 0.5 * self.gamma_m, 0.5 * self.gamma_m]
+        return q_site, w, qs[:, 2].copy(), np.arange(n)
 
     def describe(self):
         return {"name": self.name, "root": self.qa.root, "commit": _git_commit(os.path.join(self.qa.root, "q-AQUA-pol")),
                 "data_commit": _git_commit(os.path.join(self.qa.root, "q-AQUA")), "r_e_angstrom": self.r_e,
-                "alpha_bohr3": self.alpha, "c6_oo": self.c6}
+                "alpha_bohr3": self.alpha, "c6_oo": self.c6, "gamma_m": self.gamma_m}
 
 
 def _git_commit(repo):
@@ -381,7 +404,7 @@ def cluster_dataset(sizes, n_per_size, seed=0, sigma=0.0, truth=None, **kw):
     rng = np.random.default_rng(seed); out = []
     for n in sizes:
         for k in range(n_per_size):
-            pos = random_cluster(n, rng, energy=truth.energy, **kw)
+            pos = random_cluster(n, rng, energy=getattr(truth, "sampling_energy", truth.energy), **kw)
             E, F = truth.energy_forces(pos, n)
             if sigma > 0: E += rng.normal() * sigma
             out.append(water_structure(pos, energy=E, forces=F, info={"n": n, "k": k}, charges=truth.molecule_charges(pos)))
@@ -399,7 +422,7 @@ def probe_configurations(n_core, distances_ang, n_per_distance, seed=0, mc_steps
     truth = truth or PW_TRUTH
     rng = np.random.default_rng(seed); out = []; cores = []
     for c in range(n_cores):
-        core = random_cluster(n_core, rng, mc_steps=mc_steps, energy=truth.energy, **kw)
+        core = random_cluster(n_core, rng, mc_steps=mc_steps, energy=getattr(truth, "sampling_energy", truth.energy), **kw)
         com = core[0::3].mean(axis=0)
         E_core = truth.energy(core, n_core)
         for d in distances_ang:
@@ -475,6 +498,15 @@ def ion_response_decomposition(st):
     E_ion = -Q * np.array(kn.dg_long(jnp.asarray(r), lam))[:, None] * D / r[:, None]
     piece2 = -np.sum(c_core["mu_ind"] * E_ion)
     return dict(y=y, es=es, piece2=piece2, response=y - es - piece2)
+
+
+def pin_site_model(structs, truth):
+    """pin a truth's site model (truth.site_model: q-AQUA-pol's TTM3-F charges on the H atoms and the M-sites) on water
+    structures, for the rungs whose sources are the truth's permanent charges exactly (Rung.msites)."""
+    for s in structs:
+        q, w, vq, vf = truth.site_model(bohr_to_ang(s.positions))
+        s.pinned = {**s.pinned, "q_site": q, "vsite_w": w, "vsite_q": vq, "vsite_frag": vf}
+    return structs
 
 
 def pair_additive_energy(pos_ang, n_mol, truth=None):

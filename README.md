@@ -78,6 +78,36 @@ python scripts/run_experiment.py --config configs/water_qaqua_pol.yaml --out_dir
 
 The pinned charges are the monomers' dipole-surface charges on O, H, H (TTM3-F's sites have their dipole, not their quadrupole: the daggers' tail errors are computed in the note), the `M_16` daggers also pin TTM3-F's polarisability and O–O C₆ in the dispersion band, and the embedded daggers are refused. (a) The dimer ladder as E3-Q plus `M_16p`, L-BFGS 1000; (c) the clusters with 300 training clusters (100 per size) and 160 probe configurations, 24 test hexamers and dimers, 80 test probes — `M_inf`, `M_1p`, `M_S0p`, `M_S2p`, `M_1mu`, `M_16p`, `M_16S0p` — every model read on the probes (the probe's interaction and its non-additive part, the many-body induction of a distant molecule) and on the raw CCSD(T) sets.
 
+### E3-QP2: the response field and its higher orders on q-AQUA-pol
+
+`configs/water_qaqua_pol2.yaml` follows E3-QP (`notes/e3qp-results.md`) on the same truth, clusters, test probes and
+raw sets; pre-registered in `notes/e3qp2-preregistration.md` (`scratch/e3qp2_preregistration.py`,
+`scratch/e3qp2_matched_response.py`). Three changes, each one of E3-QP's diagnosed limits:
+
+- **The field**: the `*pm` rungs pin the truth's permanent charges exactly — TTM3-F's H charges on the atoms and its
+  M-site as a virtual site placed from the molecule's atoms (`Rung.msites`, `truth.site_model`, `W.pin_site_model`) —
+  so the band field the read-out answers is the truth's permanent field and the daggers `M_1pm`, `M_16pm` miss the
+  dimer tail by TTM3-F's induction and C₆ term only.
+- **The response, matched on the far field**: the read-out's coefficients come from the species alone
+  (`Rung.bf_species`: fixed, seed-independent features instead of E₀'s), and `training.readout.stage: far_first` solves
+  them before E₀ is trained, on the training probes E₀ cannot see (no probe atom within r_c of the core), labelled
+  with the probe's interaction energy (`training.loss.far_labels: interaction`) and fitted on energies only, the ridge
+  chosen on held-out cores; the read-out is then held through Adam and the polish (`training.lbfgs.freeze_readout`).
+  Beyond r_c the trained models' probe readings are therefore computed before the run.
+- **Second order and beyond**: the C rungs let the order-0 read-out's induced dipoles act on each other through the
+  band kernel's dipole tensor between molecules, self-consistently (`Rung.bf_mutual = -1`; the series through order
+  k with `bf_mutual = k`), against the first-order S rungs; the order-2 rungs add the read-out's field-gradient
+  terms, now solved with the rest (`training.readout.orders: all`).
+
+```sh
+python scripts/run_experiment.py --config configs/water_qaqua_pol2.yaml --out_dir results/e3qp2
+```
+
+Rungs: (a) the dimer, `M_1pm`, `M_16pm`; (c) the clusters, `M_inf`, `M_16p`, `M_16pm`, `M_16C0p` (the self-consistent
+response on the dipole-surface charges: the control for the field), `M_16S0pm`, `M_16C0pm`, `M_16S2pm`, `M_16C2pm`, with
+384 training probes on 48 cores of 3, 4 and 5 molecules (`data.probe_train_core_sizes`) and E3-QP's test probes.
+Every reading applies each rung's pins (v0.0.10 read the M_16 rungs' raw 2-body frames without their dispersion band).
+
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
 ### Water model settings
@@ -183,6 +213,17 @@ training:
 `adam.steps` controls the initial training stage. With `readout.freeze_during_adam: true`, the entire response readout is frozen and its energy contribution remains zero; the GNN and active energy/source heads train. Thus this value controls the number of response-frozen training steps. Adam uses cosine learning-rate decay ending at `learning_rate * final_learning_rate_ratio`. `beta1`, `beta2`, `epsilon`, and `epsilon_root` configure Adam's moment estimates and numerical stabilizers. `gradient_clip_norm` optionally limits the norm of the trainable gradient; `null` disables clipping. `batch_size: null` uses all training structures each step.
 
 After Adam, `readout.linear_solve: true` fits the order-0 response output coefficients by weighted least squares while holding the rest fixed. `ridge` sets regularization relative to the design matrix scale; it is not a general weight-decay penalty. Higher-order response coefficients are optimized in L-BFGS. Readout settings apply only when the selected rung has a response readout; for water, select rungs such as `M_16S0p` and `M_16S2p` (or `M_S0p`, `M_S2p`) to use them. The baseline models `M_inf`, `M_1`, `M_1p` and `M_16p` have no response readout and ignore them.
+
+The solve's further fields (v0.0.11; defaults keep the behaviour above): `readout.orders: all` solves every order's
+output columns (with a ridge), `readout.solve_iterations` takes Gauss-Newton steps for a read-out that is not linear in
+its coefficients (the self-consistent response), `readout.ridge_selection: groups` picks the ridge from 1e-12…1e-1 on
+held-out groups (each cluster, and the probes by core; chosen at the first step and kept), `readout.far_weight` weights
+the training probes in the solve, and `readout.stage: far_first` matches the read-out before Adam on the training
+probes beyond r_c of their cores, energies only (it needs `loss.far_labels: interaction`, `lbfgs.freeze_readout: true`
+and species read-outs). `lbfgs.freeze_readout: true` keeps the read-out through the polish. `loss.far_labels:
+interaction` labels the clusters part's training probes with the probe's interaction energy and its forces (subtraction
+groups core and probe, `Structure.sub`) instead of their totals. `model.response_edge_angstrom` gives the read-out its
+own band edge (its band field and dipole tensor smeared there; null: the band edge).
 
 `lbfgs.steps` controls subsequent full-data optimization. With the default `readout_only: false`, the GNN, active heads, and response train jointly. Set `readout_only: true` to hold all non-readout parameters fixed in this stage; every selected model must have a response readout. `chunk_size` changes memory usage while preserving the full-data loss. `memory_size` controls the retained curvature history. `learning_rate: null` preserves automatic step scaling with the zoom line search; `max_linesearch_steps` bounds its internal trials, and `scale_init_precond` controls initial inverse-Hessian scaling. These are optimizer iterations, not epochs or line-search trial counts. Zero Adam steps allow an L-BFGS-only run; at least one optimizer step must be requested. Models with a frozen response readout require positive L-BFGS steps.
 
@@ -300,6 +341,7 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
         --test_cores 4 --extra_far 2 --seeds 2 --steps 1000 --lbfgs 300      # E3-R: the band-field response on an ion probe
     python scripts/run_experiment.py --config configs/water_qaqua.yaml --out_dir results/e3q   # E3-Q (after external/qaqua/build.sh)
     python scripts/run_experiment.py --config configs/water_qaqua_pol.yaml --out_dir results/e3qp  # E3-QP (after build_pol.sh)
+    python scripts/run_experiment.py --config configs/water_qaqua_pol2.yaml --out_dir results/e3qp2  # E3-QP2
     python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl \
         --out results/e3r_clusters_yaml.json                                  # E3-R R1, the cluster protocol from YAML
     sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
@@ -355,7 +397,8 @@ CCSD(T) data when they exist.  Every part saves its json after each rung.
     scripts/      the experiments (each prints its table and writes a json)
     tests/        pytest (fast; the ladder and the toy are scripts)
     notes/        the pre-registration and result notes of the experiments run from this repository
-    configs/      the YAML configurations (configs/water_qaqua.yaml: E3-Q; configs/water_qaqua_pol.yaml: E3-QP)
+    configs/      the YAML configurations (configs/water_qaqua.yaml: E3-Q; configs/water_qaqua_pol.yaml: E3-QP;
+                  configs/water_qaqua_pol2.yaml: E3-QP2)
     external/     the q-AQUA and q-AQUA-pol build scripts and their C interfaces (the builds, external/qaqua/build*/, are not committed)
     scratch/      one-off computations quoted in the notes (not part of the package)
     results/      the logs and jsons of every run quoted in RESULTS.md
