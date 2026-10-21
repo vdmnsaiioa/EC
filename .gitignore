@@ -14,3 +14,5 @@ results/*.params.pkl
 /external/qaqua/build
 /external/qaqua/build_pol
 /scratch/matched_*.pkl
+/scratch/e3qp3_coverage_data.pkl
+/scratch/e3qp2_summary.json
