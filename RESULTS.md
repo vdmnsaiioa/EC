@@ -421,3 +421,45 @@ the clusters with E3-QP's data plus 384 training probes on 48 cores of 3–5 mol
 (the control: q3), M_16S0†ᵐ, M_16C0†ᵐ, M_16S2†ᵐ, M_16C2†ᵐ. The matched responses are computed before the run: on the
 test probes at 10–15 Å they leave 3–11 % of the non-additive energy (M_16C2†ᵐ 4 / 5 / 3 %; E3-QP's read-outs 50–61 %),
 on the CCSD(T) trimers beyond 9 Å 17–25 % (the PES 21 %), and the same response on q3 19–24 %.
+
+## v0.0.11 → v0.0.12 — E3-QP2 read; the short range diagnosed; E3-QP3 set up
+
+**E3-QP2 read** (`notes/e3qp2-results.md`, the run of 19–20 Oct): every far-field reading computed before the run came
+out on every seed — the exact daggers' dimer tails, the probes at 10–15 Å for every rung (M_16C2†ᵐ 4 / 5 / 3 %; E3-QP's
+read-outs 50–61 %), the C rungs' truncations — and on the CCSD(T) trimers beyond 9 Å the read-outs sit at the PES's own
+error (17–25 % against 21 %; E3-QP 57–59 %). The self-consistent response pays off through E₀: C beats S on every seed
+on the hexamers (M_16C2†ᵐ 15.8 %, the only rung clearly below M_∞'s 22.5) and on the raw 4-body (63 against 110–139 %).
+Short of it: the raw 2- and 3-body readings below 5 Å, where every pinned rung trailed M_∞.
+
+**The short range diagnosed** (`scratch/e3qp3_shortrange_diagnostic.py` on the saved models, 21 Oct; §3.4–3.5 of the
+results): the raw frames are near-rigid, not rigid (the truth moves 0.090 kcal/mol rms on the 2-body set with the
+monomers' distortions); the raw sets were read with the pinned charges at each frame's own geometry while E₀ learned the
+truth's charge flux from the internal forces (72 % of the training forces) — a double count, 0.02–0.04 kcal/mol of the
+raw 2-body reading; read with the charges the models were trained with, every pinned rung beats M_∞ on the raw dimers at
+O–O ≥ 2.7 Å (0.103–0.151 against 0.159 kcal/mol), and 56–82 % of their squared error sits in the 5.6 % of compressed
+dimers at 2.3–2.7 Å, where the training clusters hold 28 pairs; E₀ fits its own training clusters to 0.17–0.26 kcal/mol,
+the test errors' size, the loss's per-atom energy term two orders of magnitude below its force term.
+
+**The harness.**
+- *Contact configurations* (`W.contact_configurations`; `data.contact_dimers`, `contact_trimers`, `contact_oo_angstrom`,
+  `contact_seed`, `contact_max_pair_kcal`, `contact_min_atom_distance_angstrom`): rigid dimers and trimers at a
+  hydrogen-bond contact or closer under a pair-energy cap, added to the clusters part's training set; without them the
+  dataset settings are those of before.
+- *The pins as trained* (`truth.heldout.pin_charges: rigid`, `--heldout_pin_charges`; `model_nbody(rigid=True)`,
+  `W.pin_site_model(rigid=True)`, `W.rigid_molecule_charges`): the held-out frames read with the rigid monomer's charges;
+  `frame` (the default) keeps v0.0.11's reading.
+- *Readings by the closest contact* (`QA.smallest_oo`; `heldout_metrics` `by_smallest_oo_angstrom`: below 2.7, 2.7–3.0,
+  beyond 3.0 Å).
+- *Rungs with their own band edge* (`e3_water.RUNG_BAND_EDGE`): `M_16pm_e1`, `M_16C2pm_e1` at ℓ₁ = 1.0 Å, the read-out at
+  the run's band edge.
+- `scratch/e3qp3_shortrange_diagnostic.py` reads any clusters run: its rungs, seeds and sets from the command line or
+  the run's `clusters.json`, its flags checked against each rung's `model` record.
+
+**The experiment** (`configs/water_qaqua_pol3.yaml`, `notes/e3qp3-preregistration.md`): E3-QP2's data and matching plus
+600 contact dimers and 200 contact trimers at O–O 2.3–3.0 Å, the energy weight 100, Adam 4000 and L-BFGS 1000, the pins as
+trained in every reading; rungs M_∞, M_16†ᵐ, M_16†ᵐ_e1, M_16C2†ᵐ, M_16C2†ᵐ_e1, 4 seeds; the diagnostic on every model after
+the run (`run_e3qp3.sbatch`).
+
+Tests: `tests/test_water_pol3_config.py` (the shipped config, the contact generator and its refusals and validation, the
+rungs' own band edge, the readings' pins as trained, the bins by the closest contact); 362 tests, 340 pass and 22 are
+skipped without the q-AQUA builds (14 min on one CPU).

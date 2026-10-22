@@ -63,6 +63,16 @@ CLUSTER_PROBE_DEFAULTS = {
 }
 # the training probes' cores may be clusters of several sizes (`probe_train_core_sizes`, molecules; one seed per size,
 # the first size's being probe_seed); the test probes' cores stay trimers.  [3] keeps the dataset settings of before.
+# Contact configurations in the clusters part's training set (v0.0.12; its data mapping too): `contact_dimers` rigid
+# dimers and `contact_trimers` rigid trimers at a hydrogen-bond contact or closer -- O-O distances drawn uniformly from
+# `contact_oo_angstrom` [lower, upper], every pair's truth 2-body energy at most `contact_max_pair_kcal` (0: no cap), no two
+# atoms of different molecules nearer than `contact_min_atom_distance_angstrom` -- seeded by `contact_seed` (+1 for the
+# trimers).  Both counts 0 (the default): none, and the dataset settings of before.
+CLUSTER_CONTACT_DEFAULTS = {
+    "contact_dimers": 0, "contact_trimers": 0, "contact_oo_angstrom": "2.3,3.0", "contact_seed": 700,
+    "contact_max_pair_kcal": 2.0, "contact_min_atom_distance_angstrom": 1.5,
+}
+HELDOUT_PIN_CHARGES = ("frame", "rigid")
 
 # Each YAML field maps to the existing or shared CLI destination and a validation
 # rule. Keeping this table shared makes YAML and CLI values follow the same rules.
@@ -339,10 +349,23 @@ def _validate_resolved_training(args, kind, rungs):
 def validate_cluster_data(data):
     if not isinstance(data, dict):
         raise ValueError("data must be a mapping")
-    unknown = set(data) - set(CLUSTER_DEFAULTS) - set(CLUSTER_PROBE_DEFAULTS)
+    unknown = set(data) - set(CLUSTER_DEFAULTS) - set(CLUSTER_PROBE_DEFAULTS) - set(CLUSTER_CONTACT_DEFAULTS)
     if unknown:
         raise ValueError(f"unsupported data fields: {', '.join(sorted(map(str, unknown)))}")
     for key, value in data.items():
+        if key == "contact_oo_angstrom":
+            if (not isinstance(value, list) or len(value) != 2
+                    or any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in value) or value[0] > value[1]):
+                raise ValueError("data.contact_oo_angstrom must be [lower, upper] with 0 < lower <= upper")
+            continue
+        if key in ("contact_dimers", "contact_trimers", "contact_seed"):
+            if type(value) is not int or value < 0:
+                raise ValueError(f"data.{key} must be an integer >= 0")
+            continue
+        if key in ("contact_max_pair_kcal", "contact_min_atom_distance_angstrom"):
+            if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"data.{key} must be a finite number >= 0")
+            continue
         if key == "probe_distances_angstrom":
             if (not isinstance(value, list) or not value or len(set(value)) != len(value)
                     or any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in value)):
@@ -431,9 +454,15 @@ def validate_truth(truth, kind):
         else:
             if not isinstance(held, dict):
                 raise ValueError("truth.heldout must be a mapping or null")
-            unknown = set(held) - {"sets", "rigid_tolerance", "strict_tolerance", "max_pair_energy_kcal", "max_frames"}
+            unknown = set(held) - {"sets", "rigid_tolerance", "strict_tolerance", "max_pair_energy_kcal", "max_frames", "pin_charges"}
             if unknown:
                 raise ValueError(f"unsupported truth.heldout fields: {', '.join(sorted(map(str, unknown)))}")
+            if "pin_charges" in held:
+                # the pinned charges of the held-out readings: at each frame's own geometry (frame, up to v0.0.11) or the
+                # rigid monomer's, as the models were trained (rigid; e3qp2-results.md sections 3.4-3.5)
+                if held["pin_charges"] not in HELDOUT_PIN_CHARGES:
+                    raise ValueError("truth.heldout.pin_charges must be frame or rigid")
+                defaults["heldout_pin_charges"] = held["pin_charges"]
             sets = held.get("sets") or []
             if (not isinstance(sets, list) or any(v not in HELDOUT_NAMES for v in sets) or len(set(sets)) != len(sets)):
                 raise ValueError("truth.heldout.sets must be a list of distinct names from 2b, 3b, 4b")
@@ -657,6 +686,9 @@ def parse_selection(parser, kind, argv=None, *, rungs=None, systems=None, valida
                 resolved.update({key: getattr(args, key, CLUSTER_PROBE_DEFAULTS[key]) for key in CLUSTER_PROBE_DEFAULTS})
                 resolved["probe_distances_angstrom"] = [float(v) for v in str(resolved["probe_distances_angstrom"]).split(',')]
                 resolved["probe_train_core_sizes"] = [int(v) for v in str(resolved["probe_train_core_sizes"]).split(',')]
+            if hasattr(args, "contact_dimers"):
+                resolved.update({key: getattr(args, key, CLUSTER_CONTACT_DEFAULTS[key]) for key in CLUSTER_CONTACT_DEFAULTS})
+                resolved["contact_oo_angstrom"] = [float(v) for v in str(resolved["contact_oo_angstrom"]).split(',')]
             validate_cluster_data(resolved)
         except (ValueError, AttributeError) as exc:
             parser.error(str(exc))

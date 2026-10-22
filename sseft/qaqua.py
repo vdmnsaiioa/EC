@@ -366,6 +366,14 @@ def largest_oo(pos_ang):
     return d.reshape(len(O), -1).max(axis=1)
 
 
+def smallest_oo(pos_ang):
+    """the smallest O-O distance (A) of every frame: its closest contact."""
+    O = np.asarray(pos_ang)[:, 0::3]
+    d = np.linalg.norm(O[:, :, None] - O[:, None, :], axis=-1)
+    n = O.shape[1]
+    return d[:, ~np.eye(n, dtype=bool)].reshape(len(O), -1).min(axis=1)
+
+
 # ---------------------------------------------------------------------- the authors' benchmarks --------------------
 _BENCHMARKS = {   # README of qAQUA_v1: total energy (hartree) and gradient (hartree/bohr, q-AQUA order), 8 decimals
     "trimer.xyz": (-0.02503134, [

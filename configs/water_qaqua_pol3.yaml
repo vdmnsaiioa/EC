@@ -1,0 +1,106 @@
+# E3-QP3: the short range on q-AQUA-pol.  E3-QP2's truth, training clusters, probes, test sets and far-field matching
+# (configs/water_qaqua_pol2.yaml, notes/e3qp2-results.md), with what its short-range diagnostic (section 3.5) found:
+#   - training data at the contact: 600 rigid dimers and 200 rigid trimers at O-O 2.3-3.0 A under the raw sets' 2 kcal/mol
+#     pair cap (the relaxed clusters hold 28 pairs below 2.7 A, the raw 2-body set 279 frames);
+#   - E_0 fitted to the energies: the loss's per-atom energy term was two orders of magnitude below its force term
+#     (training.loss.energy_weight 100), and trained longer (Adam 4000, L-BFGS 1000);
+#   - the held-out readings with the pins as trained -- the rigid monomer's charges (truth.heldout.pin_charges: rigid);
+#   - the pinned bands' contact as a factor: M_16pm and M_16C2pm at the band edge 0.75 A and at 1.0 A (the _e1 rungs),
+#     the read-out's band edge held at 0.75 A, so that the matched response and the far field are E3-QP2's.
+# Pre-registration with the numbers computed before the run: notes/e3qp3-preregistration.md.
+#
+#   sh external/qaqua/build_pol.sh                                               # once (E3-QP's build serves)
+#   python scripts/run_experiment.py --config configs/water_qaqua_pol3.yaml --out_dir results/e3qp3
+#
+# Every value of the experiment is in this file; explicit flags override it.
+experiment:
+  type: water
+  part: [clusters]
+
+truth:
+  name: qaqua_pol
+  root: external/qaqua/build_pol
+  heldout:
+    sets: [2b, 3b, 4b]
+    rigid_tolerance: {oh_angstrom: 0.03, angle_degrees: 5.0}
+    strict_tolerance: {oh_angstrom: 0.02, angle_degrees: 3.0}
+    max_pair_energy_kcal: 2.0
+    max_frames: null
+    pin_charges: rigid              # the rigid monomer's charges in every reading, as the models are trained
+
+model:
+  charges: null
+  charge_neutrality: fragment
+  rs_over_l1: 0.0
+  features: 16
+  analytic_envelope_angstrom: 4.0
+  r_cut_angstrom: 6.0
+  band_edge_angstrom: 0.75          # the _e1 rungs: 1.0 A (their own, e3_water.RUNG_BAND_EDGE)
+  response_edge_angstrom: 0.75      # the read-out's, for every rung: the response matched in E3-QP2
+
+training:
+  adam:
+    learning_rate: 0.003
+    final_learning_rate_ratio: 0.01
+    beta1: 0.9
+    beta2: 0.999
+    epsilon: 1.0e-8
+    epsilon_root: 0.0
+    gradient_clip_norm: null
+  readout:
+    freeze_during_adam: true
+    linear_solve: true
+    ridge: 1.0e-8
+  lbfgs:
+    learning_rate: null
+    memory_size: 10
+    scale_init_precond: true
+    max_linesearch_steps: 20
+    readout_only: false
+  loss:
+    energy_weight: 100.0            # E3-QP2: 1.0, the energies learned through the forces
+    force_weight: 1.0
+    far_weight: 1.0
+  energy_scale: null
+  verbose: false
+
+parts:
+  clusters:
+    rungs: [M_inf, M_16pm, M_16pm_e1, M_16C2pm, M_16C2pm_e1]
+    data:
+      train_sizes: [3, 4, 5]
+      test_sizes: [6, 2]
+      n_train: 100
+      n_test: 24
+      train_seed: 0
+      test_seed: 100
+      sigma: 1.0e-9
+      monomer_references: 4
+      mc_steps: 300
+      temperature_kelvin: 300.0
+      radius_angstrom: null
+      min_oo_angstrom: 2.7
+      min_atom_distance_angstrom: 1.7
+      probe_distances_angstrom: [8.0, 10.0, 12.0, 15.0]
+      probe_train: 2
+      probe_train_cores: 16
+      probe_train_core_sizes: [3, 4, 5]
+      probe_test: 10
+      probe_test_cores: 2
+      probe_seed: 400
+      contact_dimers: 600             # rigid dimers, O-O drawn uniformly from contact_oo_angstrom
+      contact_trimers: 200            # rigid trimers with two such contacts
+      contact_oo_angstrom: [2.3, 3.0]
+      contact_seed: 700
+      contact_max_pair_kcal: 2.0      # every pair: the raw sets' training domain
+      contact_min_atom_distance_angstrom: 1.5
+    training:
+      seeds: [0, 1, 2, 3]
+      adam: {steps: 4000, batch_size: 32}
+      readout:                        # E3-QP2's matching, unchanged: the response and the far field as computed there
+        stage: far_first
+        orders: all
+        solve_iterations: 4
+        ridge_selection: groups
+      lbfgs: {steps: 1000, chunk_size: 64, freeze_readout: true}
+      loss: {far_labels: interaction}

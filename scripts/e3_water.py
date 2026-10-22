@@ -33,9 +33,11 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
     M_16S0pm, M_16S2pm   + the read-out (coefficients from the species), first order in the polarisabilities, order 0 / 2
     M_16C0pm, M_16C2pm   + the read-out with its induced dipoles' mutual fields to all orders (self-consistent)
     M_16C0p           M_16C0pm's response on the dipole-surface charges (the control for the sources)
+    M_16pm_e1, M_16C2pm_e1   E3-QP3: M_16pm and M_16C2pm with the pinned bands' own band edge l_1 = 1.0 A (smoother
+                      at contact; RUNG_BAND_EDGE), the read-out's band edge kept at the run's (the far field as matched)
 """
-from experiment_config import (CLUSTER_DEFAULTS, CLUSTER_PROBE_DEFAULTS, DIMER_DEFAULTS, add_training_arguments, parse_selection,
-                               training_kwargs, training_seeds)
+from experiment_config import (CLUSTER_CONTACT_DEFAULTS, CLUSTER_DEFAULTS, CLUSTER_PROBE_DEFAULTS, DIMER_DEFAULTS,
+                               add_training_arguments, parse_selection, training_kwargs, training_seeds)
 import argparse, time, json, sys, os, pickle, math, itertools
 import numpy as np
 import jax
@@ -48,6 +50,7 @@ R_E = W.PW_TRUTH.r_e                           # A, the PW truth's dimer minimum
 WINDOW = (1.35 * R_E, 1.35 * R_E * 1.8)        # [3.86, 6.95] A
 HELDOUT_SETS = tuple(QA.RAW_SETS)              # 2b, 3b, 4b
 HELDOUT_OO_BINS = ((0.0, 5.0), (5.0, 7.0), (7.0, 9.0), (9.0, math.inf))    # largest O-O (A): q-AQUA's 3-b switch is 7-9 A
+HELDOUT_CONTACT_BINS = ((0.0, 2.7), (2.7, 3.0), (3.0, math.inf))              # smallest O-O (A): the compressed contacts apart
 
 RUNGS = {
     "M_inf": M.RUNGS["M_inf"], "M_G": M.RUNGS["M_G"], "M_A": M.RUNGS["M_A"],
@@ -88,6 +91,15 @@ RUNGS = {
     # the control: the same self-consistent response on the dipole-surface charges q3 (E3-QP's sources, their quadrupole off)
     "M_16C0p": M.with_rung(M.RUNGS["M_1"], pin_q=True, dispersion=True, pin_alpha=True, band_fields=0, bf_species=True, bf_mutual=-1),
 }
+# E3-QP3 (the short range): the pinned bands' contact as a factor -- the same rungs with their own band edge l_1 (A), over
+# the run's model.band_edge_angstrom, while the read-out keeps the run's band edge (model.response_edge_angstrom, else
+# model.band_edge_angstrom), so that the response and the far field matched on it are the base rung's.  The pinned
+# Coulomb band sum q_i q_j erf(r / l_1) / r is bare at a hydrogen bond for l_1 = 0.75 A; at 1.0 A it is closest to
+# TTM3-F's Thole-smeared charges (0.30 against 0.45 kcal/mol rms on the raw dimers below 5 A, 0.85 against 1.31 at O-O
+# 2.4-2.7 A: e3qp2-results.md section 3.1)
+RUNG_BAND_EDGE = {"M_16pm_e1": 1.0, "M_16C2pm_e1": 1.0}
+for _name, _base in (("M_16pm_e1", "M_16pm"), ("M_16C2pm_e1", "M_16C2pm")):
+    RUNGS[_name] = M.with_rung(RUNGS[_base], name=_name)
 C6_OO_TRUTH = 45.4
 
 
@@ -213,6 +225,8 @@ def validate_water_args(a):
                              f"rungs {', '.join(bad)} read E_0's features")
         if not getattr(a, "lbfgs_freeze_readout", False):
             raise ValueError("training.readout.stage: far_first keeps the matched read-out: set training.lbfgs.freeze_readout")
+    if contact_requested(a) and a.part != "clusters":
+        raise ValueError("data.contact_dimers / contact_trimers add contact configurations to the clusters part's training set")
 
 
 def restore_fragment_charges(structs):
@@ -253,14 +267,15 @@ def pin_sources(a, *sets, n_core=None, truth=None):
     return sets
 
 
-def pin_for(rung, structs, truth):
-    """the pins one rung needs on structures built for a reading (sub-clusters, dimers, held-out frames)."""
+def pin_for(rung, structs, truth, rigid=False):
+    """the pins one rung needs on structures built for a reading (sub-clusters, dimers, held-out frames); rigid: the site
+    model's charges the rigid monomer's (W.pin_site_model)."""
     if rung.pin_mu:
         pin_embedded(structs)
     elif rung.pin_alpha:
         pin_dispersion(structs, truth)
     if rung.msites:
-        W.pin_site_model(structs, truth)
+        W.pin_site_model(structs, truth, rigid=rigid)
     return structs
 
 
@@ -286,18 +301,25 @@ def pin_embedded(structs, n_core=None, self_energy=True):
 def configure(rung, a):
     """the rung with the architecture settings of the run: E_0's cutoff and width, M_A's envelope, the charge source
     and the neutrality shift (per fragment, or over the structure as before v0.0.8), the band edge l_1 and the
-    near-source switch of the band-field input (r_s = rs_over_l1 x l_1; 0 switches it off)."""
+    near-source switch of the band-field input (r_s = rs_over_l1 x l_1; 0 switches it off).  A rung with its own band edge
+    (RUNG_BAND_EDGE) takes it over the run's, and its read-out stays at the run's (response edge, else band edge)."""
     kw = dict(lA=ang_to_bohr(a.lA), e0={**rung.e0, "r_cut": ang_to_bohr(a.rcut), "F": a.F, "n_rbf_readout": 8})
     charge_source = getattr(a, "charges", None)
     if rung.charges and charge_source is not None:
         kw["pin_q"] = charge_source == "pinned"
     kw["frag_neutral"] = getattr(a, "charge_neutrality", "fragment") == "fragment"
-    if a.l1 > 0:
+    own_edge = RUNG_BAND_EDGE.get(rung.name)
+    if own_edge is not None:
+        kw["l1"] = ang_to_bohr(own_edge)                                              # the rung's own band edge
+    elif a.l1 > 0:
         kw["l1"] = ang_to_bohr(a.l1)                                                   # the band edge (default 1.5 A)
     if rung.band_fields >= 0:
-        kw["bf_rs"] = kw.get("l1", rung.l1) * a.rs_over_l1
+        run_edge = ang_to_bohr(a.l1) if a.l1 > 0 else rung.l1                         # the run's band edge
+        kw["bf_rs"] = (run_edge if own_edge is not None else kw.get("l1", rung.l1)) * a.rs_over_l1
         if getattr(a, "response_edge", 0) > 0:
             kw["bf_l"] = ang_to_bohr(a.response_edge)                                  # the response's own band edge
+        elif own_edge is not None:
+            kw["bf_l"] = run_edge                                                      # the read-out at the run's band edge
     return M.with_rung(rung, **kw)
 
 
@@ -522,11 +544,32 @@ def cluster_data_settings(a, truth=None):
         sizes = [int(v) for v in str(settings.pop("probe_train_core_sizes")).split(',')]
         if sizes != [3]:                            # and trimer cores alone keep the settings of before
             settings["probe_train_core_sizes"] = sizes
+    if contact_requested(a):                        # and runs without contact configurations those of before v0.0.12
+        settings.update({key: getattr(a, key, default) for key, default in CLUSTER_CONTACT_DEFAULTS.items()})
+        settings["contact_oo_angstrom"] = [float(v) for v in str(settings["contact_oo_angstrom"]).split(',')]
     return settings
 
 
 def probes_requested(a):
     return bool(getattr(a, "probe_train", 0) or getattr(a, "probe_test", 0))
+
+
+def contact_requested(a):
+    return bool(getattr(a, "contact_dimers", 0) or getattr(a, "contact_trimers", 0))
+
+
+def contact_data(settings, truth):
+    """the training set's contact configurations (W.contact_configurations): data.contact_dimers dimers and
+    data.contact_trimers trimers at O-O distances in data.contact_oo_angstrom, under the pair-energy cap of the raw sets'
+    training domain, one seed per kind (contact_seed, + 1 for the trimers)."""
+    lo, hi = settings["contact_oo_angstrom"]
+    out = []
+    for k, (n_mol, count) in enumerate(((2, settings["contact_dimers"]), (3, settings["contact_trimers"]))):
+        if count:
+            out += W.contact_configurations(n_mol, count, (lo, hi), seed=settings["contact_seed"] + k, truth=truth,
+                                            max_pair_kcal=settings["contact_max_pair_kcal"] or None,
+                                            min_any=settings["contact_min_atom_distance_angstrom"])
+    return out
 
 
 def probe_parts(structs):
@@ -654,21 +697,29 @@ def prepare_heldout(a, truth):
                          pes=np.array([truth.qa.nbody(ang_to_bohr(p), max_order=n)[n] for p in P]),
                          charges=np.array([truth.molecule_charges(p) for p in P]),
                          strict=(dr[idx] <= a.heldout_strict_oh_tol) & (dt[idx] <= a.heldout_strict_angle_tol),
-                         roo=QA.largest_oo(P))
+                         roo=QA.largest_oo(P), soo=QA.smallest_oo(P))
     return sets
 
 
-def model_nbody(params, rung, frames, charges, n, truth=None):
+def model_nbody(params, rung, frames, charges, n, truth=None, rigid=False):
     """the model's n-body energy of each frame (A, (frames, 3n, 3)) by the subset expansion over its sub-clusters, the
     same decomposition as the truth's: E_int of every subset of 2..n molecules, each with its molecules' charges and
     the rung's other pins (the dispersion alpha, the site model).  Before v0.0.11 the held-out frames carried the
     charges only: the M_16 rungs' 2-body readings lacked their dispersion band (their 3- and 4-body readings are
-    unaffected -- the band is pairwise)."""
+    unaffected -- the band is pairwise).  rigid (v0.0.12): every molecule carries the rigid monomer's charges (the
+    charges given and the site model's), as the models trained on rigid monomers do -- on near-rigid frames the charges
+    at each frame's own geometry carry the flux of the truth's charges, which E_0 learned from the internal forces, a
+    second time (e3qp2-results.md sections 3.4-3.5); `charges` is then unused."""
     subsets = [c for k in range(2, n + 1) for c in itertools.combinations(range(n), k)]
     atoms = {c: np.concatenate([np.arange(3 * i, 3 * i + 3) for i in c]) for c in subsets}
+    if rigid:
+        if truth is None:
+            raise ValueError("the rigid monomer's charges are the truth's: give the truth")
+        q_rigid = W.rigid_molecule_charges(truth, n)
+        charges = [q_rigid] * len(frames)
     structs = [W.water_structure(p[atoms[c]], charges=q[atoms[c]]) for p, q in zip(frames, charges) for c in subsets]
     if truth is not None:
-        pin_for(rung, structs, truth)
+        pin_for(rung, structs, truth, rigid=rigid)
     E = T.predict_energies(params, rung, structs).reshape(len(frames), len(subsets))
     out = np.zeros(len(frames))
     for f in range(len(frames)):
@@ -692,6 +743,9 @@ def heldout_metrics(pred, d):
     out = block(np.ones(len(err), dtype=bool))
     out["strict"] = block(d["strict"])
     out["by_largest_oo_angstrom"] = {f"{lo:g}-{hi:g}": block((d["roo"] >= lo) & (d["roo"] < hi)) for lo, hi in HELDOUT_OO_BINS}
+    if "soo" in d:                                         # the closest contact (v0.0.12): the compressed frames apart
+        out["by_smallest_oo_angstrom"] = {f"{lo:g}-{hi:g}": block((d["soo"] >= lo) & (d["soo"] < hi))
+                                          for lo, hi in HELDOUT_CONTACT_BINS}
     return out
 
 
@@ -715,6 +769,10 @@ def run_clusters(a, truth=None):
         train = W.cluster_dataset(settings["train_sizes"], settings["n_train"],
                                   seed=settings["train_seed"], sigma=settings["sigma"], truth=truth, **geometry)
         train += [W.monomer_structure(truth)] * settings["monomer_references"]
+        if contact_requested(a):
+            # rigid dimers and trimers at a hydrogen-bond contact or closer, where the relaxed clusters rarely go and the
+            # raw CCSD(T) sets do (e3qp2-results.md section 3.5); after the monomers, so that the clusters' indices stay
+            train += contact_data(settings, truth)
         tests = {n: W.cluster_dataset((n,), settings["n_test"],
                                      seed=settings["test_seed"] + 100 * i, truth=truth, **geometry)
                  for i, n in enumerate(settings["test_sizes"])}
@@ -748,10 +806,19 @@ def run_clusters(a, truth=None):
         far_train = probe_interaction_labels(probes["train"], truth)
     nadd_truth = {n: np.array([s.energy - W.pair_additive_energy(bohr_to_ang(s.positions), n, truth)
                               for s in structs]) for n, structs in tests.items()}
-    train_count = len(train) - settings["monomer_references"]
+    contacts = [s for s in train if s.info.get("contact")]
+    train_count = len(train) - settings["monomer_references"] - len(contacts)
     print(f"clusters ({truth.name} truth): {train_count} training (sizes {settings['train_sizes']}), "
           + ", ".join(f"{len(structs)} test clusters of size {n}" for n, structs in tests.items()), flush=True)
-    results = {"dataset": {**settings, "train_count": train_count,
+    if contacts:
+        kcal_ = 627.5094740631
+        c_oo = np.concatenate([[np.linalg.norm(p[3 * i] - p[3 * j]) for i in range(len(p) // 3) for j in range(i + 1, len(p) // 3)]
+                               for p in (bohr_to_ang(s.positions) for s in contacts)])
+        print(f"  contact configurations: {sum(s.n_atoms == 6 for s in contacts)} dimers, {sum(s.n_atoms == 9 for s in contacts)} "
+              f"trimers (O-O {settings['contact_oo_angstrom'][0]:g}-{settings['contact_oo_angstrom'][1]:g} A, every pair at most "
+              f"{settings['contact_max_pair_kcal']:g} kcal/mol); their pairs below O-O 2.7 A: {int((c_oo < 2.7).sum())} of {len(c_oo)}; "
+              f"interaction energies rms {np.sqrt(np.mean([s.energy ** 2 for s in contacts])) * kcal_:.2f} kcal/mol", flush=True)
+    results = {"dataset": {**settings, "train_count": train_count, "contact_count": len(contacts),
                            "test_counts": {str(n): len(structs) for n, structs in tests.items()}},
                "reference_nonadditive": {str(n): v.tolist() for n, v in nadd_truth.items()}}
     if 6 in tests:
@@ -770,7 +837,7 @@ def run_clusters(a, truth=None):
                               for d in np.unique(ref["d"])), flush=True)
     if truth.name != "pw":
         rms = lambda v: float(np.sqrt(np.mean(np.square(v))))
-        y_tr = [s.energy for s in train if s.n_atoms > 3]                  # the clusters (the probes are reported above)
+        y_tr = [s.energy for s in train if s.n_atoms > 3 and not s.info.get("contact")]   # the clusters (probes and contacts apart)
         nb = {n: [truth.qa.nbody(s.positions) for s in structs] for n, structs in tests.items() if n >= 3}
         results["setup"] = {"truth": truth.describe(), "train_energy_rms": rms(y_tr),
                             "test_nbody": {str(n): {f"{k}b": [d[k] for d in v] for k in (3, 4) if k <= n} for n, v in nb.items()}}
@@ -787,14 +854,21 @@ def run_clusters(a, truth=None):
             summary[key] = {"frames": int(len(d["label"])), "of": d["total"], "near_rigid": d["near_rigid"],
                             "in_domain": d["in_domain"], "strict": int(d["strict"].sum()),
                             "label_rms": m["label_rms"] if m["count"] else None, "pes_rmse": m["rmse_pes"] if m["count"] else None,
-                            "by_largest_oo_angstrom": {b: {"count": v["count"], **({"label_rms": v["label_rms"], "pes_rmse": v["rmse_pes"]}
-                                                                                    if v["count"] else {})}
-                                                       for b, v in m["by_largest_oo_angstrom"].items()}}
+                            **{f"by_{side}_oo_angstrom": {b: {"count": v["count"], **({"label_rms": v["label_rms"], "pes_rmse": v["rmse_pes"]}
+                                                                                       if v["count"] else {})}
+                                                          for b, v in m[f"by_{side}_oo_angstrom"].items()}
+                               for side in ("largest", "smallest") if f"by_{side}_oo_angstrom" in m}}
             print(f"  held-out {key}: {len(d['label'])} raw CCSD(T) frames read ({d['near_rigid']} of {d['total']} with near-rigid "
                   f"monomers, {d['in_domain']} of those in the training domain; {int(d['strict'].sum())} strict); labels rms {summary[key]['label_rms'] * kcal:.4f} kcal/mol, the PES's own rmse "
                   f"{summary[key]['pes_rmse'] * kcal:.4f}; by largest O-O: "
-                  + ", ".join(f"{b} A n = {v['count']}" for b, v in summary[key]["by_largest_oo_angstrom"].items()), flush=True)
+                  + ", ".join(f"{b} A n = {v['count']}" for b, v in summary[key]["by_largest_oo_angstrom"].items())
+                  + ("; by smallest O-O: " + ", ".join(f"{b} A n = {v['count']}" for b, v in summary[key]["by_smallest_oo_angstrom"].items())
+                     if "by_smallest_oo_angstrom" in summary[key] else ""),
+                  flush=True)
         results["heldout_sets"] = summary
+        results["heldout_pin_charges"] = getattr(a, "heldout_pin_charges", "frame")
+        print(f"  held-out readings with the pinned charges {'of the rigid monomer (as trained)' if results['heldout_pin_charges'] == 'rigid' else 'at each frame' + chr(39) + 's own geometry'}",
+              flush=True)
     if os.path.exists(a.out):
         with open(a.out) as fh:
             previous = json.load(fh)
@@ -866,14 +940,17 @@ def run_clusters(a, truth=None):
                           f"{probe_summary(mk)}", flush=True)
             for key, d in heldout.items():
                 t1 = time.time()
-                m = heldout_metrics(model_nbody(params, rung, d["pos"], d["charges"], d["n"], truth), d)
+                m = heldout_metrics(model_nbody(params, rung, d["pos"], d["charges"], d["n"], truth,
+                                                rigid=getattr(a, "heldout_pin_charges", "frame") == "rigid"), d)
                 heldout_runs[key].append(m)
-                far = m["by_largest_oo_angstrom"]
+                far = m["by_largest_oo_angstrom"]; near = m.get("by_smallest_oo_angstrom", {})
                 print(f"  {name} seed {seed}: held-out {key} rmse {m['rmse_model'] * kcal:.4f} kcal/mol (PES {m['rmse_pes'] * kcal:.4f}, "
                       f"labels {m['label_rms'] * kcal:.4f}); strict {m['strict'].get('rmse_model', float('nan')) * kcal:.4f}; by largest O-O "
                       + ", ".join(f"{b} A {v['rmse_model'] * kcal:.4f} / PES {v['rmse_pes'] * kcal:.4f}" for b, v in far.items() if v["count"])
+                      + ("; by smallest O-O " + ", ".join(f"{b} A {v['rmse_model'] * kcal:.4f} / PES {v['rmse_pes'] * kcal:.4f}"
+                                                          for b, v in near.items() if v["count"]) if near else "")
                       + f"  [{time.time() - t1:.0f} s]", flush=True)
-        results[name] = {"clusters_by_size": metrics}
+        results[name] = {"clusters_by_size": metrics}                  # its model record: _save, from the run's arguments
         if "6" in metrics:
             results[name].update(hexamer=metrics["6"]["energy_rmse"],
                                  nonadditive=metrics["6"]["nonadditive_rmse"])
@@ -1055,6 +1132,24 @@ def main():
                     help="seed of the training probes (the test probes: +100)")
     ap.add_argument("--probe_train_core_sizes", default=CLUSTER_PROBE_DEFAULTS["probe_train_core_sizes"],
                     help="molecules in the training probes' cores, comma-separated (one seed per size: probe_seed + 1000 k)")
+    # contact configurations in the clusters part's training set (YAML: its data mapping; v0.0.12)
+    ap.add_argument("--contact_dimers", type=int, default=CLUSTER_CONTACT_DEFAULTS["contact_dimers"],
+                    help="rigid dimers at a hydrogen-bond contact or closer added to the training set (0: none)")
+    ap.add_argument("--contact_trimers", type=int, default=CLUSTER_CONTACT_DEFAULTS["contact_trimers"],
+                    help="rigid trimers with two such contacts added to the training set (0: none)")
+    ap.add_argument("--contact_oo_angstrom", default=CLUSTER_CONTACT_DEFAULTS["contact_oo_angstrom"],
+                    help="the contacts' O-O range (A), lower,upper (drawn uniformly)")
+    ap.add_argument("--contact_seed", type=int, default=CLUSTER_CONTACT_DEFAULTS["contact_seed"],
+                    help="seed of the contact dimers (the trimers: +1)")
+    ap.add_argument("--contact_max_pair_kcal", type=float, default=CLUSTER_CONTACT_DEFAULTS["contact_max_pair_kcal"],
+                    help="every pair of a contact configuration at most this truth 2-body energy (kcal/mol; the raw sets' "
+                         "training domain); 0: no cap")
+    ap.add_argument("--contact_min_atom_distance_angstrom", type=float,
+                    default=CLUSTER_CONTACT_DEFAULTS["contact_min_atom_distance_angstrom"],
+                    help="no two atoms of different molecules of a contact configuration nearer than this (A)")
+    ap.add_argument("--heldout_pin_charges", choices=["frame", "rigid"], default="frame",
+                    help="the pinned charges of the held-out readings: at each frame's own geometry (frame: as up to v0.0.11) or "
+                         "the rigid monomer's, as the models were trained (rigid); YAML truth.heldout.pin_charges")
     # the dimer design (YAML: the data mapping of the dimer part)
     ap.add_argument("--re_angstrom", type=float, default=None, help="dimer minimum R_e (A) setting the window; omitted: the truth's own")
     ap.add_argument("--window_lower_over_re", type=float, default=1.35)

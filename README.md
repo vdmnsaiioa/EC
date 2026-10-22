@@ -108,6 +108,33 @@ response on the dipole-surface charges: the control for the field), `M_16S0pm`, 
 384 training probes on 48 cores of 3, 4 and 5 molecules (`data.probe_train_core_sizes`) and E3-QP's test probes.
 Every reading applies each rung's pins (v0.0.10 read the M_16 rungs' raw 2-body frames without their dispersion band).
 
+### E3-QP3: the short range on q-AQUA-pol
+
+`configs/water_qaqua_pol3.yaml` follows E3-QP2 (`notes/e3qp2-results.md`) on the same truth, training clusters,
+probes, test sets and far-field matching; pre-registered in `notes/e3qp3-preregistration.md`
+(`scratch/e3qp3_preregistration.py`). E3-QP2's short-range diagnostic (`scratch/e3qp3_shortrange_diagnostic.py`,
+§3.5 of its results) found the pinned rungs better than M_∞ on rigid, covered dimers and worse on the compressed raw
+dimers (O–O < 2.7 Å) the relaxed clusters hardly visit, E₀ fitting its own training energies no better than the test
+ones, and a double count of the truth's charge flux in the raw sets' readings. The changes:
+
+- **Data at the contact**: 600 rigid dimers and 200 rigid trimers at O–O 2.3–3.0 Å, every pair under the raw sets'
+  2 kcal/mol cap (`data.contact_dimers`, `contact_trimers`, `contact_oo_angstrom`, `contact_max_pair_kcal`,
+  `contact_min_atom_distance_angstrom`, `contact_seed`; `W.contact_configurations`): the raw compressed dimers beyond
+  the training pairs' reach fall from 57 to 11 % (O–O 2.3–2.7 Å).
+- **E₀ fitted to the energies**: `training.loss.energy_weight: 100` (the per-atom energy term was two orders of
+  magnitude below the force term), Adam 4000, L-BFGS 1000.
+- **The pins as trained**: `truth.heldout.pin_charges: rigid` reads the raw near-rigid frames with the rigid monomer's
+  charges, as the models are trained (`frame`, the default, keeps the charges at each frame's own geometry, as up to
+  v0.0.11); every held-out reading is also binned by the frame's closest contact (`by_smallest_oo_angstrom`).
+- **The pinned bands' contact as a factor**: `M_16pm_e1`, `M_16C2pm_e1` are `M_16pm`, `M_16C2pm` with their own band
+  edge ℓ₁ = 1.0 Å (`e3_water.RUNG_BAND_EDGE`), the read-out's at the run's (`model.response_edge_angstrom: 0.75`), so
+  that the matched response and every far-field reading stay E3-QP2's.
+
+```sh
+python scripts/run_experiment.py --config configs/water_qaqua_pol3.yaml --out_dir results/e3qp3
+python scratch/e3qp3_shortrange_diagnostic.py results/e3qp3 external/qaqua/build_pol --response_edge 0.75 --seeds all
+```
+
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
 ### Water model settings
@@ -164,6 +191,13 @@ Sizes are numbers of water molecules, and sampling counts are **per size**. Thes
 `train_seed` controls dataset generation independently of model initialization. Test sizes use seeds `test_seed + 100 * index` in the configured list order (defaults: size 6 uses 100; size 2 uses 200). `sigma` adds training energy noise in hartree. Test labels remain noiseless. `monomer_references` controls the number of isolated monomer references added to training.
 
 `mc_steps` sets the number of rigid-body Metropolis relaxation attempts at `temperature_kelvin`. `radius_angstrom: null` chooses a generation radius of `1.9 * size**(1/3) + 0.8` Å for each size. `min_oo_angstrom` sets the initial oxygen separation, and `min_atom_distance_angstrom` sets the intermolecular atom distance floor during generation and relaxation. Use a radius large enough to place the requested molecules. Impossible diameter/separation combinations are rejected, and placement retries are bounded with an informative error.
+
+Contact configurations (v0.0.12, any truth): `contact_dimers` rigid dimers and `contact_trimers` rigid trimers (a third
+molecule at such a distance from one of the first two) at a hydrogen-bond contact or closer — O–O drawn uniformly from
+`contact_oo_angstrom` ([lower, upper], default [2.3, 3.0]), every pair's truth 2-body energy at most
+`contact_max_pair_kcal` (0: no cap), no two atoms of different molecules nearer than `contact_min_atom_distance_angstrom`
+— seeded by `contact_seed` (+1 for the trimers) and added to the training set after the monomer references. Both
+counts 0 (the default): none, and the dataset settings of before.
 
 Probe configurations (any truth): `probe_distances_angstrom` (a list), `probe_train` and `probe_test` (per distance and core; 0, the default, means none), `probe_train_cores`, `probe_test_cores` and `probe_seed` (the test probes use +100) add a relaxed trimer with one monomer at each distance — the training probes weighted by `training.loss.far_weight`, the test probes read with every model (the probe's interaction with the trimer and its non-additive part, by distance). Without probes the dataset settings are those of before, so older caches stay valid.
 
@@ -342,6 +376,7 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
     python scripts/run_experiment.py --config configs/water_qaqua.yaml --out_dir results/e3q   # E3-Q (after external/qaqua/build.sh)
     python scripts/run_experiment.py --config configs/water_qaqua_pol.yaml --out_dir results/e3qp  # E3-QP (after build_pol.sh)
     python scripts/run_experiment.py --config configs/water_qaqua_pol2.yaml --out_dir results/e3qp2  # E3-QP2
+    python scripts/run_experiment.py --config configs/water_qaqua_pol3.yaml --out_dir results/e3qp3  # E3-QP3
     python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl \
         --out results/e3r_clusters_yaml.json                                  # E3-R R1, the cluster protocol from YAML
     sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
@@ -398,7 +433,7 @@ CCSD(T) data when they exist.  Every part saves its json after each rung.
     tests/        pytest (fast; the ladder and the toy are scripts)
     notes/        the pre-registration and result notes of the experiments run from this repository
     configs/      the YAML configurations (configs/water_qaqua.yaml: E3-Q; configs/water_qaqua_pol.yaml: E3-QP;
-                  configs/water_qaqua_pol2.yaml: E3-QP2)
+                  configs/water_qaqua_pol2.yaml: E3-QP2; configs/water_qaqua_pol3.yaml: E3-QP3)
     external/     the q-AQUA and q-AQUA-pol build scripts and their C interfaces (the builds, external/qaqua/build*/, are not committed)
     scratch/      one-off computations quoted in the notes (not part of the package)
     results/      the logs and jsons of every run quoted in RESULTS.md

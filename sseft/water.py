@@ -437,6 +437,62 @@ def probe_configurations(n_core, distances_ang, n_per_distance, seed=0, mc_steps
     return out, np.array(cores)
 
 
+def contact_configurations(n_mol, count, oo_range_ang=(2.3, 3.0), seed=0, truth=None, max_pair_kcal=2.0, min_any=1.5):
+    """rigid dimers (n_mol = 2) or trimers (n_mol = 3) at a hydrogen-bond contact or closer, for the training set: molecule
+    1's O at an O-O distance from molecule 0's drawn uniformly from oo_range_ang (A), in a random direction; a trimer's
+    molecule 2 likewise from molecule 0 or 1 (at random), no nearer than the range's lower end to the other; every
+    orientation uniform; kept when every pair's truth 2-body energy is at most max_pair_kcal (the raw CCSD(T) sets'
+    training domain; None: no cap) and no two atoms of different molecules are nearer than min_any (A).  Labels: the
+    truth's interaction energies and forces, its charges pinned.  The Metropolis-relaxed clusters rarely visit the
+    contact -- 1.5 % of their pairs below O-O 2.7 A and no two atoms of different molecules nearer than 1.7 A, against
+    5.7 % of the raw dimers, whose closest atoms come to 1.53 A (e3qp2-results.md section 3.5)."""
+    if n_mol not in (2, 3):
+        raise ValueError("contact configurations are dimers (n_mol 2) or trimers (n_mol 3)")
+    if isinstance(count, (bool, np.bool_)) or not isinstance(count, (int, np.integer)) or count < 0:
+        raise ValueError("count must be an integer >= 0")
+    lo, hi = (float(v) for v in oo_range_ang)
+    if not (0 < lo <= hi and math.isfinite(hi)):
+        raise ValueError("oo_range_ang must be (lower, upper) with 0 < lower <= upper")
+    if not (math.isfinite(min_any) and min_any >= 0):
+        raise ValueError("min_any must be finite and >= 0")
+    truth = truth or PW_TRUTH
+    rng = np.random.default_rng(seed)
+    mono = monomer_positions()
+    mol = np.repeat(np.arange(n_mol), 3); inter = mol[:, None] != mol[None, :]
+    direction = lambda: (lambda u: u / np.linalg.norm(u))(rng.normal(size=3))
+    out, tries = [], 0
+    while len(out) < count:
+        tries += 1
+        if tries > 100000 + 1000 * count:
+            raise ValueError("could not place contact configurations within the caps; widen oo_range_ang, raise "
+                             "max_pair_kcal or lower min_any")
+        Os = [np.zeros(3)]
+        Os.append(Os[0] + rng.uniform(lo, hi) * direction())
+        if n_mol == 3:
+            k = int(rng.integers(2))
+            O2 = Os[k] + rng.uniform(lo, hi) * direction()
+            if np.linalg.norm(O2 - Os[1 - k]) < lo:
+                continue
+            Os.append(O2)
+        pos = np.concatenate([O + mono @ random_rotation(rng).T for O in Os])
+        if np.linalg.norm(pos[:, None] - pos[None, :], axis=-1)[inter].min() < min_any:
+            continue
+        if max_pair_kcal is not None:
+            pairs = [np.concatenate([pos[3 * i:3 * i + 3], pos[3 * j:3 * j + 3]]) for i in range(n_mol) for j in range(i + 1, n_mol)]
+            if max(truth.energy(p, 2) for p in pairs) * 627.5094740631 > max_pair_kcal:
+                continue
+        E, F = truth.energy_forces(pos, n_mol)
+        out.append(water_structure(pos, energy=E, forces=F, info={"n": n_mol, "k": len(out), "contact": True},
+                                   charges=truth.molecule_charges(pos)))
+    return out
+
+
+def rigid_molecule_charges(truth, n_mol):
+    """the truth's pinned charges (O, H, H) of the rigid monomer on n_mol molecules: the charges a model trained on rigid
+    monomers carries, whatever the geometry it is read at (e3qp2-results.md section 3.4)."""
+    return np.tile((truth or PW_TRUTH).molecule_charges(monomer_positions()), n_mol)
+
+
 # ---------------------------------------------------------------- the ion probe (band-field response test) -----
 def ion_structure(pos_ang, n_mol, energy=None, forces=None, info=None):
     """n_mol waters (O, H, H each) followed by one ion: fragments per molecule and one for the ion, each with its own
@@ -500,11 +556,18 @@ def ion_response_decomposition(st):
     return dict(y=y, es=es, piece2=piece2, response=y - es - piece2)
 
 
-def pin_site_model(structs, truth):
+def pin_site_model(structs, truth, rigid=False):
     """pin a truth's site model (truth.site_model: q-AQUA-pol's TTM3-F charges on the H atoms and the M-sites) on water
-    structures, for the rungs whose sources are the truth's permanent charges exactly (Rung.msites)."""
+    structures, for the rungs whose sources are the truth's permanent charges exactly (Rung.msites).  rigid: every
+    molecule carries the rigid monomer's site charges, at its own sites -- the pins of a model trained on rigid monomers,
+    read on near-rigid frames (the charges recomputed at each frame's geometry carry the flux of the truth's charges,
+    which E_0 learned from the internal forces: counted twice, e3qp2-results.md sections 3.4-3.5)."""
+    if rigid:
+        q_r, _, vq_r, _ = truth.site_model(monomer_positions())
     for s in structs:
         q, w, vq, vf = truth.site_model(bohr_to_ang(s.positions))
+        if rigid:
+            n = len(vq); q = np.tile(q_r, n); vq = np.full(n, float(vq_r[0]))
         s.pinned = {**s.pinned, "q_site": q, "vsite_w": w, "vsite_q": vq, "vsite_frag": vf}
     return structs
 

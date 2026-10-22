@@ -136,14 +136,37 @@ re-read: M_16† 0.195–0.266, M_16S0† 0.217–0.251 kcal/mol with the band (
 as trained), by O–O bin and by coverage; plus the training fit (energies; the forces' rigid-body and internal parts)
 and the hexamers' 2-body error against the rest.
 
+**3.5 The short-range diagnostic** (21 Oct; `scratch/e3qp3_shortrange_diagnostic.py` on the saved models, seed 0,
+one RTX 3090, 12 min; the readings as E3-QP2 read them reproduce exactly). Kcal/mol throughout.
+
+1. *The double count is confirmed, and small.* Read with the charges they were trained with, the pinned rungs' 2-body
+   distortion error falls from 0.070–0.102 to 0.027–0.046 and their raw 2-body reading by 0.02–0.04 (M_16C2†ᵐ 0.230
+   → 0.204, M_16†ᵐ 0.295 → 0.258); the 3- and 4-body readings barely move (the bands' flux is pairwise). M_∞'s
+   distortion error is 0.012: E₀ learns the monomers' distortion response well from the internal forces.
+2. *Compressed dimers carry the pinned rungs' 2-body error.* At O–O 2.3–2.7 Å (278 frames, 5.6 %) lies 56–82 % of their
+   squared error (M_∞ 27 %); at 2.7 Å and beyond every pinned rung beats M_∞, read with its own charges (0.103–0.151
+   against 0.159). At 2.3–2.7 Å their rigid error is 0.53–0.94 against M_∞'s 0.39: the training clusters hold 28 pairs
+   there (1.5 %, one below 2.5 Å), and there the pinned charges are furthest from TTM3-F's smeared ones (§3.1: 1.31
+   rms at 2.4–2.7 Å) — E₀ extrapolates a steep correction without data, M_∞ a smooth total. §3.4's "not the contact
+   in general" holds from 2.7 Å; below it the contact is the cause.
+3. *E₀ underfits.* On its own training clusters the energy error is 0.17–0.20 for the pinned rungs and 0.26 for M_∞ —
+   the test errors' size; forces 0.45–0.55 (rigid-body) and 0.51–0.67 kcal/mol/Å (internal) per molecule. At these
+   errors the loss's energy term (per atom) is two orders of magnitude below its force term: the energies are learned
+   through the forces, and every reading is an energy.
+4. *The 3-body at contact is a deficit of its own.* The compact trimers (largest O–O < 5 Å, covered by the training
+   triples) read a rigid 3-body error of 0.149–0.229 for the pinned rungs against M_∞'s 0.133, the daggers worst. On
+   the hexamers the pins cut the 2-body part (0.17–0.32 against M_∞'s 0.46) while the rest is 0.32–0.42 for the
+   daggers and 0.25–0.30 for the order-0 read-outs and M_16C0†, against M_∞'s 0.21; only M_16C2†ᵐ (0.14) and M_16S2†ᵐ
+   (0.18) beat it. 11 % of the compact trimers hold a pair below 2.7 Å.
+
 ## 4. Next
 
-- **The short range first** (20 Oct, Vadic: "we need to address the short range prediction"): the diagnostic on the
-  saved E3-QP2 models (~30 min on one GPU, one seed per rung); then E3-QP3 by what it shows — a consistent pin
-  convention if the double count is confirmed (the reading alone, no retraining); training monomers sampled within the
-  raw frames' tolerance if the distortion response dominates; broader pair orientations (3.2–5 Å, compressed contacts)
-  if the uncovered frames do; E₀'s width and the force loss's rigid-body/internal balance if the training fit is the
-  limit. The band-edge scan of §3.1 waits on it.
+- **E3-QP3, the short range** (set up 22 Oct after Vadic's "we need to address the short range prediction" and §3.5;
+  `e3qp3-preregistration.md`, `configs/water_qaqua_pol3.yaml`, harness v0.0.12): every reading with the pins as
+  trained; 600 contact dimers and 200 contact trimers at O–O 2.3–3.0 Å under the raw sets' 2 kcal/mol pair cap (the
+  raw compressed dimers beyond the training pairs' reach: 57 → 11 %); the energy weight 100, Adam 4000, L-BFGS 1000;
+  the pinned bands' contact as a factor (M_16†ᵐ, M_16C2†ᵐ at the band edge 0.75 and 1.0 Å, the read-out's at 0.75 Å:
+  the far field E3-QP2's, computed); rungs M_∞, M_16†ᵐ, M_16†ᵐ_e1, M_16C2†ᵐ, M_16C2†ᵐ_e1; the diagnostic on every model.
 - **M_16C2†ᵐ forward** as the response rung (M_16C0†ᵐ the cheaper one). The over-strong mutual coupling is the thing to
   watch in the ion part (MB-pol/MB-nrg), where the fields at contact are strong and the mutual share large; matching
   data with a larger mutual share would pin it.
