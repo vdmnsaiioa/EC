@@ -5,7 +5,10 @@ that E_0 cannot see -- their interaction energies, exactly as T.fit(readout_firs
 probes and the test hexamers.  Beyond r_c the trained models' probe readings are these numbers (E_0 cancels in the
 probe's interaction and the read-out is held), so they are the pre-registered values.
 
-    python scratch/e3qp2_matched_response.py [build_pol] [rungs] [--quick]
+    python scratch/e3qp2_matched_response.py [build_pol] [rungs] [--quick] [--edge=A] [--F=16]
+
+--edge: the read-out's band edge (A; 0: the band edge 0.75 A); --F: E_0's width, which the species read-out's random
+features share (E3-QP4: 32).  Outputs carry _edge<e> / _F<F> in their names when these differ from the defaults.
 """
 import os, sys, time, json
 import numpy as np
@@ -20,6 +23,7 @@ import e3_water as E3
 K = 627.5094740631
 args = [x for x in sys.argv[1:] if not x.startswith("--")]
 edge = float(next((x.split("=")[1] for x in sys.argv[1:] if x.startswith("--edge=")), 0.0))
+width = int(next((x.split("=")[1] for x in sys.argv[1:] if x.startswith("--F=")), 16))
 root = args[0] if args else os.path.join(REPO, "external", "qaqua", "build_pol")
 names = (args[1] if len(args) > 1 else "M_16S0pm,M_16C0pm,M_16S2pm,M_16C2pm,M_16C0p").split(",")
 quick = "--quick" in sys.argv
@@ -41,7 +45,7 @@ test_probes = W.probe_configurations(3, dists, 10, seed=500, mc_steps=300, n_cor
 hexamers = W.cluster_dataset([6], 24, seed=100, truth=truth, mc_steps=300, **geo)
 print(f"{len(train_probes)} training probes, {len(test_probes)} test probes, {len(hexamers)} hexamers  [{time.time() - t0:.0f} s]", flush=True)
 
-a = type("A", (), dict(lA=4.0, rcut=6.0, F=16, l1=0.75, rs_over_l1=0.0, response_edge=edge, rungs=",".join(names)))()
+a = type("A", (), dict(lA=4.0, rcut=6.0, F=width, l1=0.75, rs_over_l1=0.0, response_edge=edge, rungs=",".join(names)))()
 blind = E3.far_field_blind(train_probes, a.rcut)
 labelled = E3.probe_interaction_labels(train_probes, truth)
 match = [labelled[i] for i in np.flatnonzero(blind)]
@@ -145,7 +149,9 @@ for name in names:
     rec.update(hexamer_whole_rmse=rms(np.asarray(aux["E_bf"]) - hex_tot), dimer_rmse=rms(dim_resp - dim_ind))
     out[name] = rec
     import pickle
-    pickle.dump(jax.tree_util.tree_map(np.asarray, params["readout"]), open(os.path.join(REPO, "scratch", f"matched_{name}{'_quick' if quick else ''}.pkl"), "wb"))
-tag = ("_quick" if quick else "") + (f"_edge{edge:g}" if edge else "")
+    pickle.dump(jax.tree_util.tree_map(np.asarray, params["readout"]),
+                open(os.path.join(REPO, "scratch", f"matched_{name}{'_quick' if quick else ''}{f'_edge{edge:g}' if edge else ''}"
+                                                   f"{f'_F{width}' if width != 16 else ''}.pkl"), "wb"))
+tag = ("_quick" if quick else "") + (f"_edge{edge:g}" if edge else "") + (f"_F{width}" if width != 16 else "")
 json.dump(out, open(os.path.join(REPO, "scratch", f"e3qp2_matched_response{tag}.json"), "w"), indent=1, default=float)
 print(f"done in {time.time() - t0:.0f} s")

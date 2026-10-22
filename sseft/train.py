@@ -31,7 +31,7 @@ def make_loss_sums(rung, scale, w_force=10.0):
             E = jax.vmap(lambda bb: M.energy_single(params, rung, bb)[0])(batch)
             sf, cf = jnp.zeros(()), jnp.zeros(())
         e_err = (E - batch["energy"]) / n / scale
-        we = batch["has_energy"] * wgt
+        we = batch["has_energy"] * wgt * batch.get("energy_weight", 1.0)   # the energy term: a weighted mean over structures
         return jnp.sum(e_err ** 2 * we), jnp.sum(we), sf, cf
     return sums
 

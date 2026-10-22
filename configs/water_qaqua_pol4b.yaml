@@ -1,0 +1,102 @@
+# E3-QP4, job B: the energy term's balance.  Job A (configs/water_qaqua_pol4a.yaml: E3-QP3 at E_0's width 32, the
+# read-out's band edge as a factor) with the contact configurations' energies at weight 0.125 -- the one change against
+# job A: the 600 contact dimers and 200 contact trimers then weigh in the energy term as much as the 300 relaxed
+# clusters at equal errors (the loss weighs a structure's energy by 1 / n_atoms^2; at weight 1 they weigh eight times
+# as much: notes/e3qp3-results.md section 3.2).  Their forces keep weight 1.  Pre-registration:
+# notes/e3qp4-preregistration.md.
+#
+#   python scripts/run_experiment.py --config configs/water_qaqua_pol4b.yaml --out_dir results/e3qp4b
+#
+# Every value of the experiment is in this file; explicit flags override it.
+experiment:
+  type: water
+  part: [clusters]
+
+truth:
+  name: qaqua_pol
+  root: external/qaqua/build_pol
+  heldout:
+    sets: [2b, 3b, 4b]
+    rigid_tolerance: {oh_angstrom: 0.03, angle_degrees: 5.0}
+    strict_tolerance: {oh_angstrom: 0.02, angle_degrees: 3.0}
+    max_pair_energy_kcal: 2.0
+    max_frames: null
+    pin_charges: rigid              # the rigid monomer's charges in every reading, as the models are trained
+
+model:
+  charges: null
+  charge_neutrality: fragment
+  rs_over_l1: 0.0
+  features: 32                      # E3-QP3: 16 (E_0's width, and the species read-out's random features)
+  analytic_envelope_angstrom: 4.0
+  r_cut_angstrom: 6.0
+  band_edge_angstrom: 0.75
+  response_edge_angstrom: 0.75      # the read-out's; M_16C2pm_r1: 1.0 A (its own, e3_water.RUNG_RESPONSE_EDGE)
+
+training:
+  adam:
+    learning_rate: 0.003
+    final_learning_rate_ratio: 0.01
+    beta1: 0.9
+    beta2: 0.999
+    epsilon: 1.0e-8
+    epsilon_root: 0.0
+    gradient_clip_norm: null
+  readout:
+    freeze_during_adam: true
+    linear_solve: true
+    ridge: 1.0e-8
+  lbfgs:
+    learning_rate: null
+    memory_size: 10
+    scale_init_precond: true
+    max_linesearch_steps: 20
+    readout_only: false
+  loss:
+    energy_weight: 100.0            # E3-QP2: 1.0, the energies learned through the forces
+    contact_energy_weight: 0.125    # job A (and E3-QP3): 1.0 -- sum of 1/n_atoms^2 over the clusters / over the contacts
+    force_weight: 1.0
+    far_weight: 1.0
+  energy_scale: null
+  verbose: false
+
+parts:
+  clusters:
+    rungs: [M_inf, M_16pm, M_16C2pm, M_16C2pm_r1]
+    data:
+      train_sizes: [3, 4, 5]
+      test_sizes: [6, 2]
+      n_train: 100
+      n_test: 24
+      train_seed: 0
+      test_seed: 100
+      sigma: 1.0e-9
+      monomer_references: 4
+      mc_steps: 300
+      temperature_kelvin: 300.0
+      radius_angstrom: null
+      min_oo_angstrom: 2.7
+      min_atom_distance_angstrom: 1.7
+      probe_distances_angstrom: [8.0, 10.0, 12.0, 15.0]
+      probe_train: 2
+      probe_train_cores: 16
+      probe_train_core_sizes: [3, 4, 5]
+      probe_test: 10
+      probe_test_cores: 2
+      probe_seed: 400
+      contact_dimers: 600             # rigid dimers, O-O drawn uniformly from contact_oo_angstrom
+      contact_trimers: 200            # rigid trimers with two such contacts
+      contact_oo_angstrom: [2.3, 3.0]
+      contact_seed: 700
+      contact_max_pair_kcal: 2.0      # every pair: the raw sets' training domain
+      contact_min_atom_distance_angstrom: 1.5
+    training:
+      seeds: [0, 1, 2, 3]
+      adam: {steps: 4000, batch_size: 32}
+      readout:                        # E3-QP2's matching (at width 32: the far field computed again)
+        stage: far_first
+        orders: all
+        solve_iterations: 4
+        ridge_selection: groups
+      lbfgs: {steps: 1000, chunk_size: 64, freeze_readout: true}
+      loss: {far_labels: interaction}

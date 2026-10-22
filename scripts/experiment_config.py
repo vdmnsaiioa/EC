@@ -118,6 +118,7 @@ TRAINING_FIELDS = {
         "force_weight": ("w_force", "nonnegative"),
         "far_weight": ("w_far", "positive"),
         "far_labels": ("far_labels", "far_labels"),                        # total, or the probe's interaction energy
+        "contact_energy_weight": ("w_contact_energy", "positive"),         # the contact configurations' energies (v0.0.13)
     },
 }
 CHOICES = {"readout_orders": ("zero", "all"), "ridge_selection": ("fixed", "groups"), "readout_stage": ("after_adam", "far_first"),
@@ -205,7 +206,7 @@ def _training_defaults(kind):
         "readout_orders": "zero", "readout_far_weight": None, "readout_solve_iterations": 1, "readout_stage": "after_adam",
         "readout_ridge_selection": "fixed", "lbfgs_freeze_readout": False, "far_labels": "total",
         "w_energy": 1.0, "w_force": 0.0 if kind == "x2b_toy" else 1.0,
-        "w_far": 1.0, "energy_scale": None,
+        "w_far": 1.0, "w_contact_energy": 1.0, "energy_scale": None,
         "verbose": kind == "x2b_toy", "model_seeds": None,
     }
 
@@ -235,6 +236,7 @@ def add_training_arguments(parser, kind):
         "readout_solve_iterations": "Gauss-Newton steps of the readout solve",
         "readout_ridge_selection": "readout solve ridge: fixed, or groups (chosen on held-out probe cores)",
         "far_labels": "training probes' labels: total, or interaction (the probe's interaction energy)",
+        "w_contact_energy": "weight of the contact configurations' energies in the loss (their forces keep weight 1)",
         "energy_scale": "positive target normalization; omitted means automatic",
     }
     for destination, default in defaults.items():

@@ -135,6 +135,29 @@ python scripts/run_experiment.py --config configs/water_qaqua_pol3.yaml --out_di
 python scratch/e3qp3_shortrange_diagnostic.py results/e3qp3 external/qaqua/build_pol --response_edge 0.75 --seeds all
 ```
 
+### E3-QP4: E₀'s width, the energy term's balance, the read-out's near field
+
+E3-QP3 (`notes/e3qp3-results.md`) fixed the 2-body short range and left the 3-body at contact, the hexamers and E₀'s own
+training fit short of their registered values. Three limits, three separable changes, as two jobs that run in
+parallel (pre-registered in `notes/e3qp4-preregistration.md`):
+
+- **Job A** (`configs/water_qaqua_pol4a.yaml`): E3-QP3 at E₀'s width 32 (`model.features`; E3-QP3's energy weight
+  traded training forces for training energies — E₀ at its width). The species read-out's random features share the
+  width, so its matched far field is computed again before training.
+- **Job B** (`configs/water_qaqua_pol4b.yaml`): job A with the contact configurations' energies at weight 0.125
+  (`training.loss.contact_energy_weight`; their forces keep weight 1): the loss weighs a structure's energy by
+  1 / n_atoms², so at weight 1 the 800 contacts outweigh the 300 relaxed clusters eightfold at equal errors.
+- **The read-out's near field as a factor in both**: `M_16C2pm_r1` is `M_16C2pm` with the read-out's own band edge
+  1.0 Å (`e3_water.RUNG_RESPONSE_EDGE`; the pinned bands at the run's 0.75 Å) — the far field the same to a point, the
+  response closer to TTM3-F's induction at contact and on the hexamers (`notes/e3qp3-results.md` §3.4). The `_e1` rungs
+  are dropped.
+
+```sh
+python scripts/run_experiment.py --config configs/water_qaqua_pol4a.yaml --out_dir results/e3qp4a      # job A
+python scripts/run_experiment.py --config configs/water_qaqua_pol4b.yaml --out_dir results/e3qp4b      # job B
+python scratch/e3qp3_shortrange_diagnostic.py results/e3qp4a external/qaqua/build_pol --F 32 --response_edge 0.75 --seeds all
+```
+
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
 ### Water model settings
@@ -240,6 +263,7 @@ training:
     energy_weight: 1.0
     force_weight: 1.0
     far_weight: 1.0
+    contact_energy_weight: 1.0
   energy_scale: null
   verbose: false
 ```
@@ -261,7 +285,7 @@ own band edge (its band field and dipole tensor smeared there; null: the band ed
 
 `lbfgs.steps` controls subsequent full-data optimization. With the default `readout_only: false`, the GNN, active heads, and response train jointly. Set `readout_only: true` to hold all non-readout parameters fixed in this stage; every selected model must have a response readout. `chunk_size` changes memory usage while preserving the full-data loss. `memory_size` controls the retained curvature history. `learning_rate: null` preserves automatic step scaling with the zoom line search; `max_linesearch_steps` bounds its internal trials, and `scale_init_precond` controls initial inverse-Hessian scaling. These are optimizer iterations, not epochs or line-search trial counts. Zero Adam steps allow an L-BFGS-only run; at least one optimizer step must be requested. Models with a frozen response readout require positive L-BFGS steps.
 
-`loss.energy_weight` and `loss.force_weight` combine scaled energy and force residuals. Set `force_weight: 0.0` for energy-only training. They also determine the readout linear solve's objective. `far_weight` sets per-structure weights for water's `far` and `ion` parts. `energy_scale: null` derives the normalization from training energies; positive values supply a manual scale in hartree. Targets are never mean-centered. `verbose` controls progress output. Dataset caches remain valid when only training options change.
+`loss.energy_weight` and `loss.force_weight` combine scaled energy and force residuals. Set `force_weight: 0.0` for energy-only training. They also determine the readout linear solve's objective. `far_weight` sets per-structure weights for water's `far` and `ion` parts. `contact_energy_weight` (v0.0.13; the clusters part with contact configurations only) weights the contact configurations' energies alone: the energy term is a weighted mean over structures (`Structure.energy_weight` on top of `Structure.weight`), their forces keep their weight. `energy_scale: null` derives the normalization from training energies; positive values supply a manual scale in hartree. Targets are never mean-centered. `verbose` controls progress output. Dataset caches remain valid when only training options change.
 
 `seeds` explicitly selects model initialization/minibatch seeds, independently of dataset seeds. Each selected rung is trained with each seed. The toy supports multiple model seeds too and stores results under `runs`, keeping its original scalar metrics for a single-seed run. Results record the requested configuration under `training` and the effective per-seed options under `training_runs` (water/dimers) or each toy run's `training_options`, including the actual normalization scale, effective batch size, and whether a response solve ran.
 
@@ -377,6 +401,8 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
     python scripts/run_experiment.py --config configs/water_qaqua_pol.yaml --out_dir results/e3qp  # E3-QP (after build_pol.sh)
     python scripts/run_experiment.py --config configs/water_qaqua_pol2.yaml --out_dir results/e3qp2  # E3-QP2
     python scripts/run_experiment.py --config configs/water_qaqua_pol3.yaml --out_dir results/e3qp3  # E3-QP3
+    python scripts/run_experiment.py --config configs/water_qaqua_pol4a.yaml --out_dir results/e3qp4a  # E3-QP4, job A
+    python scripts/run_experiment.py --config configs/water_qaqua_pol4b.yaml --out_dir results/e3qp4b  # E3-QP4, job B
     python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl \
         --out results/e3r_clusters_yaml.json                                  # E3-R R1, the cluster protocol from YAML
     sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
@@ -433,7 +459,8 @@ CCSD(T) data when they exist.  Every part saves its json after each rung.
     tests/        pytest (fast; the ladder and the toy are scripts)
     notes/        the pre-registration and result notes of the experiments run from this repository
     configs/      the YAML configurations (configs/water_qaqua.yaml: E3-Q; configs/water_qaqua_pol.yaml: E3-QP;
-                  configs/water_qaqua_pol2.yaml: E3-QP2; configs/water_qaqua_pol3.yaml: E3-QP3)
+                  configs/water_qaqua_pol2.yaml: E3-QP2; configs/water_qaqua_pol3.yaml: E3-QP3;
+                  configs/water_qaqua_pol4a.yaml, pol4b.yaml: E3-QP4's two jobs)
     external/     the q-AQUA and q-AQUA-pol build scripts and their C interfaces (the builds, external/qaqua/build*/, are not committed)
     scratch/      one-off computations quoted in the notes (not part of the package)
     results/      the logs and jsons of every run quoted in RESULTS.md

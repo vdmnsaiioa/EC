@@ -16,3 +16,6 @@ results/*.params.pkl
 /scratch/matched_*.pkl
 /scratch/e3qp3_coverage_data.pkl
 /scratch/e3qp2_summary.json
+/scratch/e3qp3_summary.json
+/scratch/e3qp3_response_contact*.json
+/scratch/e3qp2_matched_response_edge*.json

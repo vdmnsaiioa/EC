@@ -35,6 +35,8 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
     M_16C0p           M_16C0pm's response on the dipole-surface charges (the control for the sources)
     M_16pm_e1, M_16C2pm_e1   E3-QP3: M_16pm and M_16C2pm with the pinned bands' own band edge l_1 = 1.0 A (smoother
                       at contact; RUNG_BAND_EDGE), the read-out's band edge kept at the run's (the far field as matched)
+    M_16C2pm_r1       E3-QP4: M_16C2pm with the read-out's own band edge 1.0 A (RUNG_RESPONSE_EDGE), the pinned bands at
+                      the run's
 """
 from experiment_config import (CLUSTER_CONTACT_DEFAULTS, CLUSTER_DEFAULTS, CLUSTER_PROBE_DEFAULTS, DIMER_DEFAULTS,
                                add_training_arguments, parse_selection, training_kwargs, training_seeds)
@@ -100,6 +102,13 @@ RUNGS = {
 RUNG_BAND_EDGE = {"M_16pm_e1": 1.0, "M_16C2pm_e1": 1.0}
 for _name, _base in (("M_16pm_e1", "M_16pm"), ("M_16C2pm_e1", "M_16C2pm")):
     RUNGS[_name] = M.with_rung(RUNGS[_base], name=_name)
+# E3-QP4: the read-out's near field as a factor -- the same rung with the read-out's own band edge (A), over the run's
+# model.response_edge_angstrom, the pinned bands at the run's.  Matched on the far field as before (unchanged there to
+# a point at 10-15 A), at 1.0 A the response is closest to TTM3-F's induction where the far field does not fix it: the
+# hexamers' many-body energy 12 % from TTM3-F's against 21 % at 0.75 A, its 3-body below O-O 2.7 A 0.30 against
+# 0.38 kcal/mol rms (e3qp3-results.md section 3.4)
+RUNG_RESPONSE_EDGE = {"M_16C2pm_r1": 1.0}
+RUNGS["M_16C2pm_r1"] = M.with_rung(RUNGS["M_16C2pm"], name="M_16C2pm_r1")
 C6_OO_TRUTH = 45.4
 
 
@@ -227,6 +236,9 @@ def validate_water_args(a):
             raise ValueError("training.readout.stage: far_first keeps the matched read-out: set training.lbfgs.freeze_readout")
     if contact_requested(a) and a.part != "clusters":
         raise ValueError("data.contact_dimers / contact_trimers add contact configurations to the clusters part's training set")
+    if getattr(a, "w_contact_energy", 1.0) != 1.0 and not contact_requested(a):
+        raise ValueError("training.loss.contact_energy_weight weights the contact configurations' energies: the run has none "
+                         "(data.contact_dimers / contact_trimers)")
 
 
 def restore_fragment_charges(structs):
@@ -302,7 +314,8 @@ def configure(rung, a):
     """the rung with the architecture settings of the run: E_0's cutoff and width, M_A's envelope, the charge source
     and the neutrality shift (per fragment, or over the structure as before v0.0.8), the band edge l_1 and the
     near-source switch of the band-field input (r_s = rs_over_l1 x l_1; 0 switches it off).  A rung with its own band edge
-    (RUNG_BAND_EDGE) takes it over the run's, and its read-out stays at the run's (response edge, else band edge)."""
+    (RUNG_BAND_EDGE) takes it over the run's, and its read-out stays at the run's (response edge, else band edge); a rung
+    with its read-out's own band edge (RUNG_RESPONSE_EDGE) takes that over the run's response edge."""
     kw = dict(lA=ang_to_bohr(a.lA), e0={**rung.e0, "r_cut": ang_to_bohr(a.rcut), "F": a.F, "n_rbf_readout": 8})
     charge_source = getattr(a, "charges", None)
     if rung.charges and charge_source is not None:
@@ -316,7 +329,10 @@ def configure(rung, a):
     if rung.band_fields >= 0:
         run_edge = ang_to_bohr(a.l1) if a.l1 > 0 else rung.l1                         # the run's band edge
         kw["bf_rs"] = (run_edge if own_edge is not None else kw.get("l1", rung.l1)) * a.rs_over_l1
-        if getattr(a, "response_edge", 0) > 0:
+        own_response = RUNG_RESPONSE_EDGE.get(rung.name)
+        if own_response is not None:
+            kw["bf_l"] = ang_to_bohr(own_response)                                     # the rung's own response edge
+        elif getattr(a, "response_edge", 0) > 0:
             kw["bf_l"] = ang_to_bohr(a.response_edge)                                  # the response's own band edge
         elif own_edge is not None:
             kw["bf_l"] = run_edge                                                      # the read-out at the run's band edge
@@ -385,6 +401,8 @@ def _save(a, results):
                 for key in ("far_labels", "readout_far_weight", "readout_stage"):
                     if getattr(a, key, None) not in (None, "total", "after_adam"):
                         results[name]["training"][key] = getattr(a, key)
+                if getattr(a, "w_contact_energy", 1.0) != 1.0:                  # v0.0.13; runs without it: weight 1
+                    results[name]["training"]["contact_energy_weight"] = a.w_contact_energy
     old.update(results)
     json.dump(old, open(a.out, "w"), indent=1)
 
@@ -556,6 +574,25 @@ def probes_requested(a):
 
 def contact_requested(a):
     return bool(getattr(a, "contact_dimers", 0) or getattr(a, "contact_trimers", 0))
+
+
+def weight_contact_energies(structs, w):
+    """training.loss.contact_energy_weight (v0.0.13): the contact configurations' energies weighted by w in the loss (the
+    energy term is a weighted mean over structures; their forces keep their weight), every other structure's energy at 1.
+    The loss weighs a structure's energy by 1 / n_atoms^2, so 600 contact dimers and 200 contact trimers outweigh the 300
+    relaxed clusters eightfold at equal errors (e3qp3-results.md section 3.2).  Returns the structures weighted."""
+    if not (np.isfinite(w) and w > 0):
+        raise ValueError("training.loss.contact_energy_weight must be a finite positive number")
+    weighted = [s for s in structs if s.info.get("contact")]
+    for s in weighted:
+        s.energy_weight = float(w)
+    if weighted and w != 1.0:
+        n = lambda ss: sum(1.0 / s.n_atoms ** 2 for s in ss)
+        others = [s for s in structs if not s.info.get("contact") and s.n_atoms > 3 and not s.info.get("probe")]
+        print(f"  the contact configurations' energies at weight {w:g}: their share of the energy term at equal errors "
+              f"{100 * w * n(weighted) / (w * n(weighted) + n(others)):.0f} % against the clusters' "
+              f"(at weight 1: {100 * n(weighted) / (n(weighted) + n(others)):.0f} %)", flush=True)
+    return weighted
 
 
 def contact_data(settings, truth):
@@ -818,6 +855,7 @@ def run_clusters(a, truth=None):
               f"trimers (O-O {settings['contact_oo_angstrom'][0]:g}-{settings['contact_oo_angstrom'][1]:g} A, every pair at most "
               f"{settings['contact_max_pair_kcal']:g} kcal/mol); their pairs below O-O 2.7 A: {int((c_oo < 2.7).sum())} of {len(c_oo)}; "
               f"interaction energies rms {np.sqrt(np.mean([s.energy ** 2 for s in contacts])) * kcal_:.2f} kcal/mol", flush=True)
+        weight_contact_energies(train, getattr(a, "w_contact_energy", 1.0))
     results = {"dataset": {**settings, "train_count": train_count, "contact_count": len(contacts),
                            "test_counts": {str(n): len(structs) for n, structs in tests.items()}},
                "reference_nonadditive": {str(n): v.tolist() for n, v in nadd_truth.items()}}

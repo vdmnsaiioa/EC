@@ -29,6 +29,8 @@ class Structure:
     frag_charges: Optional[np.ndarray] = None   # (n_frag,) total charge of each fragment (the learned charges are shifted to it
     # fragment by fragment); None: every fragment neutral, which requires total_charge = 0 when fragments are given
     weight: float = 1.0                   # weight of this structure's energy and forces in the training loss
+    energy_weight: float = 1.0            # a further weight on its energy alone (e.g. the contact configurations' energies
+    # weighted down so that the relaxed clusters keep their share of the energy term; v0.0.13)
     sub: Optional[np.ndarray] = None      # (N,) subtraction group per atom: the model's energy is E(all) - sum_g E(group g
     # alone), each group whole fragments (e.g. a cluster's core and a probe molecule: the probe's interaction energy);
     # None: the fragments (or, without fragments, the isolated atoms) are the groups
@@ -73,7 +75,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         "mask": np.zeros((B, n_max), dtype=bool), "cell": np.tile(np.eye(3) * 1e6, (B, 1, 1)),
         "pbc": np.zeros(B, dtype=bool), "total_charge": np.zeros(B),
         "energy": np.zeros(B), "forces": np.zeros((B, n_max, 3)), "has_energy": np.zeros(B, dtype=bool),
-        "has_forces": np.zeros(B, dtype=bool), "weight": np.ones(B), "pin_eself": np.zeros((B, n_max)),
+        "has_forces": np.zeros(B, dtype=bool), "weight": np.ones(B), "energy_weight": np.ones(B), "pin_eself": np.zeros((B, n_max)),
         "pin_q": np.zeros((B, n_max)), "pin_mu": np.zeros((B, n_max, 3)), "pin_alpha": np.zeros((B, n_max, n_freq)),
         "pin_alpha2": np.zeros((B, n_max, n_freq)),
     }
@@ -107,6 +109,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         out["positions"][b, :n] = s.positions; out["numbers"][b, :n] = s.numbers; out["mask"][b, :n] = True
         if s.cell is not None: out["cell"][b] = s.cell
         out["pbc"][b] = s.pbc; out["total_charge"][b] = s.total_charge; out["weight"][b] = s.weight
+        out["energy_weight"][b] = getattr(s, "energy_weight", 1.0)          # structures pickled before v0.0.13: 1
         if s.energy is not None: out["energy"][b] = s.energy; out["has_energy"][b] = True
         if s.forces is not None: out["forces"][b, :n] = s.forces; out["has_forces"][b] = True
         if "q" in s.pinned: out["pin_q"][b, :n] = s.pinned["q"]

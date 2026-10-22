@@ -463,3 +463,36 @@ the run (`run_e3qp3.sbatch`).
 Tests: `tests/test_water_pol3_config.py` (the shipped config, the contact generator and its refusals and validation, the
 rungs' own band edge, the readings' pins as trained, the bins by the closest contact); 362 tests, 340 pass and 22 are
 skipped without the q-AQUA builds (14 min on one CPU).
+
+## v0.0.12 → v0.0.13 — E3-QP3 read; E3-QP4 set up
+
+**E3-QP3 read** (`notes/e3qp3-results.md`, the run of 22 Oct): the 2-body short range is fixed — the compressed raw
+dimers (O–O 2.3–2.7 Å) at 0.11–0.13 kcal/mol for every rung (E3-QP2 0.41–0.95), every pinned rung below M_∞ on the raw
+dimers on every seed (0.090–0.098 against 0.113) — and the far field came out exactly as computed. Short of their
+registered values: E₀'s own training fit (0.13–0.16 for the pinned rungs; the energy weight traded the forces for the
+energies), the hexamers (M_16C2†ᵐ 0.189), the test dimers and the raw 3-body, where the pinned rungs trail M_∞ (0.14–0.15
+against 0.10), most at the closest contacts. Computed after the run: the matched read-out's 3-body is TTM3-F's induction
+beyond 3 Å but 0.83 of it at the hydrogen-bond contact and 0.68 below 2.7 Å, and the loss's 1 / n_atoms² weighting let
+the 800 contact configurations carry 58–77 % of the energy term.
+
+**The harness.**
+- *The contact configurations' energy weight* (`training.loss.contact_energy_weight`, `--w_contact_energy`;
+  `Structure.energy_weight`, applied by `e3_water.weight_contact_energies`): a weight on their energies alone — the
+  energy term is a weighted mean over structures in the loss (`train.make_loss_sums`) and in the read-out's solve
+  (`linear.solve_readout`); their forces keep their weight. Refused without contact configurations.
+- *A rung with the read-out's own band edge* (`e3_water.RUNG_RESPONSE_EDGE`): `M_16C2pm_r1`, M_16C2pm's read-out at
+  1.0 Å, the pinned bands at the run's.
+- `scratch/e3qp2_matched_response.py` and `scratch/e3qp3_response_contact.py` take E₀'s width (`--F=`; the species
+  read-out's random features share it) and the read-out's band edge (`--edge=`).
+
+**The experiment** (`configs/water_qaqua_pol4a.yaml`, `configs/water_qaqua_pol4b.yaml`, `notes/e3qp4-preregistration.md`):
+two jobs on E3-QP3's data, matching and readings, rungs M_∞, M_16†ᵐ, M_16C2†ᵐ, M_16C2†ᵐ_r1, 4 seeds. Job A: E₀'s width
+32 (E3-QP3: 16). Job B: job A with the contact configurations' energies at weight 0.125 (equal weight with the relaxed
+clusters at equal errors). Computed before training: at width 32 the matched far field is E3-QP3's at the printed digit
+(M_16C2†ᵐ_r1: 3 / 3 / 2 % at 10 / 12 / 15 Å), the read-out's near field a little farther from TTM3-F's (the hexamers'
+many-body 29 against 21 %), and the 1.0 Å edge brings it closer (15 %).
+
+Tests: `tests/test_water_pol4_config.py` (the two shipped configs and that each job is one change, the rung with the
+read-out's own band edge, the contact energy weight's field, validation and application, the weighted energy term in
+the loss and the solve, the contacts weighted alone in a cluster run); 371 tests, 349 pass and 22 are skipped without
+the q-AQUA builds (14 min on one CPU).

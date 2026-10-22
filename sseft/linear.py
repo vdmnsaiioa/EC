@@ -99,7 +99,7 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
     c, unflat = _flat_last(params["readout"], n0)
     nc = len(c)
     # counts for the objective's normalisation (as in make_loss_sums over the whole set)
-    wgt = np.array(data["weight"]); has_e = np.array(data["has_energy"]) * wgt
+    wgt = np.array(data["weight"]); has_e = np.array(data["has_energy"]) * wgt * np.array(data.get("energy_weight", 1.0))
     fm_all = np.array(data["mask"])[:, :, None] * (np.array(data["has_forces"]) * wgt)[:, None, None] * np.ones((1, 1, 3))
     cnt_e = max(float(np.sum(has_e)), 1.0); cnt_f = max(float(np.sum(fm_all[..., 0])), 1.0)     # train counts atoms, not components
     natoms = np.maximum(np.array(data["mask"]).sum(1), 1.0)
