@@ -109,6 +109,15 @@ for _name, _base in (("M_16pm_e1", "M_16pm"), ("M_16C2pm_e1", "M_16C2pm")):
 # 0.38 kcal/mol rms (e3qp3-results.md section 3.4)
 RUNG_RESPONSE_EDGE = {"M_16C2pm_r1": 1.0}
 RUNGS["M_16C2pm_r1"] = M.with_rung(RUNGS["M_16C2pm"], name="M_16C2pm_r1")
+# E3-QP5 (v0.0.14): E_0's view of the pinned field -- the same rungs with E_0's site energies reading the other molecules'
+# pinned potential, field and field gradient at the atom (Rung.e0_field), tapered to zero over the last 1.5-0.5 A inside
+# r_c (E0_FIELD_TAPER), so that the input never reaches beyond E_0's own graph (an M-site lies within 0.3 A of its O) and the
+# far field is the base rung's; and M_inf with the same input and no bands (the pinned charges source the input alone):
+# whether the field is the pinned rungs' missing piece or a better input for every E_0 (e3qp4-results.md section 4)
+E0_FIELD_TAPER = (1.5, 0.5)
+RUNGS["M_16pm_f"] = M.with_rung(RUNGS["M_16pm"], name="M_16pm_f", e0_field=True)
+RUNGS["M_16C2pm_f"] = M.with_rung(RUNGS["M_16C2pm"], name="M_16C2pm_f", e0_field=True)
+RUNGS["M_inf_f"] = M.with_rung(M.RUNGS["M_1"], name="M_inf_f", pin_q=True, msites=True, coulomb_energy=False, e0_field=True)
 C6_OO_TRUTH = 45.4
 
 
@@ -336,6 +345,8 @@ def configure(rung, a):
             kw["bf_l"] = ang_to_bohr(a.response_edge)                                  # the response's own band edge
         elif own_edge is not None:
             kw["bf_l"] = run_edge                                                      # the read-out at the run's band edge
+    if rung.e0_field:
+        kw["e0_field_on"], kw["e0_field_off"] = (ang_to_bohr(a.rcut - d) for d in E0_FIELD_TAPER)   # inside E_0's cutoff
     return M.with_rung(rung, **kw)
 
 
@@ -354,6 +365,9 @@ def model_record(name, a):
             "near_source_switch_angstrom": ang(rung.bf_rs) if rung.band_fields >= 0 else None,
             **({"response_edge_angstrom": ang(rung.bf_l)} if rung.band_fields >= 0 and rung.bf_l > 0 else {}),
             **({"site_model": True} if rung.msites else {}),
+            **({"coulomb_band": False} if rung.charges and not rung.coulomb_energy else {}),
+            **({"e0_field_taper_angstrom": [ang(rung.e0_field_on), ang(rung.e0_field_off)],
+                "e0_field_unit": float(rung.e0_field_unit)} if rung.e0_field else {}),
             **({"readout_coefficients": "species"} if rung.bf_species else {}),
             **({"mutual_response": int(rung.bf_mutual)} if rung.bf_mutual else {}),
             "r_cut_angstrom": ang(rung.e0["r_cut"]), "features": int(rung.e0["F"]),

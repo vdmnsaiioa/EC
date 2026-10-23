@@ -12,6 +12,8 @@ The model: E_0 + IR bands on learned (or pinned) sources [+ band-field inputs], 
     M_G     global pair block    --                --             the null: an unconstrained function of r with no envelope
 Pinned sources may be a site model (Rung.msites: charges on the atoms and on virtual sites placed from them, e.g. TTM3-F's
 M-site), and the order-0 read-out's induced dipoles may act on each other (Rung.bf_mutual: the alpha^2 T terms and beyond).
+E_0's site energies may read the pinned sources' local potential, field and field gradient (Rung.e0_field, v0.0.14:
+bandfields.local_field_tensors, heads.field_energy), tapered to zero inside E_0's cutoff.
 Energies in hartree, positions in bohr; forces by autodiff.
 """
 from dataclasses import dataclass, field, replace
@@ -44,6 +46,13 @@ class Rung:
     # fixed features, a fixed output unit), not from E_0's features: a response independent of E_0 and of the seed
     msites: bool = False                   # the pinned charges of a site model (b["pin_q_site"] on the atoms and the virtual
     # sites b["vs_w"], b["vs_q"], e.g. TTM3-F's H atoms and M-site) as the charge channel's sources, instead of b["pin_q"]
+    e0_field: bool = False                 # E_0's view of the pinned sources (v0.0.14): its site energies read the potential,
+    # field and field gradient of the other fragments' site-model charges at the atom (the band kernel at l1), every
+    # source's share tapered to zero between e0_field_on and e0_field_off (inside r_cut: local, the far field untouched),
+    # through a term that vanishes at zero field (heads.field_energy)
+    e0_field_on: float = ang_to_bohr(4.5)
+    e0_field_off: float = ang_to_bohr(5.5)
+    e0_field_unit: float = 0.01            # a.u.: the unit of the potential, field and field gradient in the term's input
     pin_q: bool = False
     pin_mu: bool = False
     pin_alpha: bool = False
@@ -97,6 +106,13 @@ def init_params(key, rung: Rung, energy_scale=1.0):
     if rung.global_block:
         F = rung.e0["F"]
         p["global"] = E0._mlp_init(k[3], [2 * F + 1, F, F, 1])
+    if rung.e0_field:
+        if not rung.msites:
+            raise ValueError("e0_field reads the pinned site model's charges (Rung.msites)")
+        if not 0 < rung.e0_field_on < rung.e0_field_off <= rung.e0["r_cut"] or rung.e0_field_unit <= 0:
+            raise ValueError("e0_field needs 0 < e0_field_on < e0_field_off <= E_0's r_cut and a positive unit")
+        # its own key, so that the other parameters are the rung's without the field term, digit for digit
+        p["field"] = H.init_field_head(jax.random.fold_in(key, 14), rung.e0)
     return p
 
 
@@ -267,6 +283,15 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
         else:
             eps_bf = BF.response_energy(params["readout"], cfg, rung.band_fields, s, v, t, mask, Ef, gE, ggE, l_bf)
         E = E + jnp.sum(eps_bf); aux["E_bf"] = jnp.sum(eps_bf); aux["eps_bf"] = eps_bf; aux["Efield"] = Ef
+    if rung.e0_field:
+        # E_0's view of the pinned sources: the other fragments' site-model charges within the taper, at every atom
+        assert sites is not None and "frag_mask" in b, "the field term reads a site model's charges by fragment"
+        X_src, q_src, on_src, frag_src = sites
+        same_src = (b["frag_mask"].astype(pos.dtype).T @ frag_src.astype(pos.dtype)) > 0.5      # (N, N+V)
+        src = mask[:, None] & on_src[None, :] & ~same_src
+        phi, Eloc, Gloc = BF.local_field_tensors(pos, X_src, q_src, src, rung.l1, rung.e0_field_on, rung.e0_field_off)
+        eps_f = H.field_energy(params["field"], s, v, t, phi, Eloc, Gloc, mask, hp["e_scale"], rung.e0_field_unit)
+        E = E + jnp.sum(eps_f); aux["E_field"] = jnp.sum(eps_f)
     return E, aux
 
 

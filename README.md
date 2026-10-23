@@ -158,6 +158,29 @@ python scripts/run_experiment.py --config configs/water_qaqua_pol4b.yaml --out_d
 python scratch/e3qp3_shortrange_diagnostic.py results/e3qp4a external/qaqua/build_pol --F 32 --response_edge 0.75 --seeds all
 ```
 
+### E3-QP5: E₀'s view of the pinned field
+
+E3-QP4 (`notes/e3qp4-results.md`) left one reading where M_∞ wins: the pinned rungs' 3-body at contact (1.3–1.5× M_∞'s on
+the raw trimers, 1.5× on the near-rigid ones, in the rigid part) — not E₀'s width, nor the energy term's balance, nor
+coverage, nor the pinned bands' edge. E3-QP5 gives E₀ the field-like features it otherwise builds itself
+(pre-registered in `notes/e3qp5-preregistration.md`):
+
+- **The field term** (`Rung.e0_field`): E₀'s site energies read, at every atom, the potential, field and field gradient
+  of the other molecules' pinned charges and M-sites (TTM3-F's site charges through the band kernel at ℓ₁;
+  `bandfields.local_field_tensors`), every source's share tapered to zero between r_c − 1.5 and r_c − 0.5 Å
+  (`e3_water.E0_FIELD_TAPER`), through an MLP of E₀'s invariants, its vector and tensor channels contracted with the
+  field and its gradient, and the two squares, less the same at zero field (`heads.field_energy`; MACE-POLAR's
+  non-local read-out, here local). The input never reaches beyond E₀'s own graph, so the far field is the base rung's;
+  the term starts at zero, so a field rung starts as its base.
+- **Rungs** (`configs/water_qaqua_pol5.yaml`: E3-QP4's job B otherwise): `M_16pm_f` and `M_16C2pm_f` beside `M_16pm` and
+  `M_16C2pm` (run again as the controls), and `M_inf_f` — M_∞ with the same input and no bands: whether the field is the
+  pinned rungs' missing piece or a better input for any E₀.
+
+```sh
+python scripts/run_experiment.py --config configs/water_qaqua_pol5.yaml --out_dir results/e3qp5
+python scratch/e3qp3_shortrange_diagnostic.py results/e3qp5 external/qaqua/build_pol --F 32 --response_edge 0.75 --seeds all --save_frames
+```
+
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
 ### Water model settings
@@ -403,6 +426,7 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
     python scripts/run_experiment.py --config configs/water_qaqua_pol3.yaml --out_dir results/e3qp3  # E3-QP3
     python scripts/run_experiment.py --config configs/water_qaqua_pol4a.yaml --out_dir results/e3qp4a  # E3-QP4, job A
     python scripts/run_experiment.py --config configs/water_qaqua_pol4b.yaml --out_dir results/e3qp4b  # E3-QP4, job B
+    python scripts/run_experiment.py --config configs/water_qaqua_pol5.yaml --out_dir results/e3qp5    # E3-QP5
     python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl \
         --out results/e3r_clusters_yaml.json                                  # E3-R R1, the cluster protocol from YAML
     sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
@@ -460,7 +484,7 @@ CCSD(T) data when they exist.  Every part saves its json after each rung.
     notes/        the pre-registration and result notes of the experiments run from this repository
     configs/      the YAML configurations (configs/water_qaqua.yaml: E3-Q; configs/water_qaqua_pol.yaml: E3-QP;
                   configs/water_qaqua_pol2.yaml: E3-QP2; configs/water_qaqua_pol3.yaml: E3-QP3;
-                  configs/water_qaqua_pol4a.yaml, pol4b.yaml: E3-QP4's two jobs)
+                  configs/water_qaqua_pol4a.yaml, pol4b.yaml: E3-QP4's two jobs; configs/water_qaqua_pol5.yaml: E3-QP5)
     external/     the q-AQUA and q-AQUA-pol build scripts and their C interfaces (the builds, external/qaqua/build*/, are not committed)
     scratch/      one-off computations quoted in the notes (not part of the package)
     results/      the logs and jsons of every run quoted in RESULTS.md

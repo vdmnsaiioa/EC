@@ -69,6 +69,43 @@ def band_field_tensors_from(points, sources, q, src, l, order, rs=0.0):
     return Ef, gE, ggE
 
 
+# ---------------------------------------------------------------- E_0's view of the pinned sources (v0.0.14) ----
+# E3-QP5: E_0's site energies may read the potential, field and field gradient of the other fragments' pinned sources
+# at the atom (Rung.e0_field, heads.field_energy) -- the field-like features E_0 otherwise has to build itself
+# (e3qp4-results.md section 4).  Unlike the read-out's band field this input is local: every source's share is tapered
+# to zero inside E_0's cutoff, so it never reaches farther than E_0's own graph and the far field is untouched; the
+# degree-2 rule of the read-out (no terms linear in the field, which a far field would make degenerate with a dipole
+# source) does not apply to it, as it does not to E_0.
+
+def taper(r, r_on, r_off):
+    """1 below r_on, 0 beyond r_off, the quintic smoothstep between: value, slope and curvature continuous at both
+    ends (C2), so that the forces of a term built on tapered shares are continuous with their first derivatives."""
+    x = jnp.clip((r - r_on) / (r_off - r_on), 0.0, 1.0)
+    return 1.0 - x ** 3 * (10.0 - 15.0 * x + 6.0 * x ** 2)
+
+
+def local_field_tensors(points, sources, q, src, l, r_on, r_off):
+    """the potential (N,), field (N,3) and field gradient (N,3,3) at the points (N,3) of the charges q (S,) at the
+    sources (S,3) through the band kernel g = erf(r/l)/r, source j acting on point i where src[i, j] (N,S), each source's
+    share weighted by taper(r_ij, r_on, r_off):
+        phi_i = sum_j w_ij q_j g(r_ij),    E_i = -sum_j w_ij q_j g'(r_ij) n_ij,
+        G_i = -sum_j w_ij q_j [g''(r_ij) n_ij n_ij + g'(r_ij) / r_ij (1 - n_ij n_ij)],    n_ij = (x_i - x_j) / r_ij,
+    analytic.  The shares are tapered, not the potential: E is not -grad phi within the taper, and the forces need only
+    the taper's first derivative.  Nothing from a source beyond r_off."""
+    d = points[:, None, :] - sources[None, :, :]
+    d = jnp.where(src[..., None], d, 1.0)                         # excluded pairs get a finite dummy vector, so that
+    r = jnp.sqrt(jnp.sum(d * d, axis=-1))                         # no derivative is taken at r = 0
+    n = d / r[..., None]
+    w = src.astype(points.dtype) * taper(r, r_on, r_off) * q[None, :]
+    dg, d2g = kn.dg_long(r, l), kn.d2g_long(r, l)
+    phi = jnp.sum(w * kn.g_long(r, l), axis=1)
+    E = -jnp.einsum("ij,ija->ia", w * dg, n)
+    nn = n[..., :, None] * n[..., None, :]
+    H = d2g[..., None, None] * nn + (dg / r)[..., None, None] * (jnp.eye(3) - nn)
+    G = -jnp.einsum("ij,ijab->iab", w, H)
+    return phi, E, G
+
+
 # ---------------------------------------------------------------- the induced dipoles' mutual fields -----------
 # The order-0 read-out is -1/2 E_i . C_i . E_i at every atom: a local polarisability tensor C_i (environment-dependent)
 # responding to the band field of the permanent sources -- first order in the polarisabilities.  The induced dipoles

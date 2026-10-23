@@ -19,3 +19,5 @@ results/*.params.pkl
 /scratch/e3qp3_summary.json
 /scratch/e3qp3_response_contact*.json
 /scratch/e3qp2_matched_response_edge*.json
+/scratch/e3qp4_summary.json
+/scratch/e3qp4_trimer_coverage.npy

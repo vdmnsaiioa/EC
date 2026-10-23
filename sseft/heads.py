@@ -92,3 +92,31 @@ def quad_polarisabilities(p, s, numbers, mask, omega, one_oscillator=False):
 
 def scalar_source(p, s, mask):
     return mlp(p["source_A"], s)[..., 0] * mask
+
+
+# ---------------------------------------------------------------- E_0's field term (v0.0.14, Rung.e0_field) -----
+def init_field_head(key, cfg):
+    """the field term's parameters: two channel maps and an MLP whose output layer starts at zero, so that a rung with
+    the field term starts as the rung without it."""
+    F = cfg["F"]
+    k = jax.random.split(key, 3)
+    head = _mlp_init(k[2], [3 * F + 3, F, F, 1])
+    head[-1] = {"w": jnp.zeros_like(head[-1]["w"]), "b": jnp.zeros_like(head[-1]["b"])}
+    return {"W_v": jax.random.normal(k[0], (F, F)) / jnp.sqrt(F), "W_t": jax.random.normal(k[1], (F, F)) / jnp.sqrt(F),
+            "mlp": head}
+
+
+def field_energy(p, s, v, t, phi, E, G, mask, e_scale, unit):
+    """per-atom energies (N,) of E_0's view of the pinned field: an MLP of
+        [ s_i,  phi_i,  (W_v v_i) . E_i,  (W_t t_i) : G_i,  |E_i|^2,  |G_i|^2 ]      (3F + 3; phi, E, G in units of `unit`)
+    -- the invariant features, the potential, E_0's vector and tensor channels contracted with the field and its
+    gradient (MACE-POLAR's non-local read-out, Batatia et al. 2026, here local) and the two squares -- less the same MLP
+    at zero field, so that the term vanishes identically where no source is in reach (an isolated molecule, a fragment
+    beyond the taper of everything else)."""
+    Eu, Gu = E / unit, G / unit
+    d1 = jnp.einsum("iaf,fg,ia->ig", v, p["W_v"], Eu)
+    d2 = jnp.einsum("iabf,fg,iab->ig", t, p["W_t"], Gu)
+    z = jnp.concatenate([s, (phi / unit)[:, None], d1, d2, jnp.sum(Eu * Eu, axis=-1)[:, None],
+                         jnp.sum(Gu * Gu, axis=(-2, -1))[:, None]], axis=-1)
+    z0 = jnp.concatenate([s, jnp.zeros((s.shape[0], z.shape[1] - s.shape[1]), s.dtype)], axis=-1)
+    return e_scale * (mlp(p["mlp"], z) - mlp(p["mlp"], z0))[..., 0] * mask

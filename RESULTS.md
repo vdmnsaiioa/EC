@@ -496,3 +496,50 @@ Tests: `tests/test_water_pol4_config.py` (the two shipped configs and that each 
 read-out's own band edge, the contact energy weight's field, validation and application, the weighted energy term in
 the loss and the solve, the contacts weighted alone in a cluster run); 371 tests, 349 pass and 22 are skipped without
 the q-AQUA builds (14 min on one CPU).
+
+## v0.0.13 → v0.0.14 — E3-QP4 read; E3-QP5 set up
+
+**E3-QP4 read** (`notes/e3qp4-results.md`, both jobs of 22 Oct on one H200 each; 43 of 55 checks as registered).
+Job A (E₀'s width 32): every rung's training energies and forces improved together (−10 to −19 %), the test errors less
+(−3 to −16 %), the raw 4-body rose — the width a small limit. Job B (the contact configurations' energies at weight
+0.125): every pinned rung improved on all but the contacts — the relaxed training clusters −26 to −33 %, their forces −8
+to −12 %, the hexamers −7 to −10 %, the raw 3-body −4 to −8 % — and the compressed dimers held; M_∞ traded its 2-body
+(+19 %) for its clusters, its hexamers flat. M_16C2†ᵐ of job B is the best model of the series: hexamers 0.160 kcal/mol
+(E3-QP2 0.201), their non-additive energy 13.1 % (M_∞ 22.8 %), raw 2-body 0.082 (M_∞ 0.113). The pinned rungs' raw
+3-body over M_∞'s did not move with either change (1.33–1.53): M_16†ᵐ's deficit is E₀'s, largest on the near-rigid
+trimers' rigid part (1.51×), narrowed there by the C rungs' read-out (1.25 / 1.15×), which adds its own below O–O 2.7 Å.
+The read-out at 1.0 Å (M_16C2†ᵐ_r1) is a trade: better on the raw sets on 7–8 of 8 seeds, worse on the hexamers on 6–7
+of 8. The far field as computed in both jobs, to the same digits.
+
+**The harness.**
+- *E₀'s view of the pinned field* (`Rung.e0_field`, `e0_field_on`, `e0_field_off`, `e0_field_unit`): E₀'s site energies
+  read the potential, field and field gradient of the other fragments' site-model charges at every atom
+  (`bandfields.local_field_tensors`: the band kernel at ℓ₁, analytic, every source's share weighted by `bandfields.taper`,
+  a C² smoothstep that ends inside E₀'s cutoff), through `heads.field_energy`: an MLP of E₀'s invariants, the potential,
+  E₀'s vector and tensor channels contracted with the field and its gradient, and the two squares, less the same MLP at
+  zero field — the term vanishes where no source is in reach and starts at zero (its output layer), its parameters
+  (`params["field"]`) drawn on their own key so that every other parameter is the base rung's. Refused without a site
+  model.
+- *Rungs* (`e3_water`): `M_16pm_f`, `M_16C2pm_f` (the bases with the field term) and `M_inf_f` (the field term on the
+  pinned charges with no bands, `Rung.coulomb_energy` off); the taper at r_c − 1.5 to r_c − 0.5 Å
+  (`e3_water.E0_FIELD_TAPER`, set by `configure`); the model record carries the taper, the unit and an absent Coulomb band.
+- `scratch/e3qp3_shortrange_diagnostic.py`: `--save_frames` writes every frame's n-body energies (each model's on the
+  frame, its rigidified twin and with the pins as trained; the labels, the truth's, the positions and O–O distances; the
+  hexamers' energies and 2-body parts) to `<out>_frames.npz`; the run's taper checked against the flags.
+
+**The experiment** (`configs/water_qaqua_pol5.yaml`, `notes/e3qp5-preregistration.md`): E3-QP4's job B with rungs
+M_16†ᵐ, M_16†ᵐ_f, M_16C2†ᵐ, M_16C2†ᵐ_f, M_∞_f, 4 seeds; M_∞ is job B's, the bases run again as the controls; the
+diagnostic with `--save_frames` after the run (`run_e3qp5.sbatch`). Computed before training
+(`scratch/e3qp5_preregistration.py`): every probe at 10–15 Å lies beyond the field term's reach, so the far field there is
+the bases'; on the 4673 raw trimers one effective polarisability per species on the input's first-order cross term
+leaves 0.114 of the 3-body's 0.623 kcal/mol rms (82 % explained; below O–O 2.7 Å 0.143 of 1.268) — as well as M_16†ᵐ's
+E₀ does (0.115) — where TTM3-F's whole 3-body induction explains 54 %; a training step costs 0.9–1.1 times the base's
+(`scratch/e3qp5_field_timing.py`).
+
+Tests: `tests/test_e0_field.py` (the rungs that existed against v0.0.13's golden energies and forces; the field rungs
+configured and recorded; a field rung at initialisation its base, digit for digit; the term local — a probe beyond r_c
+and an isolated molecule as with the base rung, with every parameter switched on; the tapered shares against the band
+field by autodiff and cut beyond the taper; the taper C²; forces against central differences; invariance under rotation,
+translation and the molecules' order) and `tests/test_water_pol5_config.py` (the shipped config is job B's but for its
+rungs; refused without the site model); 382 tests, 360 pass and 22 are skipped without the q-AQUA builds (13 min on
+one CPU).

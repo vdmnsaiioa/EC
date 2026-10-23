@@ -27,7 +27,10 @@ depends on -- and the internal part), and those of the contact configurations ap
 error split into its 2-body part and the rest.
 
 The run's architecture comes from the flags (E3-QP2's by default) and is checked against the model records of
-<results>/clusters.json where the run wrote them (v0.0.12). Prints the readings; writes <results>/<--out>.
+<results>/clusters.json where the run wrote them (v0.0.12). Prints the readings; writes <results>/<--out>, and with
+--save_frames (v0.0.14) every frame's n-body energies -- each model's on the frame, on its rigidified twin and with the
+pins as trained, the labels, the truth's, the frames' positions and O-O distances, the hexamers' energies and 2-body
+parts -- to <results>/<--out stem>_frames.npz, so that the 3-body's strength and direction can be read without the GPU.
 """
 import argparse, copy, glob, itertools, json, math, os, pickle, re, sys, time
 import numpy as np
@@ -107,6 +110,11 @@ def check_record(name, rung, record):
              ("analytic_envelope_angstrom", ang(rung.lA))]
     if rung.band_fields >= 0:
         pairs.append(("response_edge_angstrom", ang(rung.bf_l) if rung.bf_l > 0 else None))
+    if rung.e0_field or "e0_field_taper_angstrom" in record:
+        taper = record.get("e0_field_taper_angstrom") or [None, None]
+        if not rung.e0_field or any(t is None or abs(t - ang(v)) > 1e-9 for t, v in zip(taper, (rung.e0_field_on, rung.e0_field_off))):
+            raise ValueError(f"{name}: the field term's taper of the run ({taper}) is not the flags' -- give --rcut as in its "
+                             "configuration")
     bad = [(k, record.get(k), v) for k, v in pairs
            if not ((record.get(k) is None and v is None) or (record.get(k) is not None and v is not None and abs(record[k] - v) < 1e-9))]
     if bad:
@@ -125,6 +133,7 @@ def main():
     ap.add_argument("--F", type=int, default=16); ap.add_argument("--rcut", type=float, default=6.0)
     ap.add_argument("--lA", type=float, default=4.0)
     ap.add_argument("--out", default="shortrange_diagnostic.json")
+    ap.add_argument("--save_frames", action="store_true", help="every frame's n-body energies to <out stem>_frames.npz")
     args = ap.parse_args()
     t0 = time.time()
     truth = W.qaqua_pol_truth(args.root)
@@ -163,6 +172,10 @@ def main():
         close = s2["soo"] < 2.7
         print(f"raw dimers beyond the test dimers' 95 % nearest-training-pair distance ({ref:.3f} A): {100 * s2['out'].mean():.0f} %"
               + (f" (below O-O 2.7 A: {100 * s2['out'][close].mean():.0f} %)" if close.any() else ""), flush=True)
+    frames = None
+    if args.save_frames:
+        frames = {f"{key}__{k}": np.asarray(s[k]) for key, s in sets.items()
+                  for k in ("P", "label", "t_act", "t_rig", "roo", "soo", "strict")}
     hex_pairs = [(h, i, j) for h in range(len(hexamers)) for i, j in itertools.combinations(range(6), 2)]
     hex_pos = [bohr_to_ang(np.asarray(s.positions)) for s in hexamers]
     pair_frames = np.array([np.concatenate([hex_pos[h][3 * i:3 * i + 3], hex_pos[h][3 * j:3 * j + 3]]) for h, i, j in hex_pairs])
@@ -170,6 +183,8 @@ def main():
     owner = [h for h, _, _ in hex_pairs]
     t_hex2 = np.bincount(owner, weights=np.array([truth.energy(f, 2) for f in pair_frames]), minlength=len(hexamers))
     t_hex = np.array([s.energy for s in hexamers])
+    if frames is not None:
+        frames.update(hex__truth=t_hex, hex__truth_2b=t_hex2)
 
     report = {}
     for name in rungs:
@@ -196,6 +211,11 @@ def main():
                 if pinned_charges:
                     m_fix = E3.model_nbody(params, rung, s["P"], s["q"], s["n"], truth, rigid=True)
                     e.update(fixed_labels=m_fix - s["label"], fixed_distortion=(m_fix - m_rig) - (s["t_act"] - s["t_rig"]))
+                if frames is not None:
+                    tag = f"{name}__s{seed}__{key}"
+                    frames.update({f"{tag}__act": m_act, f"{tag}__rig": m_rig})
+                    if pinned_charges:
+                        frames[f"{tag}__fix"] = m_fix
                 blk = lambda m: {**{k: rms(v[m]) * K for k, v in e.items()}, "n": int(m.sum())}
                 r = {"all": blk(np.ones(len(m_act), bool)), "strict": blk(s["strict"])}
                 dist = s["soo"] if s["n"] == 2 else s["roo"]
@@ -218,6 +238,8 @@ def main():
             m_hex2 = np.bincount(owner, weights=E3.model_nbody(params, rung, pair_frames, pair_q, 2, truth), minlength=len(hexamers))
             row["hexamers"] = {"energy": rms(m_hex - t_hex) * K, "two_body": rms(m_hex2 - t_hex2) * K,
                                "rest": rms((m_hex - m_hex2) - (t_hex - t_hex2)) * K}
+            if frames is not None:
+                frames.update({f"{name}__s{seed}__hex__E": np.asarray(m_hex), f"{name}__s{seed}__hex__2b": m_hex2})
             rows.append(row)
             fit_txt = lambda f: (f"E {f['energy']:.3f} kcal/mol, F rigid {f['force_rigid']:.3f} / internal {f['force_internal']:.3f} "
                                  f"kcal/mol/A") if f else "none"
@@ -231,6 +253,10 @@ def main():
         report[name] = rows
     with open(os.path.join(args.results, args.out), "w") as fh:
         json.dump(report, fh, indent=1)
+    if frames is not None:
+        npz = os.path.join(args.results, os.path.splitext(args.out)[0] + "_frames.npz")
+        np.savez_compressed(npz, **frames)
+        print(f"every frame's n-body energies: {npz}", flush=True)
     print(f"done [{time.time() - t0:.0f} s]; {os.path.join(args.results, args.out)}")
 
 
