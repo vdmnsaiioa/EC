@@ -37,6 +37,12 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
                       at contact; RUNG_BAND_EDGE), the read-out's band edge kept at the run's (the far field as matched)
     M_16C2pm_r1       E3-QP4: M_16C2pm with the read-out's own band edge 1.0 A (RUNG_RESPONSE_EDGE), the pinned bands at
                       the run's
+    M_16pm_f, M_16C2pm_f   E3-QP5: + E_0's view of the pinned field (Rung.e0_field), each source tapered by its own
+                      distance over the last 1.5-0.5 A inside r_c (E0_FIELD_TAPER)
+    M_inf_f           E3-QP5: M_inf with the same field term on the pinned site model, and no bands
+    M_16pm_w, M_16C2pm_w   E3-QP6: the field term with every molecule's sources under one weight, the product of their
+                      tapers over the last 1.0-0 A inside r_c (Rung.e0_field_whole, E0_FIELD_TAPER_WHOLE)
+    M_16C2pm_w2       E3-QP6: M_16C2pm_w with the field term at degree 2 in the field (Rung.e0_field_form "quadratic")
 """
 from experiment_config import (CLUSTER_CONTACT_DEFAULTS, CLUSTER_DEFAULTS, CLUSTER_PROBE_DEFAULTS, DIMER_DEFAULTS,
                                add_training_arguments, parse_selection, training_kwargs, training_seeds)
@@ -118,6 +124,16 @@ E0_FIELD_TAPER = (1.5, 0.5)
 RUNGS["M_16pm_f"] = M.with_rung(RUNGS["M_16pm"], name="M_16pm_f", e0_field=True)
 RUNGS["M_16C2pm_f"] = M.with_rung(RUNGS["M_16C2pm"], name="M_16C2pm_f", e0_field=True)
 RUNGS["M_inf_f"] = M.with_rung(M.RUNGS["M_1"], name="M_inf_f", pin_q=True, msites=True, coulomb_energy=False, e0_field=True)
+# E3-QP6 (v0.0.15): the field term with every molecule whole -- all of a molecule's sources under one weight at an atom, the
+# product of their tapers, so that a molecule straddling the taper enters neutral, not part charged (in E3-QP5 27-38 % of
+# the atom-molecule pairs, with a net charge of 0.3 e rms: e3qp5-results.md section 3.5); the product's end at r_c itself
+# (E0_FIELD_TAPER_WHOLE), so that a molecule enters only when all its sites lie within E_0's graph of the atom.  And on the C
+# rung the same at degree 2 in the field, the read-out's order-0 form on the local field (no potential, no linear term)
+E0_FIELD_TAPER_WHOLE = (1.0, 0.0)
+RUNGS["M_16pm_w"] = M.with_rung(RUNGS["M_16pm"], name="M_16pm_w", e0_field=True, e0_field_whole=True)
+RUNGS["M_16C2pm_w"] = M.with_rung(RUNGS["M_16C2pm"], name="M_16C2pm_w", e0_field=True, e0_field_whole=True)
+RUNGS["M_16C2pm_w2"] = M.with_rung(RUNGS["M_16C2pm"], name="M_16C2pm_w2", e0_field=True, e0_field_whole=True,
+                                   e0_field_form="quadratic")
 C6_OO_TRUTH = 45.4
 
 
@@ -345,8 +361,9 @@ def configure(rung, a):
             kw["bf_l"] = ang_to_bohr(a.response_edge)                                  # the response's own band edge
         elif own_edge is not None:
             kw["bf_l"] = run_edge                                                      # the read-out at the run's band edge
-    if rung.e0_field:
-        kw["e0_field_on"], kw["e0_field_off"] = (ang_to_bohr(a.rcut - d) for d in E0_FIELD_TAPER)   # inside E_0's cutoff
+    if rung.e0_field:                                                                  # inside E_0's cutoff
+        taper = E0_FIELD_TAPER_WHOLE if rung.e0_field_whole else E0_FIELD_TAPER
+        kw["e0_field_on"], kw["e0_field_off"] = (ang_to_bohr(a.rcut - d) for d in taper)
     return M.with_rung(rung, **kw)
 
 
@@ -368,6 +385,8 @@ def model_record(name, a):
             **({"coulomb_band": False} if rung.charges and not rung.coulomb_energy else {}),
             **({"e0_field_taper_angstrom": [ang(rung.e0_field_on), ang(rung.e0_field_off)],
                 "e0_field_unit": float(rung.e0_field_unit)} if rung.e0_field else {}),
+            **({"e0_field_weights": "molecule"} if rung.e0_field and rung.e0_field_whole else {}),
+            **({"e0_field_form": rung.e0_field_form} if rung.e0_field and rung.e0_field_form != "mlp" else {}),
             **({"readout_coefficients": "species"} if rung.bf_species else {}),
             **({"mutual_response": int(rung.bf_mutual)} if rung.bf_mutual else {}),
             "r_cut_angstrom": ang(rung.e0["r_cut"]), "features": int(rung.e0["F"]),

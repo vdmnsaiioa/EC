@@ -84,19 +84,30 @@ def taper(r, r_on, r_off):
     return 1.0 - x ** 3 * (10.0 - 15.0 * x + 6.0 * x ** 2)
 
 
-def local_field_tensors(points, sources, q, src, l, r_on, r_off):
+def local_field_tensors(points, sources, q, src, l, r_on, r_off, frag_src=None):
     """the potential (N,), field (N,3) and field gradient (N,3,3) at the points (N,3) of the charges q (S,) at the
     sources (S,3) through the band kernel g = erf(r/l)/r, source j acting on point i where src[i, j] (N,S), each source's
-    share weighted by taper(r_ij, r_on, r_off):
+    share weighted by w_ij:
         phi_i = sum_j w_ij q_j g(r_ij),    E_i = -sum_j w_ij q_j g'(r_ij) n_ij,
         G_i = -sum_j w_ij q_j [g''(r_ij) n_ij n_ij + g'(r_ij) / r_ij (1 - n_ij n_ij)],    n_ij = (x_i - x_j) / r_ij,
-    analytic.  The shares are tapered, not the potential: E is not -grad phi within the taper, and the forces need only
-    the taper's first derivative.  Nothing from a source beyond r_off."""
+    analytic.  w_ij = taper(r_ij, r_on, r_off), each source by its own distance (v0.0.14); or, with frag_src (F,S) -- the
+    fragment of every source -- every fragment whole (v0.0.15): all of a fragment's sources share one weight at a point,
+    the product of their tapers,
+        w_ij = prod_{k in frag(j)} taper(r_ik, r_on, r_off),
+    1 when every site of the fragment lies within r_on of the point, 0 when any lies beyond r_off -- so that a fragment
+    straddling the taper enters with its own charges in their proportions (a neutral molecule neutral), never part
+    charged.  The shares are weighted, not the potential: E is not -grad phi within the taper, and the forces need only
+    the weights' first derivatives.  Nothing from a source beyond r_off."""
     d = points[:, None, :] - sources[None, :, :]
     d = jnp.where(src[..., None], d, 1.0)                         # excluded pairs get a finite dummy vector, so that
     r = jnp.sqrt(jnp.sum(d * d, axis=-1))                         # no derivative is taken at r = 0
     n = d / r[..., None]
-    w = src.astype(points.dtype) * taper(r, r_on, r_off) * q[None, :]
+    tw = taper(r, r_on, r_off)                                    # (N,S): each source by its own distance
+    if frag_src is not None:
+        member = jnp.asarray(frag_src).astype(points.dtype) > 0.5  # (F,S)
+        tf = jnp.prod(jnp.where(member[None, :, :] & src[:, None, :], tw[:, None, :], 1.0), axis=-1)   # (N,F)
+        tw = tf @ member.astype(points.dtype)                     # (N,S): each source its fragment's weight
+    w = src.astype(points.dtype) * tw * q[None, :]
     dg, d2g = kn.dg_long(r, l), kn.d2g_long(r, l)
     phi = jnp.sum(w * kn.g_long(r, l), axis=1)
     E = -jnp.einsum("ij,ija->ia", w * dg, n)

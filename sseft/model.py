@@ -13,7 +13,9 @@ The model: E_0 + IR bands on learned (or pinned) sources [+ band-field inputs], 
 Pinned sources may be a site model (Rung.msites: charges on the atoms and on virtual sites placed from them, e.g. TTM3-F's
 M-site), and the order-0 read-out's induced dipoles may act on each other (Rung.bf_mutual: the alpha^2 T terms and beyond).
 E_0's site energies may read the pinned sources' local potential, field and field gradient (Rung.e0_field, v0.0.14:
-bandfields.local_field_tensors, heads.field_energy), tapered to zero inside E_0's cutoff.
+bandfields.local_field_tensors, heads.field_energy), tapered to zero inside E_0's cutoff -- every fragment's sources with
+one weight (Rung.e0_field_whole, v0.0.15), and through a term of degree 2 in the field (Rung.e0_field_form "quadratic",
+heads.field_energy2).
 Energies in hartree, positions in bohr; forces by autodiff.
 """
 from dataclasses import dataclass, field, replace
@@ -53,6 +55,12 @@ class Rung:
     e0_field_on: float = ang_to_bohr(4.5)
     e0_field_off: float = ang_to_bohr(5.5)
     e0_field_unit: float = 0.01            # a.u.: the unit of the potential, field and field gradient in the term's input
+    e0_field_whole: bool = False           # v0.0.15: every fragment's sources share one weight at an atom, the product of their
+    # tapers (bandfields.local_field_tensors with frag_src): a molecule enters whole or not at all, never part charged;
+    # False: each source tapered by its own distance (v0.0.14)
+    e0_field_form: str = "mlp"             # "mlp": an MLP of the features, the potential, the field's contractions and squares
+    # (heads.field_energy, v0.0.14); "quadratic": degree 2 in the field, -1/2 (E.A.E + G:B:G) with A and B from E_0's
+    # features (heads.field_energy2, v0.0.15) -- no potential, no term linear in the field
     pin_q: bool = False
     pin_mu: bool = False
     pin_alpha: bool = False
@@ -111,8 +119,11 @@ def init_params(key, rung: Rung, energy_scale=1.0):
             raise ValueError("e0_field reads the pinned site model's charges (Rung.msites)")
         if not 0 < rung.e0_field_on < rung.e0_field_off <= rung.e0["r_cut"] or rung.e0_field_unit <= 0:
             raise ValueError("e0_field needs 0 < e0_field_on < e0_field_off <= E_0's r_cut and a positive unit")
+        if rung.e0_field_form not in ("mlp", "quadratic"):
+            raise ValueError("e0_field_form is 'mlp' or 'quadratic'")
         # its own key, so that the other parameters are the rung's without the field term, digit for digit
-        p["field"] = H.init_field_head(jax.random.fold_in(key, 14), rung.e0)
+        init_field = H.init_field_head if rung.e0_field_form == "mlp" else H.init_field_head2
+        p["field"] = init_field(jax.random.fold_in(key, 14), rung.e0)
     return p
 
 
@@ -289,8 +300,12 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
         X_src, q_src, on_src, frag_src = sites
         same_src = (b["frag_mask"].astype(pos.dtype).T @ frag_src.astype(pos.dtype)) > 0.5      # (N, N+V)
         src = mask[:, None] & on_src[None, :] & ~same_src
-        phi, Eloc, Gloc = BF.local_field_tensors(pos, X_src, q_src, src, rung.l1, rung.e0_field_on, rung.e0_field_off)
-        eps_f = H.field_energy(params["field"], s, v, t, phi, Eloc, Gloc, mask, hp["e_scale"], rung.e0_field_unit)
+        phi, Eloc, Gloc = BF.local_field_tensors(pos, X_src, q_src, src, rung.l1, rung.e0_field_on, rung.e0_field_off,
+                                                 frag_src=frag_src if rung.e0_field_whole else None)
+        if rung.e0_field_form == "quadratic":
+            eps_f = H.field_energy2(params["field"], s, v, t, Eloc, Gloc, mask, hp["e_scale"], rung.e0_field_unit)
+        else:
+            eps_f = H.field_energy(params["field"], s, v, t, phi, Eloc, Gloc, mask, hp["e_scale"], rung.e0_field_unit)
         E = E + jnp.sum(eps_f); aux["E_field"] = jnp.sum(eps_f)
     return E, aux
 

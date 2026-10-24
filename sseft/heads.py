@@ -120,3 +120,32 @@ def field_energy(p, s, v, t, phi, E, G, mask, e_scale, unit):
                          jnp.sum(Gu * Gu, axis=(-2, -1))[:, None]], axis=-1)
     z0 = jnp.concatenate([s, jnp.zeros((s.shape[0], z.shape[1] - s.shape[1]), s.dtype)], axis=-1)
     return e_scale * (mlp(p["mlp"], z) - mlp(p["mlp"], z0))[..., 0] * mask
+
+
+# ------------------------------------------------- the field term at degree 2 (v0.0.15, Rung.e0_field_form) -----
+def init_field_head2(key, cfg):
+    """the degree-2 field term's coefficients: an MLP of E_0's invariants, 3F + 2 outputs, whose output layer starts at
+    zero, so that a rung with the term starts as the rung without it."""
+    F = cfg["F"]
+    head = _mlp_init(key, [F, F, 3 * F + 2])
+    head[-1] = {"w": jnp.zeros_like(head[-1]["w"]), "b": jnp.zeros_like(head[-1]["b"])}
+    return {"coef": head}
+
+
+def field_energy2(p, s, v, t, E, G, mask, e_scale, unit):
+    """per-atom energies (N,) of E_0's view of the pinned field at degree 2 in the field:
+        eps_i = -1/2 e_scale [ E_i . A_i . E_i + G_i : B_i : G_i ]                        (E, G in units of `unit`)
+        E.A.E = a |E|^2 + sum_f b_f (E . v_f)^2 + sum_f b'_f E . t_f . E,      G:B:G = c |G|^2 + sum_f d_f (t_f : G)^2,
+    the coefficients (a, b, b', c, d) an MLP of E_0's invariants s_i: the band-field read-out's order-0 form
+    (bandfields.response_energy) on the local field, and its square in the field gradient.  No potential, no term linear
+    in the field, no function of the field beyond its square: zero at zero field, and exactly quadratic in the sources."""
+    F = s.shape[-1]
+    c = mlp(p["coef"], s)
+    a, b, bp, cg, dg = c[:, 0], c[:, 1:F + 1], c[:, F + 1:2 * F + 1], c[:, 2 * F + 1], c[:, 2 * F + 2:]
+    Eu, Gu = E / unit, G / unit
+    Ev = jnp.einsum("ia,iaf->if", Eu, v)                                  # E . v_f
+    EtE = jnp.einsum("ia,iabf,ib->if", Eu, t, Eu)                         # E . t_f . E
+    tG = jnp.einsum("iabf,iab->if", t, Gu)                                # t_f : G
+    eAe = a * jnp.sum(Eu * Eu, axis=-1) + jnp.sum(b * Ev ** 2, axis=-1) + jnp.sum(bp * EtE, axis=-1)
+    gBg = cg * jnp.sum(Gu * Gu, axis=(-2, -1)) + jnp.sum(dg * tG ** 2, axis=-1)
+    return -0.5 * e_scale * (eAe + gBg) * mask

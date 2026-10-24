@@ -181,6 +181,29 @@ python scripts/run_experiment.py --config configs/water_qaqua_pol5.yaml --out_di
 python scratch/e3qp3_shortrange_diagnostic.py results/e3qp5 external/qaqua/build_pol --F 32 --response_edge 0.75 --seeds all --save_frames
 ```
 
+### E3-QP6: every molecule whole, and the field term's degree
+
+E3-QP5 (`notes/e3qp5-results.md`) confirmed that the field is what the pinned rungs' E₀ lacked — M_16†ᵐ_f's near-rigid
+3-body 0.110 → 0.062, below M_∞'s — and found the field term's two faults: each source tapered by its own distance
+leaves a molecule straddling the taper part charged (a monopole's field where the truth has a dipole's; the extended
+trimers' 3-body pushed the wrong way, the C rung's hexamers lost), and the pinned rungs' 2-body just past the contact
+data's edge. E3-QP6 (pre-registered in `notes/e3qp6-preregistration.md`):
+
+- **Every molecule whole** (`Rung.e0_field_whole`): all of a molecule's sources share one weight at an atom, the product
+  of their tapers between r_c − 1 and r_c (`bandfields.local_field_tensors` with `frag_src`;
+  `e3_water.E0_FIELD_TAPER_WHOLE`) — 1 when all its sites lie within 5 Å, 0 when any lies beyond 6 Å: a molecule enters
+  neutral or not at all, and only when all its sites lie within E₀'s graph of the atom.
+- **The term at degree 2 in the field** (`Rung.e0_field_form: quadratic`, `heads.field_energy2`): −½ (E·A·E + G:B:G),
+  A and B from E₀'s features — the read-out's order-0 form on the local field and its square in the field gradient; no
+  potential, no term linear in the field.
+- **Rungs** (`configs/water_qaqua_pol6.yaml`: E3-QP5's otherwise): `M_16pm_w` and `M_16C2pm_w` (the field term with
+  every molecule whole) and `M_16C2pm_w2` (and at degree 2) beside `M_16pm` and `M_16C2pm`, run again as the controls.
+
+```sh
+python scripts/run_experiment.py --config configs/water_qaqua_pol6.yaml --out_dir results/e3qp6
+python scratch/e3qp3_shortrange_diagnostic.py results/e3qp6 external/qaqua/build_pol --F 32 --response_edge 0.75 --seeds all --save_frames
+```
+
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
 ### Water model settings
@@ -427,6 +450,7 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
     python scripts/run_experiment.py --config configs/water_qaqua_pol4a.yaml --out_dir results/e3qp4a  # E3-QP4, job A
     python scripts/run_experiment.py --config configs/water_qaqua_pol4b.yaml --out_dir results/e3qp4b  # E3-QP4, job B
     python scripts/run_experiment.py --config configs/water_qaqua_pol5.yaml --out_dir results/e3qp5    # E3-QP5
+    python scripts/run_experiment.py --config configs/water_qaqua_pol6.yaml --out_dir results/e3qp6    # E3-QP6
     python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl \
         --out results/e3r_clusters_yaml.json                                  # E3-R R1, the cluster protocol from YAML
     sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
@@ -484,7 +508,8 @@ CCSD(T) data when they exist.  Every part saves its json after each rung.
     notes/        the pre-registration and result notes of the experiments run from this repository
     configs/      the YAML configurations (configs/water_qaqua.yaml: E3-Q; configs/water_qaqua_pol.yaml: E3-QP;
                   configs/water_qaqua_pol2.yaml: E3-QP2; configs/water_qaqua_pol3.yaml: E3-QP3;
-                  configs/water_qaqua_pol4a.yaml, pol4b.yaml: E3-QP4's two jobs; configs/water_qaqua_pol5.yaml: E3-QP5)
+                  configs/water_qaqua_pol4a.yaml, pol4b.yaml: E3-QP4's two jobs; configs/water_qaqua_pol5.yaml: E3-QP5;
+                  configs/water_qaqua_pol6.yaml: E3-QP6)
     external/     the q-AQUA and q-AQUA-pol build scripts and their C interfaces (the builds, external/qaqua/build*/, are not committed)
     scratch/      one-off computations quoted in the notes (not part of the package)
     results/      the logs and jsons of every run quoted in RESULTS.md

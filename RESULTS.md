@@ -543,3 +543,52 @@ field by autodiff and cut beyond the taper; the taper C²; forces against centra
 translation and the molecules' order) and `tests/test_water_pol5_config.py` (the shipped config is job B's but for its
 rungs; refused without the site model); 382 tests, 360 pass and 22 are skipped without the q-AQUA builds (13 min on
 one CPU).
+
+## v0.0.14 → v0.0.15 — E3-QP5 read; E3-QP6 set up
+
+**E3-QP5 read** (`notes/e3qp5-results.md`, two jobs of 23 Oct split by rung, one H200 each, 2.5 and 2.8 h; 18 of 24
+checks as registered). (b) holds: given the other molecules' pinned field, M_16†ᵐ_f's raw 3-body on the near-rigid
+trimers 0.110 → 0.062 kcal/mol (paired −32 to −48 %), all raw trimers 0.117 → 0.078, below O–O 2.7 Å 0.195 → 0.127 —
+level with or below M_∞'s at every contact — at no registered price (raw 2-body −12 %, hexamers −11 %, training clusters
+−10 %, raw 4-body 120 → 82 %); M_∞_f's 3-body no better (strict +15 %), its 2-body halved: the pinned rungs' piece. The C
+rung gained at contact (raw 3-body −31 %, 2-body −29 %, training clusters −17 %) and lost its hexamers (0.155 → 0.178 on
+every seed), its 4-body (57 → 81 %) and the trimers beyond 9 Å (27 → 42 %); M_16C2†ᵐ stays the best model. The far field
+as computed. Two faults of the field term, read after the run (`scratch/e3qp5_reach_scan.py`, from the PES and the data
+alone): each source tapered by its own distance leaves a molecule straddling the taper part charged (27–38 % of the
+atom–molecule pairs, 0.3 e rms) — two polarisabilities on that input predict the extended trimers' 3-body worse than
+none, and M_16†ᵐ_f's 3-body there equals their residual to the printed digit; and the pinned field rungs' 2-body just
+past the contact data's edge (3.0–3.2 Å +72 / +47 %), which is not the taper's.
+
+**The harness.**
+- *Every molecule whole* (`Rung.e0_field_whole`; `bandfields.local_field_tensors(..., frag_src=)`): all of a fragment's
+  sources share one weight at a point, the product of their tapers — 1 when every site lies within the taper's start, 0
+  when any lies beyond its end — so that a fragment enters with its charges in their proportions (a neutral molecule
+  neutral). The rungs' taper r_c − 1 to r_c (`e3_water.E0_FIELD_TAPER_WHOLE`, set by `configure`): no source beyond r_c
+  in reach.
+- *The field term at degree 2* (`Rung.e0_field_form: "quadratic"`, `heads.init_field_head2`, `heads.field_energy2`):
+  −½ e_scale (E·A·E + G:B:G), A = a + Σ b_f v_f v_f + Σ b′_f t_f and G:B:G = c |G|² + Σ d_f (t_f:G)², the coefficients
+  an MLP of E₀'s invariants starting at zero — the read-out's order-0 form on the local field, and its square in the
+  field gradient; exactly quadratic in the pinned charges. `"mlp"` (the default) is v0.0.14's term, unchanged.
+- *Rungs* (`e3_water`): `M_16pm_w`, `M_16C2pm_w` (the field term with every molecule whole), `M_16C2pm_w2` (and at
+  degree 2); the model record carries `e0_field_weights` and `e0_field_form` where they differ from v0.0.14's, so that
+  E3-QP5's records read as before. `scratch/e3qp3_shortrange_diagnostic.py` checks them against the rung.
+
+**The experiment** (`configs/water_qaqua_pol6.yaml`, `notes/e3qp6-preregistration.md`): E3-QP5 with its field rungs
+replaced — M_16†ᵐ, M_16†ᵐ_w, M_16C2†ᵐ, M_16C2†ᵐ_w, M_16C2†ᵐ_w2, 4 seeds; the bases run again as the controls; the
+diagnostic with `--save_frames` after the run (`run_e3qp6.sbatch`; two jobs, each base with its field rungs). Computed
+before training (`scratch/e3qp6_preregistration.py`, with the harness's own tensors): every probe at 10–15 Å lies beyond
+the whole-molecule term's reach, so the far field there is the bases'; on the 4673 raw trimers one polarisability per
+species on the cross term leaves 0.078 of the 3-body's 0.623 kcal/mol rms with every molecule whole (E3-QP5's taper
+0.114, none 0.066), and nothing worse than predicting no 3-body where the farthest molecule is 7 Å or more away (0.023
+against the labels' 0.027 at 7–9 Å; E3-QP5's 0.039); below O–O 3.2 Å every dimer's partner is whole in reach, so the
+input at the contact data's edge is E3-QP5's. A training step costs 1.00–1.04 times the base's
+(`scratch/e3qp6_field_timing.py`).
+
+Tests: `tests/test_e0_field_whole.py` (E3-QP5's field rungs against v0.0.14's golden energies and forces; the new rungs
+configured and recorded, E3-QP5's records unchanged; a new rung at initialisation its base, digit for digit; the tensors
+with every molecule whole against each molecule's whole field times the product of its sites' tapers, computed apart, and
+every molecule neutral as seen from any atom; the term local — a probe beyond r_c and an isolated molecule as with the
+base rung; the degree-2 term exactly quadratic, in the head and in the rung's charges; forces against central
+differences with a molecule straddling the taper; invariance) and `tests/test_water_pol6_config.py` (the shipped config
+is E3-QP5's but for its rungs; refused without the site model); 394 tests, 372 pass and 22 are skipped without the
+q-AQUA builds (21 min on one CPU).
