@@ -43,6 +43,8 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
     M_16pm_w, M_16C2pm_w   E3-QP6: the field term with every molecule's sources under one weight, the product of their
                       tapers over the last 1.0-0 A inside r_c (Rung.e0_field_whole, E0_FIELD_TAPER_WHOLE)
     M_16C2pm_w2       E3-QP6: M_16C2pm_w with the field term at degree 2 in the field (Rung.e0_field_form "quadratic")
+    M_16C2pm_wx, M_16C2pm_w2x   E3-QP7: M_16C2pm_w and M_16C2pm_w2 with the field term less its value on each source
+                      molecule alone (Rung.e0_field_cross): nothing to any dimer, only the non-additive energy
 """
 from experiment_config import (CLUSTER_CONTACT_DEFAULTS, CLUSTER_DEFAULTS, CLUSTER_PROBE_DEFAULTS, DIMER_DEFAULTS,
                                add_training_arguments, parse_selection, training_kwargs, training_seeds)
@@ -134,6 +136,12 @@ RUNGS["M_16pm_w"] = M.with_rung(RUNGS["M_16pm"], name="M_16pm_w", e0_field=True,
 RUNGS["M_16C2pm_w"] = M.with_rung(RUNGS["M_16C2pm"], name="M_16C2pm_w", e0_field=True, e0_field_whole=True)
 RUNGS["M_16C2pm_w2"] = M.with_rung(RUNGS["M_16C2pm"], name="M_16C2pm_w2", e0_field=True, e0_field_whole=True,
                                    e0_field_form="quadratic")
+# E3-QP7 (v0.0.16): the field term without its 2-body -- less its value on each source molecule alone (Rung.e0_field_cross),
+# so that it gives nothing to any dimer and E_0, the bands and the read-out carry the whole 2-body: a function of the summed
+# field ties its self terms (a 2-body) to its cross terms (the 3-body), and at degree 2 one coefficient sets both
+# (e3qp6-results.md section 3.4).  At degree 2 the term is then the leading non-additive induction, -sum_{B<C} E(B).A.E(C)
+RUNGS["M_16C2pm_wx"] = M.with_rung(RUNGS["M_16C2pm_w"], name="M_16C2pm_wx", e0_field_cross=True)
+RUNGS["M_16C2pm_w2x"] = M.with_rung(RUNGS["M_16C2pm_w2"], name="M_16C2pm_w2x", e0_field_cross=True)
 C6_OO_TRUTH = 45.4
 
 
@@ -387,6 +395,7 @@ def model_record(name, a):
                 "e0_field_unit": float(rung.e0_field_unit)} if rung.e0_field else {}),
             **({"e0_field_weights": "molecule"} if rung.e0_field and rung.e0_field_whole else {}),
             **({"e0_field_form": rung.e0_field_form} if rung.e0_field and rung.e0_field_form != "mlp" else {}),
+            **({"e0_field_cross": True} if rung.e0_field and rung.e0_field_cross else {}),
             **({"readout_coefficients": "species"} if rung.bf_species else {}),
             **({"mutual_response": int(rung.bf_mutual)} if rung.bf_mutual else {}),
             "r_cut_angstrom": ang(rung.e0["r_cut"]), "features": int(rung.e0["F"]),

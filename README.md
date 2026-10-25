@@ -204,6 +204,26 @@ python scripts/run_experiment.py --config configs/water_qaqua_pol6.yaml --out_di
 python scratch/e3qp3_shortrange_diagnostic.py results/e3qp6 external/qaqua/build_pol --F 32 --response_edge 0.75 --seeds all --save_frames
 ```
 
+### E3-QP7: the field term without its 2-body
+
+E3-QP6 (`notes/e3qp6-results.md`) made `M_16C2pm_w` the best model so far and found why the degree-2 term lost the 2-body
+past the contact data: a field term that is a function of the field summed over the other molecules gives a dimer its
+self terms and a trimer its cross terms, and at degree 2 one coefficient sets both — the self term, a 2-body E₀ must
+cancel, comes with the cross term that carries the 3-body. E3-QP7 (pre-registered in `notes/e3qp7-preregistration.md`):
+
+- **The term less its value on each source molecule alone** (`Rung.e0_field_cross`, with every molecule whole;
+  `bandfields.local_field_tensors(..., per_frag=True)`, `heads.field_energy` / `heads.field_energy2` with `parts`):
+  ε_i = h(s_i; x_i) − Σ_B h(s_i; x_i(B)) — nothing to any dimer (E₀, the bands and the read-out carry the whole 2-body),
+  only what the molecules' fields do together; at degree 2 the cross terms −½ Σ_{B≠C} E_i(B)·A_i·E_i(C) (and in G), the
+  leading non-additive induction.
+- **Rungs** (`configs/water_qaqua_pol7.yaml`: E3-QP6's otherwise): `M_16C2pm_w2x` (degree 2, the cross terms only) and
+  `M_16C2pm_wx` (the MLP form less its single-molecule values) beside `M_16C2pm` and `M_16C2pm_w`, run again.
+
+```sh
+python scripts/run_experiment.py --config configs/water_qaqua_pol7.yaml --out_dir results/e3qp7
+python scratch/e3qp3_shortrange_diagnostic.py results/e3qp7 external/qaqua/build_pol --F 32 --response_edge 0.75 --seeds all --save_frames
+```
+
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
 ### Water model settings
@@ -451,6 +471,7 @@ after 1500 steps), the L-BFGS polish (`--lbfgs 300`) brings them within reach (3
     python scripts/run_experiment.py --config configs/water_qaqua_pol4b.yaml --out_dir results/e3qp4b  # E3-QP4, job B
     python scripts/run_experiment.py --config configs/water_qaqua_pol5.yaml --out_dir results/e3qp5    # E3-QP5
     python scripts/run_experiment.py --config configs/water_qaqua_pol6.yaml --out_dir results/e3qp6    # E3-QP6
+    python scripts/run_experiment.py --config configs/water_qaqua_pol7.yaml --out_dir results/e3qp7    # E3-QP7
     python scripts/run_experiment.py --config configs/water.yaml --cache results/cache_clusters_v2.pkl \
         --out results/e3r_clusters_yaml.json                                  # E3-R R1, the cluster protocol from YAML
     sh scripts/run_e1_k16.sh      # the K = 16 batch of E1 / E2 (GPU-sized)
@@ -509,7 +530,7 @@ CCSD(T) data when they exist.  Every part saves its json after each rung.
     configs/      the YAML configurations (configs/water_qaqua.yaml: E3-Q; configs/water_qaqua_pol.yaml: E3-QP;
                   configs/water_qaqua_pol2.yaml: E3-QP2; configs/water_qaqua_pol3.yaml: E3-QP3;
                   configs/water_qaqua_pol4a.yaml, pol4b.yaml: E3-QP4's two jobs; configs/water_qaqua_pol5.yaml: E3-QP5;
-                  configs/water_qaqua_pol6.yaml: E3-QP6)
+                  configs/water_qaqua_pol6.yaml: E3-QP6; configs/water_qaqua_pol7.yaml: E3-QP7)
     external/     the q-AQUA and q-AQUA-pol build scripts and their C interfaces (the builds, external/qaqua/build*/, are not committed)
     scratch/      one-off computations quoted in the notes (not part of the package)
     results/      the logs and jsons of every run quoted in RESULTS.md

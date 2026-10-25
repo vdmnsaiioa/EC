@@ -106,20 +106,39 @@ def init_field_head(key, cfg):
             "mlp": head}
 
 
-def field_energy(p, s, v, t, phi, E, G, mask, e_scale, unit):
+def field_energy(p, s, v, t, phi, E, G, mask, e_scale, unit, parts=None):
     """per-atom energies (N,) of E_0's view of the pinned field: an MLP of
         [ s_i,  phi_i,  (W_v v_i) . E_i,  (W_t t_i) : G_i,  |E_i|^2,  |G_i|^2 ]      (3F + 3; phi, E, G in units of `unit`)
     -- the invariant features, the potential, E_0's vector and tensor channels contracted with the field and its
     gradient (MACE-POLAR's non-local read-out, Batatia et al. 2026, here local) and the two squares -- less the same MLP
     at zero field, so that the term vanishes identically where no source is in reach (an isolated molecule, a fragment
-    beyond the taper of everything else)."""
-    Eu, Gu = E / unit, G / unit
-    d1 = jnp.einsum("iaf,fg,ia->ig", v, p["W_v"], Eu)
-    d2 = jnp.einsum("iabf,fg,iab->ig", t, p["W_t"], Gu)
-    z = jnp.concatenate([s, (phi / unit)[:, None], d1, d2, jnp.sum(Eu * Eu, axis=-1)[:, None],
-                         jnp.sum(Gu * Gu, axis=(-2, -1))[:, None]], axis=-1)
-    z0 = jnp.concatenate([s, jnp.zeros((s.shape[0], z.shape[1] - s.shape[1]), s.dtype)], axis=-1)
-    return e_scale * (mlp(p["mlp"], z) - mlp(p["mlp"], z0))[..., 0] * mask
+    beyond the taper of everything else).
+
+    parts (v0.0.16): (phi_f, E_f, G_f, reach), every source fragment's share apart (bandfields.local_field_tensors with
+    per_frag), and the term less its value on each fragment alone,
+        eps_i = h(s_i; x_i) - sum_B reach_iB h(s_i; x_i(B)),      h(s; x) = MLP(s, x) - MLP(s, 0),
+    so that it gives nothing to any dimer -- the field's self terms, a 2-body, are gone -- and carries only what the
+    fragments' fields do together: the non-additive energy.  The total and the parts go through one evaluation, so that
+    where one fragment is in reach the two cancel to the last digit."""
+    if parts is None:
+        Eu, Gu = E / unit, G / unit
+        d1 = jnp.einsum("iaf,fg,ia->ig", v, p["W_v"], Eu)
+        d2 = jnp.einsum("iabf,fg,iab->ig", t, p["W_t"], Gu)
+        z = jnp.concatenate([s, (phi / unit)[:, None], d1, d2, jnp.sum(Eu * Eu, axis=-1)[:, None],
+                             jnp.sum(Gu * Gu, axis=(-2, -1))[:, None]], axis=-1)
+        z0 = jnp.concatenate([s, jnp.zeros((s.shape[0], z.shape[1] - s.shape[1]), s.dtype)], axis=-1)
+        return e_scale * (mlp(p["mlp"], z) - mlp(p["mlp"], z0))[..., 0] * mask
+    phi_f, E_f, G_f, reach = parts
+    N, K = phi_f.shape
+    X = [jnp.concatenate([x[:, None], xf], axis=1) / unit for x, xf in ((phi, phi_f), (E, E_f), (G, G_f))]  # (N,K+1,...)
+    Pu, Eu, Gu = X
+    d1 = jnp.einsum("iaf,fg,ika->ikg", v, p["W_v"], Eu)
+    d2 = jnp.einsum("iabf,fg,ikab->ikg", t, p["W_t"], Gu)
+    z = jnp.concatenate([jnp.broadcast_to(s[:, None, :], (N, K + 1, s.shape[1])), Pu[..., None], d1, d2,
+                         jnp.sum(Eu * Eu, axis=-1)[..., None], jnp.sum(Gu * Gu, axis=(-2, -1))[..., None]], axis=-1)
+    z0 = jnp.concatenate([s, jnp.zeros((N, z.shape[2] - s.shape[1]), s.dtype)], axis=-1)
+    h = mlp(p["mlp"], z.reshape(N * (K + 1), -1)).reshape(N, K + 1) - mlp(p["mlp"], z0)[:, 0][:, None]
+    return e_scale * (h[:, 0] - jnp.sum(reach * h[:, 1:], axis=1)) * mask
 
 
 # ------------------------------------------------- the field term at degree 2 (v0.0.15, Rung.e0_field_form) -----
@@ -132,20 +151,36 @@ def init_field_head2(key, cfg):
     return {"coef": head}
 
 
-def field_energy2(p, s, v, t, E, G, mask, e_scale, unit):
+def field_energy2(p, s, v, t, E, G, mask, e_scale, unit, parts=None):
     """per-atom energies (N,) of E_0's view of the pinned field at degree 2 in the field:
         eps_i = -1/2 e_scale [ E_i . A_i . E_i + G_i : B_i : G_i ]                        (E, G in units of `unit`)
         E.A.E = a |E|^2 + sum_f b_f (E . v_f)^2 + sum_f b'_f E . t_f . E,      G:B:G = c |G|^2 + sum_f d_f (t_f : G)^2,
     the coefficients (a, b, b', c, d) an MLP of E_0's invariants s_i: the band-field read-out's order-0 form
     (bandfields.response_energy) on the local field, and its square in the field gradient.  No potential, no term linear
-    in the field, no function of the field beyond its square: zero at zero field, and exactly quadratic in the sources."""
+    in the field, no function of the field beyond its square: zero at zero field, and exactly quadratic in the sources.
+
+    parts (v0.0.16): (phi_f, E_f, G_f, reach), every source fragment's share apart, and the quadratic forms less their
+    values on each fragment alone -- with E_i = sum_B E_i(B),
+        eps_i = -1/2 e_scale sum_{B != C} [ E_i(B) . A_i . E_i(C) + G_i(B) : B_i : G_i(C) ],
+    the cross terms only: the leading non-additive induction, with no self term -|E_i(B)|^2 (a 2-body) to cancel."""
     F = s.shape[-1]
     c = mlp(p["coef"], s)
     a, b, bp, cg, dg = c[:, 0], c[:, 1:F + 1], c[:, F + 1:2 * F + 1], c[:, 2 * F + 1], c[:, 2 * F + 2:]
-    Eu, Gu = E / unit, G / unit
-    Ev = jnp.einsum("ia,iaf->if", Eu, v)                                  # E . v_f
-    EtE = jnp.einsum("ia,iabf,ib->if", Eu, t, Eu)                         # E . t_f . E
-    tG = jnp.einsum("iabf,iab->if", t, Gu)                                # t_f : G
-    eAe = a * jnp.sum(Eu * Eu, axis=-1) + jnp.sum(b * Ev ** 2, axis=-1) + jnp.sum(bp * EtE, axis=-1)
-    gBg = cg * jnp.sum(Gu * Gu, axis=(-2, -1)) + jnp.sum(dg * tG ** 2, axis=-1)
-    return -0.5 * e_scale * (eAe + gBg) * mask
+    if parts is None:
+        Eu, Gu = E / unit, G / unit
+        Ev = jnp.einsum("ia,iaf->if", Eu, v)                              # E . v_f
+        EtE = jnp.einsum("ia,iabf,ib->if", Eu, t, Eu)                     # E . t_f . E
+        tG = jnp.einsum("iabf,iab->if", t, Gu)                            # t_f : G
+        eAe = a * jnp.sum(Eu * Eu, axis=-1) + jnp.sum(b * Ev ** 2, axis=-1) + jnp.sum(bp * EtE, axis=-1)
+        gBg = cg * jnp.sum(Gu * Gu, axis=(-2, -1)) + jnp.sum(dg * tG ** 2, axis=-1)
+        return -0.5 * e_scale * (eAe + gBg) * mask
+    _, E_f, G_f, reach = parts
+    Eu = jnp.concatenate([E[:, None], E_f], axis=1) / unit               # (N, K+1, 3): the total, then every fragment
+    Gu = jnp.concatenate([G[:, None], G_f], axis=1) / unit
+    Ev = jnp.einsum("ika,iaf->ikf", Eu, v)
+    EtE = jnp.einsum("ika,iabf,ikb->ikf", Eu, t, Eu)
+    tG = jnp.einsum("iabf,ikab->ikf", t, Gu)
+    eAe = a[:, None] * jnp.sum(Eu * Eu, axis=-1) + jnp.sum(b[:, None] * Ev ** 2, axis=-1) + jnp.sum(bp[:, None] * EtE, axis=-1)
+    gBg = cg[:, None] * jnp.sum(Gu * Gu, axis=(-2, -1)) + jnp.sum(dg[:, None] * tG ** 2, axis=-1)
+    qf = eAe + gBg                                                        # (N, K+1)
+    return -0.5 * e_scale * (qf[:, 0] - jnp.sum(reach * qf[:, 1:], axis=1)) * mask

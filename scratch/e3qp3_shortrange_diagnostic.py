@@ -115,13 +115,17 @@ def check_record(name, rung, record):
         if not rung.e0_field or any(t is None or abs(t - ang(v)) > 1e-9 for t, v in zip(taper, (rung.e0_field_on, rung.e0_field_off))):
             raise ValueError(f"{name}: the field term's taper of the run ({taper}) is not the flags' -- give --rcut as in its "
                              "configuration")
-        # v0.0.15: the weights (per source, or every molecule whole) and the form (the MLP, or degree 2), recorded only
-        # where they differ from v0.0.14's, so that E3-QP5's records read as before
-        ran = (record.get("e0_field_weights"), record.get("e0_field_form"))
-        rung_has = ("molecule" if rung.e0_field_whole else None, rung.e0_field_form if rung.e0_field_form != "mlp" else None)
+        # v0.0.15: the weights (per source, or every molecule whole) and the form (the MLP, or degree 2); v0.0.16: the
+        # term less each source molecule's own value (cross) -- recorded only where they differ from v0.0.14's, so that
+        # E3-QP5's and E3-QP6's records read as before
+        ran = (record.get("e0_field_weights"), record.get("e0_field_form"), bool(record.get("e0_field_cross", False)))
+        rung_has = ("molecule" if rung.e0_field_whole else None, rung.e0_field_form if rung.e0_field_form != "mlp" else None,
+                    bool(rung.e0_field_cross))
         if ran != rung_has:
-            raise ValueError(f"{name}: the field term of the run (weights {ran[0] or 'source'}, form {ran[1] or 'mlp'}) is "
-                             f"not the rung's ({rung_has[0] or 'source'}, {rung_has[1] or 'mlp'}) -- read it with the harness "
+            raise ValueError(f"{name}: the field term of the run (weights {ran[0] or 'source'}, form {ran[1] or 'mlp'}, "
+                             f"{'cross terms only' if ran[2] else 'with its self terms'}) is not the rung's "
+                             f"({rung_has[0] or 'source'}, {rung_has[1] or 'mlp'}, "
+                             f"{'cross terms only' if rung_has[2] else 'with its self terms'}) -- read it with the harness "
                              "it ran with")
     bad = [(k, record.get(k), v) for k, v in pairs
            if not ((record.get(k) is None and v is None) or (record.get(k) is not None and v is not None and abs(record[k] - v) < 1e-9))]

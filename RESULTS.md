@@ -592,3 +592,50 @@ base rung; the degree-2 term exactly quadratic, in the head and in the rung's ch
 differences with a molecule straddling the taper; invariance) and `tests/test_water_pol6_config.py` (the shipped config
 is E3-QP5's but for its rungs; refused without the site model); 394 tests, 372 pass and 22 are skipped without the
 q-AQUA builds (21 min on one CPU).
+
+## v0.0.15 → v0.0.16 — E3-QP6 read; E3-QP7 set up
+
+**E3-QP6 read** (`notes/e3qp6-results.md`, one job of 25 Oct on an A100, 7.8 h + 1.6 h; 29 of 38 checks as
+registered). (i) holds: with every molecule whole the extended trimers, the trimers beyond 9 Å, the C rung's 8 Å probes
+and its hexamers are back at the bases'. The edge fault (ii) went with them (O–O 3.0–3.2 Å −16 / +4 % against E3-QP5's
++72 / +47 %): it was the part charges' too, through what the MLP learned elsewhere; the 2-body at 5–7 Å is the MLP
+form's. M_16†ᵐ_w: near-rigid 3-body 0.111 → 0.043 kcal/mol (M_∞ 0.072) at no registered price. M_16C2†ᵐ_w is the best
+model so far: raw 3-body −38 %, raw 2-body −39 %, training clusters −26 %, hexamers level, the far field as computed; its
+costs the raw 4-body (58 → 75 %) and the 2-body at 5–7 Å. M_16C2†ᵐ_w2 (degree 2) keeps the 4-body (55 %) and loses the
+2-body past the contact data (3.0–3.2 Å +87 %, off the training pairs +56 %) and the hexamers (+8 %). Computed after the
+run (`scratch/e3qp6_self_term.py`): a function of the summed field ties its self terms (a 2-body) to its cross terms
+(the 3-body); at degree 2 one coefficient sets both, and the self term the trimers' two numbers bring has a spread on
+the raw dimers 3.6–7.9 times the base's 2-body error at every contact bin.
+
+**The harness.**
+- *Every molecule's share apart* (`bandfields.local_field_tensors(..., frag_src=, per_frag=True)`): the potential, field
+  and field gradient of each source fragment at every point, with its whole-molecule weight, and where it is in reach;
+  the totals then the sums of the parts, so that where one fragment is in reach the total is its part to the last digit.
+- *The field term without its 2-body* (`Rung.e0_field_cross`, with `e0_field_whole`; `heads.field_energy(..., parts=)`,
+  `heads.field_energy2(..., parts=)`): the term less its value on each source fragment alone, ε_i = h(s_i; x_i) −
+  Σ_B h(s_i; x_i(B)) — nothing to any dimer, only what the fragments' fields do together; at degree 2 the cross terms
+  −½ Σ_{B≠C} [E_i(B)·A_i·E_i(C) + G_i(B):B_i:G_i(C)], the leading non-additive induction. The rungs without it unchanged
+  to the last digit.
+- *Rungs* (`e3_water`): `M_16C2pm_wx` (M_16C2pm_w less each molecule's own value) and `M_16C2pm_w2x` (M_16C2pm_w2 with
+  the cross terms only); the model record carries `e0_field_cross` where set, so that E3-QP5's and E3-QP6's records
+  read as before; `scratch/e3qp3_shortrange_diagnostic.py` checks it against the rung.
+
+**The experiment** (`configs/water_qaqua_pol7.yaml`, `notes/e3qp7-preregistration.md`): E3-QP6 with its rungs replaced —
+M_16C2†ᵐ, M_16C2†ᵐ_w, M_16C2†ᵐ_wx, M_16C2†ᵐ_w2x, 4 seeds, paired in one job; the diagnostic with `--save_frames` after
+the run (`run_e3qp7.sbatch`). Computed before training (`scratch/e3qp7_preregistration.py`, through the per-molecule
+tensors): the trimers' two numbers on the cross term (0.078 of the 3-body's 0.623 kcal/mol rms left, E3-QP6's to the
+printed digit) carry 83 % of the test hexamers' non-additive energy's rms (correlation +0.974, 0.166 of 0.997 left) and
+81–83 % of the training clusters'; the self terms they bring, which M_16C2†ᵐ_w2's E₀ had to cancel, spread more than the
+non-additive energy itself in every set (the clusters 0.72–1.11 against 0.43–0.89 kcal/mol, the hexamers 1.31 against
+0.997); on the 4937 raw dimers the cross term is zero to the last digit. A training step costs 1.08–1.10 times the
+base's on the CPU (`scratch/e3qp7_field_timing.py`); about 8.3 h on an A100.
+
+Tests: `tests/test_e0_field_cross.py` (E3-QP6's field rungs against v0.0.15's golden energies and forces; the cross
+rungs configured and recorded, the records before unchanged; a cross rung at initialisation its base, digit for digit;
+the per-molecule tensors against each molecule's whole field times its weight, computed apart; the heads with parts
+against the cross terms written out and against the head without parts, and nothing where one fragment is in reach; a
+cross rung's dimers — at contact, straddling the taper, beyond it — and monomer M_16C2pm's, energy and every force; the
+term local; the degree-2 cross term exactly quadratic in the rung's charges; forces against central differences with a
+molecule straddling the taper; invariance) and `tests/test_water_pol7_config.py` (the shipped config is E3-QP6's but for
+its rungs; refused without the site model); 408 tests, 386 pass and 22 are skipped without the q-AQUA builds (27 min
+on two CPU cores).
