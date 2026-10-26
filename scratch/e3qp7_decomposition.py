@@ -12,7 +12,9 @@ A model's interaction energy is the sum of its components (sseft.model._total_en
     field      the field term (v0.0.14-16), split two ways where the rung has one with every molecule whole:
       self / cross   its self terms -- h on each source molecule alone, sum_B h(s_i; x_i(B)) -- and its cross terms, the
                      rest: the same parameters read as the cross rung (Rung.e0_field_cross) reads them.  A cross rung
-                     (M_16C2pm_wx, _w2x) has the cross terms alone.
+                     (M_16C2pm_wx, _w2x) has the cross terms alone; v0.0.17's rungs their self terms at their own reach,
+                     sum_B w_iB h(s_i; x_i(B)), beside the MLP's cross terms (M_16C2pm_ws) or degree-2 cross terms with
+                     coefficients by species (M_16C2pm_us: no coefficient part, no 4-body).
       fixed / coef   the term at the isolated molecule's features (E_0's s, v, t of every atom with its own molecule
                      alone: the coefficients fixed), and the rest -- what the other molecules do to the coefficients.  At
                      fixed coefficients the self terms are a 2-body exactly and the degree-2 cross terms a 3-body
@@ -98,26 +100,43 @@ def field_tensors(rung, b):
     frag_src = jnp.concatenate([b["frag_mask"], b["vs_frag_mask"]], axis=1)
     same_src = (fm.T @ frag_src.astype(pos.dtype)) > 0.5
     src = mask[:, None] & on_src[None, :] & ~same_src
-    return BF.local_field_tensors(pos, X_src, q_src, src, rung.l1, rung.e0_field_on, rung.e0_field_off,
-                                  frag_src=frag_src, per_frag=True)
+    phi, E, G, parts = BF.local_field_tensors(pos, X_src, q_src, src, rung.l1, rung.e0_field_on, rung.e0_field_off,
+                                              frag_src=frag_src, per_frag=True,
+                                              self_taper=(rung.e0_field_self_on, rung.e0_field_self_off)
+                                              if rung.e0_field_self_off > 0 else None)
+    if len(parts) == 4:
+        parts = parts + (parts[3],)                     # the self terms at the term's reach (v0.0.17's w_self = reach)
+    return phi, E, G, parts
 
 
 def field_energies(p, rung, b, tensors, s, v, t):
-    """the field term summed over the atoms with E_0's features (s, v, t): with its self terms, and its cross terms."""
+    """the field term summed over the atoms with E_0's features (s, v, t), as (its self terms, its cross terms) in the
+    rung's own form: the MLP or degree 2 with its self terms (h(x_i) - sum_B h(x_i(B)) the cross terms), or the cross
+    terms alone (Rung.e0_field_cross); v0.0.17: the MLP's self terms at their own reach, sum_B w_iB h(x_i(B)), beside the
+    MLP's cross terms (Rung.e0_field_self_on / _off) or degree-2 cross terms by species (Rung.e0_field_cross_species)."""
     phi, Eloc, Gloc, parts = tensors
     e_scale, unit, mask = p["heads"]["e_scale"], rung.e0_field_unit, b["mask"]
     if rung.e0_field_form == "quadratic":
         f = lambda prt: jnp.sum(H.field_energy2(p["field"], s, v, t, Eloc, Gloc, mask, e_scale, unit, parts=prt))
     else:
         f = lambda prt: jnp.sum(H.field_energy(p["field"], s, v, t, phi, Eloc, Gloc, mask, e_scale, unit, parts=prt))
-    return f(None), f(parts)
+    if rung.e0_field_self_off > 0 or rung.e0_field_cross_species:
+        self_ = jnp.sum(H.field_energy_split(p["field"], s, v, t, phi, Eloc, Gloc, mask, e_scale, unit, parts,
+                                             mlp_cross=False))
+        if rung.e0_field_cross_species:
+            cross = jnp.sum(H.field_cross_species(p["field_x"], b["numbers"], Eloc, Gloc, mask, e_scale, unit, parts))
+        else:
+            cross = f(parts[:4])
+        return self_, cross
+    cross = f(parts[:4])
+    return (jnp.zeros(()) if rung.e0_field_cross else f(None) - cross), cross
 
 
 def components_single(p, rung, b):
     """one structure's interaction energy (hartree) by component, as model.energy_single: E(all) - sum_f E(f alone).
-    For a field rung with whole molecules also the field term read here (F_own, to check against the model's), its
-    cross terms (F_cross) and with its self terms (F_full), and both at the isolated molecule's features (F_cross1,
-    F_full1); on a molecule alone the term is zero, so these need the whole structure only."""
+    For a field rung with whole molecules also the field term read here as its self terms (F_self) and its cross terms
+    (F_cross) -- their sum to check against the model's -- and both at the isolated molecule's features (F_self1,
+    F_cross1); on a molecule alone the term is zero, so these need the whole structure only."""
     groups = b["frag_mask"]
     E_all, a_all = M._total_energy(p, rung, b, b["mask"], subtract_atoms=False)
     E_fr, a_fr = jax.vmap(lambda fm: M._total_energy(p, rung, b, fm, subtract_atoms=False))(groups)
@@ -133,9 +152,8 @@ def components_single(p, rung, b):
         s, v, t = apply(b["mask"])
         s1, v1, t1 = (jnp.sum(x, axis=0) for x in jax.vmap(apply)(groups))     # every atom with its own molecule alone
         tensors = field_tensors(rung, b)
-        out["F_full"], out["F_cross"] = field_energies(p, rung, b, tensors, s, v, t)
-        out["F_full1"], out["F_cross1"] = field_energies(p, rung, b, tensors, s1, v1, t1)
-        out["F_own"] = out["F_cross"] if rung.e0_field_cross else out["F_full"]
+        out["F_self"], out["F_cross"] = field_energies(p, rung, b, tensors, s, v, t)
+        out["F_self1"], out["F_cross1"] = field_energies(p, rung, b, tensors, s1, v1, t1)
     return out
 
 
@@ -190,17 +208,15 @@ def quantities(c, rung):
         q["readout"] = c["E_bf"] * K
     if "E_field" in c:
         q["field"] = c["E_field"] * K
-    if "F_own" in c:
+    if "F_cross" in c:
         f = q["field"]
-        cross, cross1 = c["F_cross"] * K, c["F_cross1"] * K
+        cross, cross1, self1 = c["F_cross"] * K, c["F_cross1"] * K, c["F_self1"] * K
         if rung.e0_field_cross:
             q.update(cross=f, cross_fixed=cross1, cross_coef=f - cross1, field_fixed=cross1, field_coef=f - cross1)
         else:
-            full1 = c["F_full1"] * K
-            q.update(self=f - cross, cross=cross, self_fixed=full1 - cross1, cross_fixed=cross1,
-                     self_coef=(f - cross) - (full1 - cross1), cross_coef=cross - cross1, field_fixed=full1,
-                     field_coef=f - full1)
-        q["_check_field"] = (c["F_own"] - c["E_field"]) * K
+            q.update(self=f - cross, cross=cross, self_fixed=self1, cross_fixed=cross1, self_coef=(f - cross) - self1,
+                     cross_coef=cross - cross1, field_fixed=self1 + cross1, field_coef=f - (self1 + cross1))
+        q["_check_field"] = (c["F_self"] + c["F_cross"] - c["E_field"]) * K
     q["_check_sum"] = q["E"] - sum(q[k] for k in ("E0", "bands", "other", "readout", "field") if k in q)
     return q
 
@@ -408,8 +424,11 @@ def main():
                     chk[f"{key}: bands' 3-body and beyond"] = float(np.max(np.abs(T["bands"][:, size >= 3])))
                     if "self_fixed" in T:
                         chk[f"{key}: self terms at fixed coefficients, 3-body and beyond"] = float(np.max(np.abs(T["self_fixed"][:, size >= 3])))
-                if s["n"] >= 4 and "cross_fixed" in T and rung.e0_field_form == "quadratic":
+                degree2 = rung.e0_field_form == "quadratic" or rung.e0_field_cross_species
+                if s["n"] >= 4 and "cross_fixed" in T and degree2:
                     chk[f"{key}: degree-2 cross terms at fixed coefficients, 4-body and beyond"] = float(np.max(np.abs(T["cross_fixed"][:, size >= 4])))
+                if "cross_coef" in T and rung.e0_field_cross_species:
+                    chk[f"{key}: the species cross terms' coefficient part"] = float(np.max(np.abs(T["cross_coef"])))
                 if frames is not None:
                     if key == "hex" and f"{name}__s{seed}__hex__E" in frames:
                         chk["hex: energies (the diagnostic's)"] = float(np.max(np.abs(Q["E"][:, -1] - frames[f"{name}__s{seed}__hex__E"][s["idx"]] * K)))

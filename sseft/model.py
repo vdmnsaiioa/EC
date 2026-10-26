@@ -16,7 +16,9 @@ E_0's site energies may read the pinned sources' local potential, field and fiel
 bandfields.local_field_tensors, heads.field_energy), tapered to zero inside E_0's cutoff -- every fragment's sources with
 one weight (Rung.e0_field_whole, v0.0.15), and through a term of degree 2 in the field (Rung.e0_field_form "quadratic",
 heads.field_energy2) -- or the term less its value on each source fragment alone (Rung.e0_field_cross, v0.0.16): nothing
-to any dimer, only what the fragments' fields do together.
+to any dimer, only what the fragments' fields do together; or (v0.0.17) with its self terms at a shorter reach than its
+cross terms (Rung.e0_field_self_on / _off, heads.field_energy_split), and its cross terms at degree 2 with coefficients
+by species alone beside the MLP's self terms (Rung.e0_field_cross_species, heads.field_cross_species).
 Energies in hartree, positions in bohr; forces by autodiff.
 """
 from dataclasses import dataclass, field, replace
@@ -65,6 +67,13 @@ class Rung:
     e0_field_cross: bool = False           # v0.0.16: the term less its value on each source fragment alone (with
     # e0_field_whole), eps_i = h(x_i) - sum_B h(x_i(B)): no self terms -- nothing to any dimer, the 2-body left to E_0, the
     # bands and the read-out -- only the fragments' fields together; at degree 2 the cross terms -E_i(B).A_i.E_i(C), B != C
+    e0_field_self_on: float = 0.0          # v0.0.17 (the MLP form, every fragment whole): the self terms h(x_i(B)) weighted by
+    e0_field_self_off: float = 0.0         # every fragment's own whole-molecule taper over (self_on, self_off), within the
+    # term's reach, the cross terms h(x_i) - sum_B h(x_i(B)) at the term's reach (heads.field_energy_split); 0: the self
+    # terms at the term's reach (field_energy)
+    e0_field_cross_species: bool = False   # v0.0.17: the MLP's cross terms replaced by degree-2 cross terms with coefficients
+    # by species alone, -1/2 sum_{B != C} [a_Z E_i(B).E_i(C) + c_Z G_i(B):G_i(C)] (heads.field_cross_species), beside the
+    # MLP's self terms: strictly 3-body, nothing to any dimer, no gradient into E_0 through them
     pin_q: bool = False
     pin_mu: bool = False
     pin_alpha: bool = False
@@ -128,9 +137,17 @@ def init_params(key, rung: Rung, energy_scale=1.0):
         if rung.e0_field_cross and not rung.e0_field_whole:
             raise ValueError("e0_field_cross takes every fragment whole (e0_field_whole): a fragment's own value needs its "
                              "sources under one weight")
+        if rung.e0_field_self_off > 0 or rung.e0_field_cross_species:
+            if not rung.e0_field_whole or rung.e0_field_form != "mlp" or rung.e0_field_cross:
+                raise ValueError("e0_field_self_on/_off and e0_field_cross_species split the MLP form's self and cross terms: "
+                                 "they need e0_field_whole, the form 'mlp' and the self terms (not e0_field_cross)")
+            if rung.e0_field_self_off > 0 and not 0 < rung.e0_field_self_on < rung.e0_field_self_off <= rung.e0_field_off:
+                raise ValueError("the self terms' reach needs 0 < e0_field_self_on < e0_field_self_off <= e0_field_off")
         # its own key, so that the other parameters are the rung's without the field term, digit for digit
         init_field = H.init_field_head if rung.e0_field_form == "mlp" else H.init_field_head2
         p["field"] = init_field(jax.random.fold_in(key, 14), rung.e0)
+        if rung.e0_field_cross_species:
+            p["field_x"] = H.init_field_cross_species(rung.e0)
     return p
 
 
@@ -307,11 +324,23 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
         X_src, q_src, on_src, frag_src = sites
         same_src = (b["frag_mask"].astype(pos.dtype).T @ frag_src.astype(pos.dtype)) > 0.5      # (N, N+V)
         src = mask[:, None] & on_src[None, :] & ~same_src
+        split = rung.e0_field_self_off > 0 or rung.e0_field_cross_species         # v0.0.17
         tensors = BF.local_field_tensors(pos, X_src, q_src, src, rung.l1, rung.e0_field_on, rung.e0_field_off,
-                                         frag_src=frag_src if rung.e0_field_whole else None, per_frag=rung.e0_field_cross)
+                                         frag_src=frag_src if rung.e0_field_whole else None,
+                                         per_frag=rung.e0_field_cross or split,
+                                         self_taper=(rung.e0_field_self_on, rung.e0_field_self_off)
+                                         if rung.e0_field_self_off > 0 else None)
         phi, Eloc, Gloc = tensors[:3]
-        parts = tensors[3] if rung.e0_field_cross else None                  # every fragment's share apart (v0.0.16)
-        if rung.e0_field_form == "quadratic":
+        parts = tensors[3] if (rung.e0_field_cross or split) else None      # every fragment's share apart (v0.0.16)
+        if split:
+            if rung.e0_field_self_off <= 0:
+                parts = parts + (parts[3],)                                   # the self terms at the term's reach
+            eps_f = H.field_energy_split(params["field"], s, v, t, phi, Eloc, Gloc, mask, hp["e_scale"], rung.e0_field_unit,
+                                         parts, mlp_cross=not rung.e0_field_cross_species)
+            if rung.e0_field_cross_species:
+                eps_f = eps_f + H.field_cross_species(params["field_x"], Z, Eloc, Gloc, mask, hp["e_scale"],
+                                                      rung.e0_field_unit, parts)
+        elif rung.e0_field_form == "quadratic":
             eps_f = H.field_energy2(params["field"], s, v, t, Eloc, Gloc, mask, hp["e_scale"], rung.e0_field_unit,
                                     parts=parts)
         else:

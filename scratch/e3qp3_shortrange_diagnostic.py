@@ -116,17 +116,23 @@ def check_record(name, rung, record):
             raise ValueError(f"{name}: the field term's taper of the run ({taper}) is not the flags' -- give --rcut as in its "
                              "configuration")
         # v0.0.15: the weights (per source, or every molecule whole) and the form (the MLP, or degree 2); v0.0.16: the
-        # term less each source molecule's own value (cross) -- recorded only where they differ from v0.0.14's, so that
-        # E3-QP5's and E3-QP6's records read as before
-        ran = (record.get("e0_field_weights"), record.get("e0_field_form"), bool(record.get("e0_field_cross", False)))
+        # term less each source molecule's own value (cross); v0.0.17: the self terms' own reach, the cross terms by
+        # species -- recorded only where they differ from v0.0.14's, so that the earlier records read as before
+        ran = (record.get("e0_field_weights"), record.get("e0_field_form"), bool(record.get("e0_field_cross", False)),
+               record.get("e0_field_cross_form"))
         rung_has = ("molecule" if rung.e0_field_whole else None, rung.e0_field_form if rung.e0_field_form != "mlp" else None,
-                    bool(rung.e0_field_cross))
-        if ran != rung_has:
-            raise ValueError(f"{name}: the field term of the run (weights {ran[0] or 'source'}, form {ran[1] or 'mlp'}, "
-                             f"{'cross terms only' if ran[2] else 'with its self terms'}) is not the rung's "
-                             f"({rung_has[0] or 'source'}, {rung_has[1] or 'mlp'}, "
-                             f"{'cross terms only' if rung_has[2] else 'with its self terms'}) -- read it with the harness "
-                             "it ran with")
+                    bool(rung.e0_field_cross), "species" if rung.e0_field_cross_species else None)
+        self_ran = record.get("e0_field_self_taper_angstrom")
+        self_has = [ang(rung.e0_field_self_on), ang(rung.e0_field_self_off)] if rung.e0_field_self_off > 0 else None
+        same_self = (self_ran is None and self_has is None) or (
+            self_ran is not None and self_has is not None and all(abs(x - y) < 1e-9 for x, y in zip(self_ran, self_has)))
+        if ran != rung_has or not same_self:
+            describe = lambda w, f, c, x, sr: (f"weights {w or 'source'}, form {f or 'mlp'}, "
+                                               f"{'cross terms only' if c else 'with its self terms'}"
+                                               + (f" (reach {sr[0]:g}-{sr[1]:g} A)" if sr else "")
+                                               + (", cross terms by species" if x else ""))
+            raise ValueError(f"{name}: the field term of the run ({describe(*ran, self_ran)}) is not the rung's "
+                             f"({describe(*rung_has, self_has)}) -- read it with the harness it ran with")
     bad = [(k, record.get(k), v) for k, v in pairs
            if not ((record.get(k) is None and v is None) or (record.get(k) is not None and v is not None and abs(record[k] - v) < 1e-9))]
     if bad:

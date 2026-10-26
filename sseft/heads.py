@@ -184,3 +184,54 @@ def field_energy2(p, s, v, t, E, G, mask, e_scale, unit, parts=None):
     gBg = cg[:, None] * jnp.sum(Gu * Gu, axis=(-2, -1)) + jnp.sum(dg[:, None] * tG ** 2, axis=-1)
     qf = eAe + gBg                                                        # (N, K+1)
     return -0.5 * e_scale * (qf[:, 0] - jnp.sum(reach * qf[:, 1:], axis=1)) * mask
+
+
+# ------------------------------- the self terms at their own reach, the cross terms by species (v0.0.17) -----
+def field_energy_split(p, s, v, t, phi, E, G, mask, e_scale, unit, parts, mlp_cross=True):
+    """per-atom energies (N,) of the MLP form (field_energy's h) with its self terms at their own reach (E3-QP8):
+    parts = (phi_f, E_f, G_f, reach, w_self) from bandfields.local_field_tensors with per_frag and self_taper, and
+        eps_i = h(s_i; x_i) - sum_B (reach_iB - w_iB) h(s_i; x_i(B))        (mlp_cross: the MLP's own cross terms kept)
+        eps_i = sum_B w_iB h(s_i; x_i(B))                                    (not mlp_cross: its self terms alone),
+    h(s; x) = MLP(s, x) - MLP(s, 0) -- the cross terms h(x_i) - sum_B h(x_i(B)) at the term's reach, the self terms
+    h(x_i(B)) weighted by every molecule's taper over the shorter reach.  With w = reach it is field_energy's term (the
+    self terms at the term's reach), with w = 0 its cross terms alone (field_energy with parts, v0.0.16).  The total and
+    the parts go through one evaluation, as there."""
+    phi_f, E_f, G_f, reach, w_self = parts
+    N, K = phi_f.shape
+    if mlp_cross:
+        X = [jnp.concatenate([x[:, None], xf], axis=1) / unit for x, xf in ((phi, phi_f), (E, E_f), (G, G_f))]  # (N,K+1,...)
+    else:
+        X = [xf / unit for xf in (phi_f, E_f, G_f)]                                                      # (N,K,...)
+    Pu, Eu, Gu = X
+    M_ = Pu.shape[1]
+    d1 = jnp.einsum("iaf,fg,ika->ikg", v, p["W_v"], Eu)
+    d2 = jnp.einsum("iabf,fg,ikab->ikg", t, p["W_t"], Gu)
+    z = jnp.concatenate([jnp.broadcast_to(s[:, None, :], (N, M_, s.shape[1])), Pu[..., None], d1, d2,
+                         jnp.sum(Eu * Eu, axis=-1)[..., None], jnp.sum(Gu * Gu, axis=(-2, -1))[..., None]], axis=-1)
+    z0 = jnp.concatenate([s, jnp.zeros((N, z.shape[2] - s.shape[1]), s.dtype)], axis=-1)
+    h = mlp(p["mlp"], z.reshape(N * M_, -1)).reshape(N, M_) - mlp(p["mlp"], z0)[:, 0][:, None]
+    if mlp_cross:
+        e = h[:, 0] - jnp.sum((reach - w_self) * h[:, 1:], axis=1)
+    else:
+        e = jnp.sum(w_self * h, axis=1)
+    return e_scale * e * mask
+
+
+def init_field_cross_species(cfg):
+    """the cross terms' coefficients by species: a_Z on the fields' and c_Z on the field gradients' products, starting at
+    zero, so that a rung with them starts as the rung without them."""
+    n = cfg["n_species"]
+    return {"a": jnp.zeros(n), "c": jnp.zeros(n)}
+
+
+def field_cross_species(p, numbers, E, G, mask, e_scale, unit, parts):
+    """per-atom energies (N,) of the cross terms at degree 2 with coefficients by species alone (E3-QP8):
+        eps_i = -1/2 e_scale sum_{B != C} [ a_Z(i) E_i(B) . E_i(C) + c_Z(i) G_i(B) : G_i(C) ]          (E, G in `unit`)
+              = -1/2 e_scale [ a_Z (|E_i|^2 - sum_B reach_iB |E_i(B)|^2) + c_Z (|G_i|^2 - sum_B reach_iB |G_i(B)|^2) ],
+    with E_i = sum_B E_i(B) (bandfields.local_field_tensors with per_frag).  No feature of E_0 in it: strictly the 3-body
+    of the molecules' pinned fields at fixed coefficients -- nothing on a dimer, no 4-body, and no gradient into E_0."""
+    _, E_f, G_f, reach = parts[:4]
+    Eu, Gu, Efu, Gfu = E / unit, G / unit, E_f / unit, G_f / unit
+    e2 = jnp.sum(Eu * Eu, axis=-1) - jnp.sum(reach * jnp.sum(Efu * Efu, axis=-1), axis=1)
+    g2 = jnp.sum(Gu * Gu, axis=(-2, -1)) - jnp.sum(reach * jnp.sum(Gfu * Gfu, axis=(-2, -1)), axis=1)
+    return -0.5 * e_scale * (p["a"][numbers] * e2 + p["c"][numbers] * g2) * mask

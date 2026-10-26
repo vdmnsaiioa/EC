@@ -10,7 +10,9 @@ tests/test_e0_field.py, on a tetramer whose every atom pair lies within the fiel
     nothing on a dimer;
   - the pinned bands carry no 3-body; at fixed coefficients the self terms carry no 3-body and the degree-2 cross terms
     no 4-body -- what they carry beyond is their coefficients' (E_0's features of the whole environment) -- while the
-    MLP form's cross terms carry a 4-body of their own."""
+    MLP form's cross terms carry a 4-body of their own;
+  - v0.0.17's rungs: M_16C2pm_ws's cross terms are the cross rung's with the same parameters and its self terms the
+    weighted ones; M_16C2pm_us's cross terms (by species) have no coefficient part at all."""
 import importlib
 import itertools
 import sys
@@ -20,10 +22,11 @@ import numpy as np
 import pytest
 
 from sseft import model as M, train as T
+from sseft.units import ang_to_bohr
 
 TESTS = Path(__file__).resolve().parent
 ROOT = TESTS.parent
-RUNGS = ("M_16C2pm", "M_16C2pm_w", "M_16C2pm_w2", "M_16C2pm_wx", "M_16C2pm_w2x")
+RUNGS = ("M_16C2pm", "M_16C2pm_w", "M_16C2pm_w2", "M_16C2pm_wx", "M_16C2pm_w2x", "M_16C2pm_ws", "M_16C2pm_us")
 
 
 @pytest.fixture(scope="module")
@@ -90,7 +93,10 @@ def test_components(mods, name):
         assert np.max(np.abs(terms["self"][size == 2])) > 1e-4
         assert np.max(np.abs(terms["self_fixed"][size >= 3])) < 1e-9      # a 2-body at fixed coefficients
         assert np.max(np.abs(terms["self"][size == 3])) > 1e-7           # its 3-body: the coefficients'
-    if r.e0_field_form == "quadratic":
+    if r.e0_field_cross_species:
+        np.testing.assert_allclose(terms["cross_coef"], 0.0, rtol=0, atol=1e-12)          # no coefficient to move
+        assert np.max(np.abs(terms["cross"][size == 4])) < 1e-9                         # strictly 3-body
+    elif r.e0_field_form == "quadratic":
         assert np.max(np.abs(terms["cross_fixed"][size == 4])) < 1e-9     # a 3-body at fixed coefficients
         assert np.max(np.abs(terms["cross"][size == 4])) > 1e-7          # its 4-body: the coefficients'
     else:
@@ -108,4 +114,23 @@ def test_cross_part_is_the_cross_rungs(mods, name):
     _, cx, _, _, _ = decompose(mods, rx, p)
     np.testing.assert_allclose(c["F_cross"], cx["E_field"], rtol=0, atol=1e-15)
     np.testing.assert_allclose(c["F_cross1"], cx["F_cross1"], rtol=0, atol=1e-15)
-    np.testing.assert_allclose(c["E_field"] - c["F_cross"], cx["F_full"] - cx["F_cross"], rtol=0, atol=1e-15)
+    np.testing.assert_allclose(c["E_field"] - c["F_cross"], c["F_self"], rtol=0, atol=1e-15)
+    assert not np.any(cx["F_self"]) and not np.any(cx["F_self1"])
+
+
+def test_split_rungs_read_as_their_parts(mods):
+    """v0.0.17: M_16C2pm_ws's cross terms are the cross rung's field term with the same parameters, and its self terms
+    M_16C2pm_us's with the same MLP -- the two rungs' channels read apart are the same functions."""
+    E3, tef, tew, dec = mods
+    ws = M.with_rung(tew.rung(E3, tef, "M_16C2pm_ws"), e0_field_self_on=ang_to_bohr(4.0), e0_field_self_off=ang_to_bohr(5.0))
+    us = M.with_rung(ws, name="M_16C2pm_us", e0_field_cross_species=True)
+    pu = tef.perturbed_params(us)
+    p = {k: v for k, v in pu.items() if k != "field_x"}
+    _, c_ws, _, _, _ = decompose(mods, ws, p)
+    _, c_us, _, _, _ = decompose(mods, us, pu)
+    _, c_wx, _, _, _ = decompose(mods, M.with_rung(ws, e0_field_self_on=0.0, e0_field_self_off=0.0, e0_field_cross=True), p)
+    np.testing.assert_allclose(c_ws["F_cross"], c_wx["E_field"], rtol=0, atol=1e-15)
+    np.testing.assert_allclose(c_ws["F_self"], c_us["F_self"], rtol=0, atol=1e-15)
+    np.testing.assert_allclose(c_ws["F_self1"], c_us["F_self1"], rtol=0, atol=1e-15)
+    np.testing.assert_allclose(c_us["F_cross"], c_us["F_cross1"], rtol=0, atol=0)       # nothing of E_0's features in it
+    assert np.max(np.abs(c_us["F_cross"])) > 1e-6

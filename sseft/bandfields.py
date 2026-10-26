@@ -84,7 +84,7 @@ def taper(r, r_on, r_off):
     return 1.0 - x ** 3 * (10.0 - 15.0 * x + 6.0 * x ** 2)
 
 
-def local_field_tensors(points, sources, q, src, l, r_on, r_off, frag_src=None, per_frag=False):
+def local_field_tensors(points, sources, q, src, l, r_on, r_off, frag_src=None, per_frag=False, self_taper=None):
     """the potential (N,), field (N,3) and field gradient (N,3,3) at the points (N,3) of the charges q (S,) at the
     sources (S,3) through the band kernel g = erf(r/l)/r, source j acting on point i where src[i, j] (N,S), each source's
     share weighted by w_ij:
@@ -103,7 +103,11 @@ def local_field_tensors(points, sources, q, src, l, r_on, r_off, frag_src=None, 
     (phi_f (N,F), E_f (N,F,3), G_f (N,F,3,3), reach (N,F)): fragment f's potential, field and field gradient at every
     point, and 1 where f is in reach (a source of f acts on the point and the fragment's weight is not zero), else 0.
     The totals are then the sums of the parts over the fragments, so that where one fragment is in reach the total is its
-    part to the last digit."""
+    part to the last digit.
+
+    self_taper (v0.0.17, with per_frag): (s_on, s_off), a shorter reach for the self terms -- parts then carries a fifth
+    array, w_self (N,F): every fragment's whole-molecule weight over (s_on, s_off), the product of its sites' tapers, where
+    it is in reach, else 0 (heads.field_energy_split weights the self terms' values by it)."""
     d = points[:, None, :] - sources[None, :, :]
     d = jnp.where(src[..., None], d, 1.0)                         # excluded pairs get a finite dummy vector, so that
     r = jnp.sqrt(jnp.sum(d * d, axis=-1))                         # no derivative is taken at r = 0
@@ -115,6 +119,8 @@ def local_field_tensors(points, sources, q, src, l, r_on, r_off, frag_src=None, 
         tw = tf @ member.astype(points.dtype)                     # (N,S): each source its fragment's weight
     elif per_frag:
         raise ValueError("per_frag needs the sources' fragments (frag_src)")
+    if self_taper is not None and not per_frag:
+        raise ValueError("self_taper weights every fragment's share apart: it needs per_frag")
     w = src.astype(points.dtype) * tw * q[None, :]
     dg, d2g = kn.dg_long(r, l), kn.d2g_long(r, l)
     if per_frag:
@@ -125,7 +131,12 @@ def local_field_tensors(points, sources, q, src, l, r_on, r_off, frag_src=None, 
         E_f = -jnp.einsum("ija,fj->ifa", (w * dg)[..., None] * n, mf)
         G_f = -jnp.einsum("ijab,fj->ifab", w[..., None, None] * H, mf)
         reach = (((src.astype(points.dtype) @ mf.T) > 0.5) & (tf > 0.0)).astype(points.dtype)
-        return jnp.sum(phi_f, axis=1), jnp.sum(E_f, axis=1), jnp.sum(G_f, axis=1), (phi_f, E_f, G_f, reach)
+        parts = (phi_f, E_f, G_f, reach)
+        if self_taper is not None:
+            ts = taper(r, self_taper[0], self_taper[1])                                    # (N,S)
+            tf_s = jnp.prod(jnp.where(member[None, :, :] & src[:, None, :], ts[:, None, :], 1.0), axis=-1)   # (N,F)
+            parts = parts + (reach * tf_s,)
+        return jnp.sum(phi_f, axis=1), jnp.sum(E_f, axis=1), jnp.sum(G_f, axis=1), parts
     phi = jnp.sum(w * kn.g_long(r, l), axis=1)
     E = -jnp.einsum("ij,ija->ia", w * dg, n)
     nn = n[..., :, None] * n[..., None, :]

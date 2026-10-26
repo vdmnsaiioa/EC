@@ -45,6 +45,10 @@ Rungs (the dagger rungs pin q to the monomer's point charges):
     M_16C2pm_w2       E3-QP6: M_16C2pm_w with the field term at degree 2 in the field (Rung.e0_field_form "quadratic")
     M_16C2pm_wx, M_16C2pm_w2x   E3-QP7: M_16C2pm_w and M_16C2pm_w2 with the field term less its value on each source
                       molecule alone (Rung.e0_field_cross): nothing to any dimer, only the non-additive energy
+    M_16C2pm_ws       E3-QP8: M_16C2pm_w with its self terms weighted by every molecule's taper over the last 2-1 A inside
+                      r_c (Rung.e0_field_self_on / _off, E0_FIELD_SELF_TAPER), its cross terms' reach as before
+    M_16C2pm_us       E3-QP8: M_16C2pm_ws's self terms beside degree-2 cross terms with coefficients by species alone
+                      (Rung.e0_field_cross_species): strictly 3-body
 """
 from experiment_config import (CLUSTER_CONTACT_DEFAULTS, CLUSTER_DEFAULTS, CLUSTER_PROBE_DEFAULTS, DIMER_DEFAULTS,
                                add_training_arguments, parse_selection, training_kwargs, training_seeds)
@@ -142,6 +146,18 @@ RUNGS["M_16C2pm_w2"] = M.with_rung(RUNGS["M_16C2pm"], name="M_16C2pm_w2", e0_fie
 # (e3qp6-results.md section 3.4).  At degree 2 the term is then the leading non-additive induction, -sum_{B<C} E(B).A.E(C)
 RUNGS["M_16C2pm_wx"] = M.with_rung(RUNGS["M_16C2pm_w"], name="M_16C2pm_wx", e0_field_cross=True)
 RUNGS["M_16C2pm_w2x"] = M.with_rung(RUNGS["M_16C2pm_w2"], name="M_16C2pm_w2x", e0_field_cross=True)
+# E3-QP8 (v0.0.17): the field term's two channels where the decomposition put their losses (e3qp7-decomposition.md).
+# The MLP form's self terms -- a 2-body E_0 cancels to -0.98 -- carried its 5-7 A loss: their response at fixed
+# coefficients to the potential there, still 12 % of its contact value at 5-6 A; so M_16C2pm_ws weights them by every
+# molecule's own taper over the last 2-1 A inside r_c (E0_FIELD_SELF_TAPER: 4-5 A at r_c = 6 A, every molecule whole; on
+# the raw dimers it cuts at most 1.6 % of the potential the self terms read below O-O 3.2 A, 12 % at 3.2-4 A and 98 % at
+# 5-6 A: scratch/e3qp8_preregistration.py), its cross terms at 5-6 A as before.  M_16C2pm_w2x's 4-body loss was its cross terms'
+# coefficients (a fourth molecule moving E_0's features), none at fixed coefficients; so M_16C2pm_us has degree-2 cross
+# terms with coefficients by species alone beside those self terms
+E0_FIELD_SELF_TAPER = (2.0, 1.0)
+RUNGS["M_16C2pm_ws"] = M.with_rung(RUNGS["M_16C2pm_w"], name="M_16C2pm_ws", e0_field_self_on=ang_to_bohr(4.0),
+                                   e0_field_self_off=ang_to_bohr(5.0))
+RUNGS["M_16C2pm_us"] = M.with_rung(RUNGS["M_16C2pm_ws"], name="M_16C2pm_us", e0_field_cross_species=True)
 C6_OO_TRUTH = 45.4
 
 
@@ -372,6 +388,8 @@ def configure(rung, a):
     if rung.e0_field:                                                                  # inside E_0's cutoff
         taper = E0_FIELD_TAPER_WHOLE if rung.e0_field_whole else E0_FIELD_TAPER
         kw["e0_field_on"], kw["e0_field_off"] = (ang_to_bohr(a.rcut - d) for d in taper)
+        if rung.e0_field_self_off > 0:                                                 # the self terms' own reach (v0.0.17)
+            kw["e0_field_self_on"], kw["e0_field_self_off"] = (ang_to_bohr(a.rcut - d) for d in E0_FIELD_SELF_TAPER)
     return M.with_rung(rung, **kw)
 
 
@@ -396,6 +414,9 @@ def model_record(name, a):
             **({"e0_field_weights": "molecule"} if rung.e0_field and rung.e0_field_whole else {}),
             **({"e0_field_form": rung.e0_field_form} if rung.e0_field and rung.e0_field_form != "mlp" else {}),
             **({"e0_field_cross": True} if rung.e0_field and rung.e0_field_cross else {}),
+            **({"e0_field_self_taper_angstrom": [ang(rung.e0_field_self_on), ang(rung.e0_field_self_off)]}
+               if rung.e0_field and rung.e0_field_self_off > 0 else {}),
+            **({"e0_field_cross_form": "species"} if rung.e0_field and rung.e0_field_cross_species else {}),
             **({"readout_coefficients": "species"} if rung.bf_species else {}),
             **({"mutual_response": int(rung.bf_mutual)} if rung.bf_mutual else {}),
             "r_cut_angstrom": ang(rung.e0["r_cut"]), "features": int(rung.e0["F"]),

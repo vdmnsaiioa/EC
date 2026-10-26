@@ -639,3 +639,61 @@ term local; the degree-2 cross term exactly quadratic in the rung's charges; for
 molecule straddling the taper; invariance) and `tests/test_water_pol7_config.py` (the shipped config is E3-QP6's but for
 its rungs; refused without the site model); 408 tests, 386 pass and 22 are skipped without the q-AQUA builds (27 min
 on two CPU cores).
+
+## v0.0.16 → v0.0.17 — E3-QP7 read and decomposed; E3-QP8 set up
+
+**E3-QP7 read** (`notes/e3qp7-results.md`, one job of 25–26 Oct on an A100, 8.1 h + 1.4 h; 33 of 39 checks as
+registered). The MLP form's self terms carried its whole 2-body gain (M_16C2†ᵐ_wx's raw 2-body 0.084, M_16C2†ᵐ's;
+M_16C2†ᵐ_w 0.051) and part of its many-body gain (the hexamers' non-additive part 15.7 against 11.3 %, every seed); its
+5–7 Å loss went with them. The degree-2 cross terms are the best contact 3-body of the C rungs (raw 3-body 0.078, below
+O–O 2.7 Å 0.142), most of the degree-2 rung's edge loss gone with its self terms, but the hexamers' non-additive part
+15.1 % and the raw 4-body 76 % (58 %). M_16C2†ᵐ_w stays the best model, reproduced within 5 %.
+
+**The decomposition** (`scratch/e3qp7_decomposition.py`, `notes/e3qp7-decomposition.md`; one job of 26 Oct, 11.5 min,
+all 36 models of E3-QP7 and E3-QP6): every model's n-body energies on the test hexamers' sub-clusters and the raw sets
+split into E₀, the pinned bands, the read-out and the field term — the field term into its self and cross terms and into
+its value at the isolated molecule's features (fixed coefficients) and the rest. Every check held (the components sum to
+the energy and to the diagnostic's, ≤ 1.6e-12 kcal/mol; no 3-body in the bands or the self terms at fixed coefficients,
+no 4-body in the degree-2 cross terms there). M_16C2†ᵐ_w2x's 4-body loss is its cross terms' coefficients, not E₀ beside
+them (without the field term its 4-body error 0.073 is below the base's 0.076); every field rung's 4-body loss is its
+field term's own. The MLP self terms are a 0.27 rms 2-body that E₀ cancels at −0.98; their 5–7 Å loss is their response
+to the potential there at fixed coefficients (still 12 % of its contact value at 5–6 Å;
+`scratch/e3qp7_field_inputs.py`), the degree-2 self terms 90 times smaller there. Their own many-body in the hexamers is
+small. The read-out, the same in every C rung of a seed, carries 0.93 of the hexamers' 0.98 3-body and overshoots the
+compressed tetramers' 4-body (0.57 against 0.34).
+
+**The harness.**
+- *The self terms at their own reach* (`Rung.e0_field_self_on / _off`, with `e0_field_whole` and the MLP form;
+  `bandfields.local_field_tensors(..., self_taper=)`: every fragment's own whole-molecule weight over the shorter reach;
+  `heads.field_energy_split`): ε_i = h(s_i; x_i) − Σ_B (reach_iB − w_iB) h(s_i; x_i(B)) — with w = reach
+  `field_energy`'s term, with w = 0 its cross terms alone.
+- *Cross terms by species* (`Rung.e0_field_cross_species`, `heads.field_cross_species`, parameters `field_x` starting at
+  zero): the MLP's cross terms replaced by −½ e_scale Σ_{B≠C} [a_Z E_i(B)·E_i(C) + c_Z G_i(B):G_i(C)] beside its self
+  terms — strictly 3-body, no gradient into E₀ through them.
+- *Rungs* M_16C2pm_ws (M_16C2pm_w, its self terms over the last 2–1 Å inside r_c: `E0_FIELD_SELF_TAPER`) and M_16C2pm_us
+  (those self terms beside the species cross terms); the model record carries `e0_field_self_taper_angstrom` and
+  `e0_field_cross_form` where set, so that the earlier records read as before; the short-range diagnostic checks them
+  and the decomposition reads the new rungs' channels (`F_self`, `F_cross` in place of v0.0.16's `F_full`, `F_own`).
+  E3-QP7's cross rungs and every rung before unchanged to the last digit (golden values from v0.0.16).
+
+**The experiment** (`configs/water_qaqua_pol8.yaml`, `notes/e3qp8-preregistration.md`): E3-QP7 with its rungs replaced —
+M_16C2†ᵐ, M_16C2†ᵐ_w, M_16C2†ᵐ_ws, M_16C2†ᵐ_us, 4 seeds, paired in one job; the diagnostic with `--save_frames` and the
+decomposition after the run (`run_e3qp8.sbatch`). Computed before training (`scratch/e3qp8_preregistration.py`): the
+4–5 Å self reach cuts 98 % of the potential the self terms read on the raw dimers at O–O 5–6 Å and at most 1.6 % below
+3.2 Å (12 % at 3.2–4 Å; 10–17 % in the training clusters and the hexamers); four numbers by species on the cross terms
+leave 0.0767 of the raw trimers' 0.6225 kcal/mol 3-body (two: 0.0775) and 0.160 of the hexamers' 0.997 non-additive
+energy. A training step costs 1.38 (M_16C2†ᵐ_ws) and 1.18 times (M_16C2†ᵐ_us) the base's on the CPU
+(`scratch/e3qp8_field_timing.py`); about 9 h on an A100.
+
+Tests: `tests/test_e0_field_split.py` (E3-QP7's cross rungs against v0.0.16's golden energies and forces; the split
+rungs configured and recorded, the records before unchanged; refused where undefined; at initialisation the base, digit
+for digit, M_16C2pm_ws's parameters M_16C2pm_w's; the split head's limits (w = reach, w = 0, between) and the species
+cross terms against the cross sums written out; the self weights against each molecule's taper computed apart; a dimer
+beyond the self reach the base's, energy and every force; on a dimer the self terms M_16C2pm_w's times the weight; the
+species cross terms nothing on a dimer and no 4-body; no gradient into E₀ through them; local; forces against central
+differences; invariance), the decomposition's tests extended to the new rungs, and `tests/test_water_pol8_config.py`
+(the shipped config is E3-QP7's but for its rungs; refused without the site model); 436 tests, 414 pass and 22 are
+skipped without the q-AQUA builds (40 min on two CPU cores). A smoke run on tiny data (CPU): both new rungs through
+training, the diagnostic with the frames, the decomposition (every check at 1e-12 kcal/mol or below, the species cross
+terms nothing on the dimers and the 4-body) and the self-term check; pre-registration (c) on a stand-in for E3-QP7's
+run, the same with and without its frames file.
