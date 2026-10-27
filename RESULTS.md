@@ -697,3 +697,79 @@ skipped without the q-AQUA builds (40 min on two CPU cores). A smoke run on tiny
 training, the diagnostic with the frames, the decomposition (every check at 1e-12 kcal/mol or below, the species cross
 terms nothing on the dimers and the 4-body) and the self-term check; pre-registration (c) on a stand-in for E3-QP7's
 run, the same with and without its frames file.
+
+## v0.0.17 → v0.0.18 — E3-QP8 read, E3 closed; E4 set up: MB-pol through MBX
+
+**E3-QP8 read** (`notes/e3qp8-results.md`; one job of 26–27 Oct on an A100, 8.1 h of training; 31 of 35 checks as
+registered).
+
+- Cross terms by species ended the 4-body loss. M_16C2†ᵐ_us has a raw 4-body of 51.7 %, and the hexamers' 4-body
+  0.042 and 5-body 0.0029: the lowest many-body tail so far.
+- The self terms within 4–5 Å took most of the 5–7 Å tail, at a price:
+  - half the 3.2–5 Å gain;
+  - +18 % at 2.7–2.9 Å;
+  - +15 % on the training internal forces.
+
+**The split check** (`scratch/e3qp8_split_check.py`, §5 there; 91 s): the E₀–self-term split of the 2-body is a gauge.
+
+- On 2000 rigid dimers in random orientations, M_16C2†ᵐ_us's 2-body error below 5 Å is M_16C2†ᵐ_ws's (−3 to +4 %
+  paired).
+- Its seeds disagree less (0.93×).
+- Twin models' energy differences do not grow with their self terms' (R/S 0.02).
+
+**E3 closed** (`notes/e3-summary.md`). What E3 established:
+
+- The far field is set before training, and it holds. The read-out leaves 3–5 % of the far probes' non-additive
+  energy, and 26.7 % on the CCSD(T) trimers beyond 9 Å. Frozen sources leave 100 %.
+- Mutual induction is needed for the many-body energy.
+- The field term closed the pins' cost at contact.
+- The E₀–self-term split is a gauge.
+
+The frozen model is M_16C2†ᵐ_us. Still open:
+
+- the read-out's near field at the closest contacts, registered for E4;
+- the self terms' reach;
+- the coarse-grained density.
+
+**E4 set up** (`notes/e4-plan.md`): the periodic water box, with MB-pol as the truth and DFT later.
+
+**The truth** (`sseft/mbpol.py`, `external/mbx/build.sh`). MBX v1.4.0 (0e01b75) is called through its C entry points.
+It gives, for open clusters and periodic cells:
+
+- interaction energies, with the 1-body polynomial off;
+- forces;
+- the site model: charges, M-sites, polarisabilities and induced dipoles;
+- the field at points;
+- a uniform external field on the sites, and the induced dipoles' response to it.
+
+E4's settings, which are the driver's defaults:
+
+- a real-space cutoff of 6.5 Å in every cell, α 0.7 Å⁻¹, a grid of 6 Å⁻¹ and splines of order 8;
+- cells narrower than twice the 6.5 Å reach are evaluated on their smallest replica (MBX takes the minimum image) and
+  reported per cell.
+
+**Checked** (`python sseft/mbpol.py --check`, `scratch/e4_mbx_checks.py`, on a −O0 build in the container):
+
+- MBX's MB-pol example reproduced to 2e-9 kcal/mol.
+- Tin-foil boundary conditions: one molecule in cubic cells gives 0.965 → 0.996 of −(2π/3)|μ|²/L³ at 20–60 Å, with an
+  O(L⁻²) remainder.
+- The supercell identity holds to 3e-11 kcal/mol where the cutoffs fit the cell.
+- MBX's minimum image: the 64-molecule liquid cell misses 1.6e-2 kcal/mol of 2-body. The replica labels agree to 4e-8
+  (2×2×2 against 3×3×3).
+- PME convergence: MBX's example settings are 3e-3 kcal/mol off, E4's 2e-7.
+- The dispersion's real-space cutoff is part of the periodic Hamiltonian. The long-range O–H c₆ product is 17 % below
+  the pair C₆, so the 64-molecule cell's dispersion is −354.87 kcal/mol at r_c 6.5 Å and −355.65 at 9 Å.
+- The monomer's polarisability is 1.4075 Å³.
+- A random 128-molecule packing gives ε_∞ = 1.681 (first order 1.590, Clausius–Mossotti 1.734).
+
+**Tests.** `tests/test_mbpol.py` runs the geometry helpers everywhere. With a build it also tests:
+
+- MBX's example;
+- the site model;
+- units and forces in a cell against differences;
+- a narrow cell through its replica, against the 3×3×3 replica;
+- the tin-foil dipole image;
+- the external field's linear, symmetric response.
+
+448 tests: 426 pass and 22 are skipped without the q-AQUA builds (49 min on two CPU cores). Without an MBX build, 6
+more are skipped.

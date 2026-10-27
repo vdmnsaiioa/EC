@@ -18,6 +18,7 @@ Internal units are atomic (bohr, hartree); `sseft.units` converts from/to Å and
     pip install -e .            # jax, optax, numpy, scipy, PyYAML (tested with jax 0.10, optax 0.2.8, numpy 2.4, scipy 1.17)
     sh external/qaqua/build.sh  # only for E3-Q: the q-AQUA truth, needs gfortran (or FC=ifort); ~10 min
     sh external/qaqua/build_pol.sh  # only for E3-QP: the q-AQUA-pol truth, likewise
+    sh external/mbx/build.sh    # only for E4: MB-pol through MBX, needs g++, FFTW 3 and the autotools; 20-40 min on 8 cores
     pytest -q tests/            # 306 tests, ~6 min on a CPU; the 18 q-AQUA and q-AQUA-pol tests are skipped without the builds
 
 For GPUs install the matching `jax[cuda]` wheel first.
@@ -245,6 +246,29 @@ E3-QP7 (`notes/e3qp7-results.md`) and the decomposition of every saved model (`s
 python scripts/run_experiment.py --config configs/water_qaqua_pol8.yaml --out_dir results/e3qp8
 python scratch/e3qp3_shortrange_diagnostic.py results/e3qp8 external/qaqua/build_pol --F 32 --response_edge 0.75 --seeds all --save_frames
 python scratch/e3qp7_decomposition.py results/e3qp8 external/qaqua/build_pol --seeds all
+```
+
+### E4: the periodic water box on MB-pol
+
+E3 is closed (`notes/e3-summary.md`): its model is M_16C2pm_us, retrained on each new truth. E4 (`notes/e4-plan.md`)
+takes the model to periodic water. It tests what clusters cannot:
+
+- size extrapolation (X3, Forms I and II);
+- the clamped-nuclei ε_∞ and Born charges (X4b);
+- the band-edge level on the long-wavelength response (X2-C);
+- Theorem 2's T4 and T6 against MACE-LES.
+
+The truth is MB-pol, evaluated by MBX v1.4.0 (`sseft/mbpol.py`, built by `external/mbx/build.sh`):
+
+- interaction energies (the 1-body polynomial off), forces and the site model, for clusters and periodic cells;
+- tin-foil boundary conditions;
+- a fixed real-space cutoff of 6.5 Å in every cell, because MBX's periodic dispersion depends on it;
+- cells narrower than twice the 2-body reach evaluated exactly on their smallest replica, because MBX takes the
+  minimum image.
+
+```sh
+sh external/mbx/build.sh                                      # then: python sseft/mbpol.py --check external/mbx/build/MBX
+python scratch/e4_mbx_checks.py external/mbx/build/MBX       # the checks of e4-plan.md section 2, with timings
 ```
 
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.

@@ -13,6 +13,10 @@ results/*.params.pkl
 # the q-AQUA builds (external/qaqua/build.sh, build_pol.sh)
 /external/qaqua/build
 /external/qaqua/build_pol
+# the MBX build (external/mbx/build.sh), E4's check readings and the E3-QP8 summary
+/external/mbx/build
+/scratch/e4_mbx_checks.json
+/scratch/e3qp8_summary.json
 /scratch/matched_*.pkl
 /scratch/e3qp3_coverage_data.pkl
 /scratch/e3qp2_summary.json
