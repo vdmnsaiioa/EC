@@ -271,6 +271,26 @@ sh external/mbx/build.sh                                      # then: python sse
 python scratch/e4_mbx_checks.py external/mbx/build/MBX       # the checks of e4-plan.md section 2, with timings
 ```
 
+**The data** (`scripts/e4_data.py`; e4-plan.md section 3). Each trajectory is rigid-water MB-pol MD:
+
+- rigid monomers at the harness's geometry, randomly packed at 0.997 g/cm³;
+- velocity Verlet with SHAKE/RATTLE and a Bussi thermostat at 300 K, τ 100 fs (`sseft/rigidmd.py`), 2 fs steps;
+- MBX's example PME settings for the dynamics.
+
+Frames every 0.5 ps after 10 ps of equilibration are labelled with E4's truth. Each trajectory logs its conserved
+energy (K + E_pot + the thermostat's heat) and reports its drift, the check that the forces are the energy's gradient.
+`run_e4_data.sbatch` runs 20 trajectories: 4 seeds for each of 64, 128, 256, 512 and 1024 molecules, on CPU nodes.
+`assemble` then builds the sets:
+
+- training (seeds 0–2), validation and test (seed 3, halved) for the training sizes, and test for the larger sizes;
+- an npz for the harness (`sseft.water.e4_structures`);
+- an extxyz for MACE (eV, eV/Å, `REF_energy` / `REF_forces`).
+
+```sh
+python scripts/e4_data.py md --mbx external/mbx/build/MBX --n_mol 128 --seed 0   # one trajectory -> data/e4/traj_n128_s0.npz
+python scripts/e4_data.py assemble                                             # data/e4/{train,valid,test}_n<n>.{npz,extxyz}
+```
+
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
 ### Water model settings
@@ -490,6 +510,12 @@ Pieces (one module each):
   many-body decomposition by subset energies (exact for this 4-body-truncated potential), the raw CCSD(T) n-body
   sets of the q-AQUA repository with the near-rigid filter, and the authors' benchmarks (`python sseft/qaqua.py
   --check external/qaqua/build`).  Only numpy and ctypes: it runs without JAX.
+* `mbpol.py` — MB-pol through MBX v1.4.0 (E4's truth), through MBX's C entry points (`external/mbx/build.sh`):
+  interaction energies and forces of clusters and periodic cells (narrow cells on their smallest replica), the site
+  model, the field at points and a uniform external field (`python sseft/mbpol.py --check external/mbx/build/MBX`).
+  `water.MBPolTruth` wraps it for the harness and `water.e4_structures` reads E4's frames. Only numpy and ctypes.
+* `rigidmd.py` — rigid-water MD for sampling E4's frames: velocity Verlet with SHAKE/RATTLE, the Bussi thermostat,
+  and the conserved energy K + E_pot + the thermostat's heat. NumPy only; the forces come from a callable.
 * `linear.py` — the weighted linear least-squares solve of the band-field read-out's order-0 output layers
   under the training objective (energies, forces, per-structure weights), the rest of the model fixed: the
   read-out is a linear-in-coefficients term inside a non-linear model, and like `M_A`'s analytic family it is

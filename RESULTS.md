@@ -773,3 +773,86 @@ E4's settings, which are the driver's defaults:
 
 448 tests: 426 pass and 22 are skipped without the q-AQUA builds (49 min on two CPU cores). Without an MBX build, 6
 more are skipped.
+
+## v0.0.18 → v0.0.19 — E4's data pipeline: rigid MB-pol MD and the frame sets
+
+**The MBX checks on Niflheim** (`run_e4_mbx_checks.sbatch`, 28 Oct; s001, 8 threads, MBX at −O2, commit d6ebb08):
+
+- Every check of v0.0.18 came out the same, to the printed digit. The 8 MBX tests pass.
+- Energy and forces with E4's truth take 0.37, 0.67 and 1.45 s for 128, 256 and 512 molecules, and 1.41 s for 64
+  molecules through their replica.
+- MBX's example PME settings take 0.09, 0.17 and 0.33 s, 4–5 times less. The dynamics use them.
+
+**Rigid-water MD** (`sseft/rigidmd.py`, NumPy only):
+
+- velocity Verlet with SHAKE/RATTLE, holding the three distances of every molecule (O–H, O–H, H–H), vectorised over
+  the molecules;
+- the Bussi–Donadio–Parrinello thermostat, which samples the canonical ensemble;
+- `heat`, the kinetic energy the thermostat takes out, so that `conserved()` = K + E_pot + heat is constant up to the
+  integrator's error;
+- molecules whole and unwrapped along the trajectory; the forces and the saved frames see them wrapped, each O in the
+  cell;
+- 6n − 3 degrees of freedom, with the centre-of-mass velocity removed every 100 steps.
+
+**The data script** (`scripts/e4_data.py`):
+
+- `md`, one trajectory per size and seed.
+  - Rigid monomers are packed at random at 0.997 g/cm³.
+  - A 1 ps warm-up at 0.5 fs (τ 50 fs), then 2 fs steps at 300 K (τ 100 fs) with MBX's example PME settings.
+  - Frames every 0.5 ps after 10 ps, labelled with E4's truth at the end.
+  - It prints the temperature, the constraints, the conserved energy's drift, g_OO, the labels against the
+    dynamics' energies, and timings.
+- `assemble`, the sets, after one line per trajectory (its temperature, the conserved energy's drift, flagged
+  above 1e-3 kcal/mol/ps per molecule, and g_OO):
+  - training (seeds 0–2), and validation and test (seed 3, halved) for 64, 128 and 256 molecules;
+  - test for 512 and 1024 molecules;
+  - an npz for the harness, read by `sseft.water.e4_structures` (which pins MB-pol's site model on request);
+  - an extxyz for MACE, in eV and eV/Å.
+- `sseft.water.MBPolTruth`: the truth with its site model read from MBX.
+
+**Checks in the container** (−O0 build, 2 threads):
+
+- The integrator on a toy potential (`tests/test_rigidmd.py`):
+  - its forces are the energy's gradient;
+  - the energy holds without the thermostat;
+  - the thermostat's temperature is right, and its conserved energy holds;
+  - Bussi's factor has the right limits;
+  - the initial velocities, the wrapping, and an ideal gas's g(r) = 1.
+- A 64-molecule MB-pol trajectory (seed 0, τ 500 fs; 1 + 4 + 5 ps):
+  - constraints held to 3e-13;
+  - g_OO's first peak is 2.49 at 2.88 Å;
+  - the labels lie −0.0027 ± 0.0001 kcal/mol per molecule from the dynamics' energies;
+  - the dynamics' forces are 0.004 kcal/mol/Å rms (at most 0.027) from the truth's;
+  - 0.39 s per step.
+- That trajectory's sampling averaged 320.7 K, with a stretch at 330–380 K around 6–7 ps. **The thermostat's random
+  stream caused it, not the dynamics:**
+  - NVE from its last frame drifts −0.0011 kcal/mol/ps per molecule over 0.4 ps. Its energy fluctuates by 0.0028
+    kcal/mol per molecule at 2 fs and by 0.0008 at 1 fs. Converging the dipoles to 1e-16 changes nothing.
+  - The conserved energy, logged every step, stays within ±0.2 kcal/mol (0.003 per molecule) over 3 ps of a fresh NVT
+    run and over 7.7 ps of a replay of the trajectory.
+  - The replay draws the same thermostat noise. It heated at the same time, with its energy conserved.
+  - Seed 0's stream sums its normal deviates to +4.8σ over the 500 steps from 6.1 ps. That is the largest excursion
+    in its first 10⁵ steps; seeds 1–5 peak at 3.0–3.8σ. A 64-molecule cell's total energy has a canonical spread of
+    about 15 kcal/mol, and the excursion pushed it up by about 50.
+- The dynamics stay as they were, with three changes:
+  - τ is 100 fs instead of 500 fs. The total energy of a 64-molecule cell then relaxes in about 0.3 ps instead of
+    1.5 ps, so an excursion of the noise is shorter-lived and frames 0.5 ps apart are less correlated. Both sample
+    the canonical ensemble.
+  - The packing and the dynamics draw from two streams of SeedSequence([seed, n_mol]). Before, both were
+    default_rng(seed): the packing and the velocities drew the same random numbers, and every size reused seed s's
+    stream.
+  - The conserved energy is logged, and its drift is reported for every trajectory.
+- A second 64-molecule trajectory with these settings (seed 1; 0.5 + 2 + 3 ps):
+  - the sampling averages 298.5 ± 16.2 K (300.7 K from 1.5 ps on);
+  - the conserved energy drifts −0.0007 kcal/mol/ps per molecule and stays within 0.34 kcal/mol (0.005 per molecule)
+    over 5 ps;
+  - constraints held to 3e-13;
+  - the labels lie −0.0027 ± 0.0001 kcal/mol per molecule from the dynamics' energies;
+  - g_OO's first peak is 2.85 at 2.83 Å (6 frames).
+
+**Tests.** `tests/test_rigidmd.py` (7) and `tests/test_e4_data.py` (4; the last runs 16 molecules of MB-pol MD with an
+MBX build). 459 tests: 437 pass and 22 are skipped without the q-AQUA builds (70 min on two CPU cores, sharing them
+with an MD run). Without an MBX build, 7 more are skipped.
+
+**To run on Niflheim:** `mkdir -p logs logs_error && sbatch run_e4_data.sbatch` (20 CPU tasks, at most about 2.5 h
+each), then `python scripts/e4_data.py assemble`.

@@ -17,6 +17,8 @@ results/*.params.pkl
 /external/mbx/build
 /scratch/e4_mbx_checks.json
 /scratch/e3qp8_summary.json
+# E4's data (scripts/e4_data.py)
+/data/e4/
 /scratch/matched_*.pkl
 /scratch/e3qp3_coverage_data.pkl
 /scratch/e3qp2_summary.json

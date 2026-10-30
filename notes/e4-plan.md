@@ -15,8 +15,8 @@ pre-registration, computed from the truth, comes before any periodic training (�
 E4 tests the claims that clusters cannot, which are what make the model an EFT rather than "LES plus induction":
 
 - **X3, size extrapolation** (`phase-a-size-theorem-3.md`).
-  - *Form I*: the finite-size tail Δ(L) = E(L) − E(open) of fixed contents in growing cells, in a cubic and a
-    tetragonal (L, L, 2L) shape.
+  - *Form I*: the finite-size tail Δ(L) = E(L) − E(∞) of fixed contents in growing cells, in a cubic and a
+    tetragonal (L, L, 2L) shape. E(∞) is the open value only where MBX's open and periodic dispersion agree (§2).
   - *Form II*: the bulk per-molecule error at sizes L above the training cells' L₀, with an L₀ sweep.
   - Gate C: if M_G matches the pinned rungs on Form I, the EFT structure buys nothing on these data.
 - **X4b, matching in a crystal-like cell.** The clamped-nuclei ε_∞ and the Born charges Z* come from the model's
@@ -100,17 +100,30 @@ holds the same checks as tests.
 - **Timings** (−O0, 2 threads; not representative), energy and forces with E4's settings: 2.1 / 3.8 / 9.0 s at
   128 / 256 / 512 molecules, and 7.5 s for 64 molecules through their 512-molecule replica.
 
-**Owed on Niflheim.** Build MBX at −O2 with `external/mbx/build.sh` and run `scratch/e4_mbx_checks.py` there, for
-the real timings.
+**On Niflheim, 28 Oct** (`run_e4_mbx_checks.sbatch` on s001, 8 threads, MBX at −O2, commit d6ebb08):
+
+- Every check above came out as here, to the printed digit: the optimised build changes no number. The 8 tests pass.
+- The build took about 40 minutes.
+- Energy and forces with E4's truth take 0.37, 0.67 and 1.45 s for 128, 256 and 512 molecules, and 1.41 s for
+  64 molecules through their 512-molecule replica.
+- MBX's example PME settings are 4–5 times cheaper (0.09, 0.17 and 0.33 s). Those are good enough for sampling, where
+  the accuracy of the energy does not matter.
 
 ## 3. The data
 
 **Sampling:**
 
-- Flexible MB-pol MD at 300 K and 0.997 g cm⁻³, through MBX in ASE (NVT, 0.5 fs).
+- MB-pol MD at 300 K and 0.997 g cm⁻³ through MBX (NVT), with the monomers held rigid at the harness's geometry
+  (r_OH 0.9572 Å, 104.52°). The integrator is our own (`sseft/rigidmd.py`): velocity Verlet with SHAKE/RATTLE and the
+  Bussi thermostat, which samples the canonical ensemble. *Changed 28 Oct* from flexible MD at 0.5 fs followed by
+  rigidifying every frame (Kabsch): rigid MD takes 2 fs steps, so it is four times cheaper, and it samples the same
+  rigid-monomer model the labels describe.
+- MBX's example PME settings for the dynamics; E4's truth for the labels. The 64-molecule cell runs on itself, under
+  MBX's minimum image; at the validation frames its forces agree with the truth's to 0.004 kcal/mol/Å rms.
+- The thermostat's time constant is 100 fs. At 500 fs, one unlucky noise stream kept a 64-molecule run 20 K hot for
+  picoseconds, with its energy conserved (RESULTS.md, v0.0.19). The conserved energy, K + E_pot plus the heat the
+  thermostat took out, is logged; its drift is each trajectory's check that the forces are the energy's gradient.
 - Frames every 0.5 ps after 10 ps of equilibration.
-- In each frame, every molecule is replaced by the harness's rigid monomer (r_OH 0.9572 Å, 104.52°) at its centre of
-  mass and best-fit orientation (Kabsch); the frame is labelled after that.
 
 Rigid monomers do three things:
 
@@ -132,12 +145,15 @@ which is exact (§2) and costs 8×; from 128 molecules it labels the cell itself
 **The sets:**
 
 - **Training, by L₀** (the Form II sweep). Each rung trains on cells of one size, the same number of atoms at every
-  size: about 200 frames of 64, 100 of 128 and 50 of 256 molecules, some 38 000 atoms and 115 000 force components
-  each.
+  size: 180 frames of 64, 90 of 128 and 45 of 256 molecules, some 35 000 atoms and 100 000 force components each.
+  - As built (`scripts/e4_data.py`, `run_e4_data.sbatch`): four independent trajectories (seeds) per size, with 60,
+    30 and 15 frames per seed.
+  - Seeds 0–2 are training. Seed 3 is split into validation (its first half) and test (its second half), so no
+    test frame is correlated with a training frame.
 - **The read-out's identification data**, computed open as in E3. MB-pol's far-field probes (a core with a molecule
   at 10–15 Å) and far trimers match the read-out before training. Its pins are MB-pol's site charges, M-sites and
   polarisabilities, read from MBX.
-- **Test, Form II**: 50 frames each of 512 and 1024 molecules, from their own MD.
+- **Test, Form II**: 60 frames of 512 and 52 of 1024 molecules (four seeds each), from their own MD.
 - **Test, Form I**: fixed contents in cubic cells L = 15–60 Å on a log grid, and in (L, L, 2L) cells.
   - A polar cluster: an E3 hexamer re-relaxed on MB-pol. This is the charge channel, p⋆ = 3. The dipole image term
     leads, and its level for the dagger is set by the induced share of the cluster dipole.
@@ -148,8 +164,16 @@ which is exact (§2) and costs 8×; from 128 molecules it labels the cell itself
 - **The near field**: the liquid's compact tetramers (closest O–O below 2.7 Å) cut from the 512 frames, with their
   4-body computed open by MBX.
 
-**Cost.** MBX's time per frame is to be timed on Niflheim (§9, item 1). MD of 64–1024 molecules takes hours per size
-on CPU nodes.
+**Cost**, from the Niflheim timings (§2):
+
+- *Labels.* Every label in the plan (the training sets, the 512- and 1024-molecule tests) takes about 10 minutes of
+  MBX. The ε_∞ frames take about 3 more.
+- *MD.* MD dominates. A trajectory is a 1 ps warm-up at 0.5 fs, 10 ps of equilibration at 2 fs, then 30, 15, 7.5,
+  7.5 and 6.5 ps of sampling for 64, 128, 256, 512 and 1024 molecules. On 8 threads that takes about 0.3, 0.4, 0.5,
+  1.0 and 2 h. The 64-molecule figure (the cell on itself) and the 1024-molecule one are extrapolated. Flexible MD at
+  0.5 fs would take four times as long.
+- *What costs most.* The truth is cheap. E4's cost lies in the harness's reciprocal-space sums at ℓ₁ = 0.75 Å
+  (the table above), which is where the timing has to be watched.
 
 ## 4. The ladder
 
@@ -192,12 +216,12 @@ pre-registration replaces them with numbers for these contents.
 4. **A uniform external field** at clamped nuclei, added to the band field. This gives dM/dE, hence ε_∞, and Z* by
    differences (X4b and T4).
 5. **The readers**:
-   - Form I: fixed contents in a cell sequence, against the open value.
+   - Form I: fixed contents in a cell sequence, against the largest cell or an extrapolated E(∞) (§2).
    - Form II: per-molecule errors by size.
    - The modulation response (X2-C).
    - The near-field set.
-6. **The data pipeline** (`scripts/e4_data.py`): MD, rigidification, MBX labels and pins, and extxyz for the
-   baselines.
+6. **The data pipeline** (`scripts/e4_data.py`): rigid MD, MBX labels and pins, and extxyz for the
+   baselines. *Done in v0.0.19.*
 
 Each item comes with tests:
 
@@ -238,7 +262,7 @@ MACE+D3 is optional. EFA/RANGE come later (`long-range-models-survey.md`).
 
 ## 8. DFT, later
 
-The same rigidified frames at one or two sizes (64 or 128 molecules), revPBE-D3 or SCAN, with DFPT ε_∞ and Z*. The
+The same rigid-monomer frames at one or two sizes (64 or 128 molecules), revPBE-D3 or SCAN, with DFPT ε_∞ and Z*. The
 code is still open: CP2K, GPAW, VASP or QE.
 
 ## 9. Order
@@ -249,9 +273,9 @@ code is still open: CP2K, GPAW, VASP or QE.
      `conda install -c conda-forge fftw autoconf automake libtool`, or `module load FFTW`. The clone needs the login
      node; the compile takes about 20–40 min on 8 cores.
    - Then run `run_e4_mbx_checks.sbatch`, which repeats §2's checks at −O2 with the real timings, and send back its
-     log.
+     log. *Done 28 Oct (§2).*
 2. **Next patches, here.**
-   - The data pipeline; Vadic runs the MD on CPU nodes.
+   - The data pipeline; Vadic runs the MD on CPU nodes. *Done in v0.0.19 (`run_e4_data.sbatch`).*
    - The periodic path, items 1–4 of §5, with tests.
 3. **In parallel, on Vadic's GPU**: the MACE/MACE-LES env and the baselines on E3's data (§7).
 4. **The X3 pre-registration** with the numbers from MBX.

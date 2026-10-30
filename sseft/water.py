@@ -259,6 +259,83 @@ class QAquaPolTruth(QAquaTruth):
                 "alpha_bohr3": self.alpha, "c6_oo": self.c6, "gamma_m": self.gamma_m}
 
 
+class MBPolTruth:
+    """MB-pol through MBX (sseft.mbpol; external/mbx/build.sh builds it), E4's truth (notes/e4-plan.md section 2).
+
+    It gives interaction energies (the 1-body polynomial off) and forces of clusters and periodic cells (cell in A,
+    rows = lattice vectors, keyword `cell`), in hartree and hartree/bohr, with E4's settings (sseft.mbpol.DEFAULTS).
+    It also gives the site model.
+      - Charges: on the H atoms and on an M-site at r_O + gamma/2 (r_H1 + r_H2 - 2 r_O), none on O.
+      - Point polarisabilities on O and H.
+    All of these are read from MBX on the rigid monomer and are the same for every rigid molecule."""
+    name = "mbpol"
+
+    def __init__(self, root, settings=None):
+        from .mbpol import MBPol
+        self.mb = MBPol(root, settings=settings)
+        m = monomer_positions()
+        s = self.mb.sites(m)
+        b = m[1] + m[2] - 2 * m[0]
+        self.gamma_m = float(2 * np.dot(s["xyz"][3] - m[0], b) / np.dot(b, b))
+        if np.linalg.norm(s["xyz"][3] - m[0] - 0.5 * self.gamma_m * b) > 1e-10:
+            raise RuntimeError("MB-pol's M-site is not on the bisector as expected")
+        self.site_charges = s["charges"].copy()                  # O, H, H, M (e)
+        self.site_alpha = s["polarizabilities"].copy()           # O, H, H, M (A^3)
+        self.r_e = None
+
+    def energy(self, pos_ang, n_mol=None, cell=None):
+        return self.mb.energy(pos_ang, cell)
+
+    def energy_forces(self, pos_ang, n_mol=None, cell=None):
+        return self.mb.energy_forces(pos_ang, cell)
+
+    def site_model(self, pos_ang):
+        """the rigid monomer's site charges at every molecule of pos_ang (3n, 3): (q_site (3n,) on the atoms, vsite_w
+        (n, 3n) each M-site as a combination of its molecule's atoms, vsite_q (n,), vsite_frag (n,))."""
+        n = len(pos_ang) // 3
+        q_site = np.tile(self.site_charges[:3], n)
+        w = np.zeros((n, 3 * n))
+        for k in range(n):
+            w[k, 3 * k:3 * k + 3] = [1 - self.gamma_m, 0.5 * self.gamma_m, 0.5 * self.gamma_m]
+        return q_site, w, np.full(n, float(self.site_charges[3])), np.arange(n)
+
+    def describe(self):
+        return {"name": self.name, **self.mb.describe(), "gamma_m": self.gamma_m,
+                "site_charges": self.site_charges.tolist(), "site_alpha": self.site_alpha.tolist()}
+
+
+def e4_structures(path, pins=False):
+    """the frames of an E4 data file (scripts/e4_data.py: a trajectory or an assembled set) as harness Structures.
+    Each carries positions in bohr, the cell in bohr with pbc, the interaction energy in hartree and forces in
+    hartree/bohr, one fragment per molecule, and info (n_mol, seed, time, the frame's source).
+
+    pins=True also pins the file's site model (q_site, vsite_w, vsite_q, vsite_frag), as pin_site_model does for
+    q-AQUA-pol. The virtual-site matrix is dense, (n, 3n) per frame, which is fine for the training cells and costly
+    for 1024 molecules."""
+    d = np.load(path, allow_pickle=False)
+    pos, cell = d["positions"], d["cell"]
+    n_frames, n_atoms = pos.shape[0], pos.shape[1]
+    n = n_atoms // 3
+    cells = cell if cell.ndim == 3 else np.broadcast_to(cell, (n_frames, 3, 3))
+    src = d["source"] if "source" in d.files else np.zeros(n_frames, int)
+    t = d["time_ps"] if "time_ps" in d.files else np.zeros(n_frames)
+    gamma, sq = float(d["site_gamma"]), d["site_q"]
+    out = []
+    for f in range(n_frames):
+        st = water_structure(pos[f], energy=float(d["energy"][f]), forces=np.asarray(d["forces"][f], float),
+                             pinned_q=False, info={"n_mol": n, "source": int(src[f]), "time_ps": float(t[f])})
+        st.cell = ang_to_bohr(np.asarray(cells[f], float))
+        st.pbc = True
+        if pins:
+            w = np.zeros((n, 3 * n))
+            for k in range(n):
+                w[k, 3 * k:3 * k + 3] = [1 - gamma, 0.5 * gamma, 0.5 * gamma]
+            st.pinned = {"q_site": np.tile(sq[:3], n), "vsite_w": w, "vsite_q": np.full(n, float(sq[3])),
+                         "vsite_frag": np.arange(n)}
+        out.append(st)
+    return out
+
+
 def _git_commit(repo):
     """the short commit of a clone (read from .git, without git), or None."""
     try:
@@ -291,6 +368,14 @@ def qaqua_pol_truth(root):
     key = ("pol", os.path.abspath(os.path.expanduser(root)))
     if key not in _QAQUA:
         _QAQUA[key] = QAquaPolTruth(key[1])
+    return _QAQUA[key]
+
+
+def mbpol_truth(root):
+    """one MBPolTruth per MBX build and process (MBX keeps one system)."""
+    key = ("mbpol", os.path.abspath(os.path.expanduser(root)))
+    if key not in _QAQUA:
+        _QAQUA[key] = MBPolTruth(key[1])
     return _QAQUA[key]
 
 
