@@ -304,14 +304,34 @@ class MBPolTruth:
                 "site_charges": self.site_charges.tolist(), "site_alpha": self.site_alpha.tolist()}
 
 
-def e4_structures(path, pins=False):
+# MB-pol's long-range dispersion: beyond MBX's real-space cutoff it is c6_i c6_j / r^6 by particle-mesh Ewald, with
+# per-site c6 in (kcal/mol)^1/2 A^3 (MBX v1.4.0, src/bblock/sys_tools.cpp; C6_OO = c6_O^2 = 237.32 kcal/mol A^6)
+MBPOL_C6_LR = {8: 15.40523357222455098728, 1: 4.48258697649551357815}
+
+
+def mbpol_dispersion_pins(numbers, K=8, omega0=0.3, w_osc=0.5):
+    """alpha_i(i w_k) (N, K) on the rung's Casimir-Polder grid (kernels.casimir_polder_grid(K, omega0)) whose
+    C6_ij = (3/pi) sum_k w_k alpha_i alpha_j is MB-pol's long-range c6_i c6_j, rank one, on O and H.  A common oscillator
+    shape 1 / (1 + (w / w_osc)^2) is normalised so that (3/pi) sum_k w_k phi_k^2 = 1 and scaled by c6_i in atomic units.
+    With these pins the dispersion band beyond the truth's real-space cutoff (6.5 A) is the truth's (e4-plan.md section
+    2).  The static value is not MB-pol's polarisability: the pins carry the dispersion band only."""
+    from .units import KCALMOL_PER_HARTREE, BOHR_PER_ANGSTROM
+    om, w = (np.asarray(x) for x in kn.casimir_polder_grid(K, omega0))
+    phi = 1.0 / (1.0 + (om / w_osc) ** 2)
+    phi = phi / math.sqrt(3.0 / math.pi * float(np.sum(w * phi ** 2)))
+    unit = math.sqrt(1.0 / KCALMOL_PER_HARTREE) * BOHR_PER_ANGSTROM ** 3
+    return np.array([MBPOL_C6_LR[int(z)] * unit * phi for z in numbers])
+
+
+def e4_structures(path, pins=False, K=8, omega0=0.3):
     """the frames of an E4 data file (scripts/e4_data.py: a trajectory or an assembled set) as harness Structures.
     Each carries positions in bohr, the cell in bohr with pbc, the interaction energy in hartree and forces in
     hartree/bohr, one fragment per molecule, and info (n_mol, seed, time, the frame's source).
 
     pins=True also pins the file's site model (q_site, vsite_w, vsite_q, vsite_frag), as pin_site_model does for
-    q-AQUA-pol. The virtual-site matrix is dense, (n, 3n) per frame, which is fine for the training cells and costly
-    for 1024 molecules."""
+    q-AQUA-pol, and the dispersion band's alpha (mbpol_dispersion_pins on the grid of K and omega0, the rung's). The
+    virtual-site matrix is dense, (n, 3n) per frame, which is fine for the training cells and costly for 1024
+    molecules."""
     d = np.load(path, allow_pickle=False)
     pos, cell = d["positions"], d["cell"]
     n_frames, n_atoms = pos.shape[0], pos.shape[1]
@@ -320,6 +340,7 @@ def e4_structures(path, pins=False):
     src = d["source"] if "source" in d.files else np.zeros(n_frames, int)
     t = d["time_ps"] if "time_ps" in d.files else np.zeros(n_frames)
     gamma, sq = float(d["site_gamma"]), d["site_q"]
+    alpha = mbpol_dispersion_pins(np.tile([8, 1, 1], n), K, omega0) if pins else None
     out = []
     for f in range(n_frames):
         st = water_structure(pos[f], energy=float(d["energy"][f]), forces=np.asarray(d["forces"][f], float),
@@ -331,7 +352,7 @@ def e4_structures(path, pins=False):
             for k in range(n):
                 w[k, 3 * k:3 * k + 3] = [1 - gamma, 0.5 * gamma, 0.5 * gamma]
             st.pinned = {"q_site": np.tile(sq[:3], n), "vsite_w": w, "vsite_q": np.full(n, float(sq[3])),
-                         "vsite_frag": np.arange(n)}
+                         "vsite_frag": np.arange(n), "alpha": alpha}
         out.append(st)
     return out
 

@@ -291,6 +291,26 @@ python scripts/e4_data.py md --mbx external/mbx/build/MBX --n_mol 128 --seed 0  
 python scripts/e4_data.py assemble                                             # data/e4/{train,valid,test}_n<n>.{npz,extxyz}
 ```
 
+**The model in a cell** (`sseft/periodic.py`, v0.0.20; e4-plan.md section 5). `Rung(periodic=True)` runs every
+channel of the frozen model in a cell:
+
+- the site model's band (the charges on the atoms and M-sites), the dispersion band and the band field the read-out
+  reads, by Ewald sums in reciprocal space, chunked so that memory stays bounded at any cell size;
+- the read-out's self-consistent response through the periodic dipole tensor, solved directly (`bf_solver="direct"`,
+  small cells) or matrix-free by GMRES with implicit derivatives (`"gmres"`);
+- E₀'s view of the pinned field, every other molecule whole at its nearest image;
+- a uniform external field `E_ext` at clamped nuclei (`model.dielectric_inf`: ε_∞).
+
+The interaction energy is the cell's periodic energy less every molecule alone, open. A molecule keeps its
+interactions with its own images, as MBX's labels do. `ewald_n_max` has to reach k_max along every lattice vector
+(`periodic.n_max_for(cell, l1, b_max)`); otherwise the energy is NaN, and so it is in cells narrower than 2 r_c.
+`sseft.water.e4_structures(path, pins=True)` gives the frames with MB-pol's site model and its long-range c₆ as the
+dispersion pins.
+
+```sh
+python scratch/e4_periodic_timing.py --dir data/e4     # cost by size and solver on the GPU (run_e4_periodic_timing.sbatch)
+```
+
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
 ### Water model settings
@@ -516,6 +536,10 @@ Pieces (one module each):
   `water.MBPolTruth` wraps it for the harness and `water.e4_structures` reads E4's frames. Only numpy and ctypes.
 * `rigidmd.py` — rigid-water MD for sampling E4's frames: velocity Verlet with SHAKE/RATTLE, the Bussi thermostat,
   and the conserved energy K + E_pot + the thermostat's heat. NumPy only; the forces come from a callable.
+* `periodic.py` — the model's channels in a cell (E4): chunked half-space Ewald sums for the site model's band, the
+  dispersion bands and the band-field tensors; the response's periodic dipole tensor (explicit or as a matrix-free
+  product), its direct and GMRES solves; molecules made whole and grouped by fragment; E₀'s view of the pinned field by
+  the nearest image of every molecule.
 * `linear.py` — the weighted linear least-squares solve of the band-field read-out's order-0 output layers
   under the training objective (energies, forces, per-structure weights), the rest of the model fixed: the
   read-out is a linear-in-coefficients term inside a non-linear model, and like `M_A`'s analytic family it is

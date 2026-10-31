@@ -34,6 +34,8 @@ class Structure:
     sub: Optional[np.ndarray] = None      # (N,) subtraction group per atom: the model's energy is E(all) - sum_g E(group g
     # alone), each group whole fragments (e.g. a cluster's core and a probe molecule: the probe's interaction energy);
     # None: the fragments (or, without fragments, the isolated atoms) are the groups
+    E_ext: Optional[np.ndarray] = None    # (3,) a uniform external field (a.u.) added to the band field the read-out responds
+    # to, at clamped nuclei (v0.0.20); None: zero
 
     @property
     def n_atoms(self):
@@ -45,7 +47,13 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
     structure carries fragments, "frag_mask" (B, max_frag, n_max) holds one mask per fragment (atoms are their
     own fragments where no fragments are given), "frag_charge" (B, max_frag) the total charge of each fragment
     and "has_frag" (B,) whether the structure gave fragments itself (the per-fragment neutrality shift of the
-    learned charges applies to those; a structure without fragments keeps one shift to its total charge)."""
+    learned charges applies to those; a structure without fragments keeps one shift to its total charge).
+
+    In a batch with a periodic structure and fragments (v0.0.20), the fragments are also grouped, for the periodic
+    model (sseft/periodic.py): "frag_atoms" (B, max_frag, A) the atoms of every fragment in order (slot 0 its first atom,
+    the reference that makes it whole), "frag_atoms_mask", "atom_frag" and "atom_slot" (B, n_max) every atom's fragment
+    and slot, and with a site model "frag_sites" / "frag_sites_mask" (B, max_frag, P) every fragment's virtual sites.
+    "E_ext" (B, 3) is the uniform external field, zero unless a structure gives one."""
     n_max = n_max or max(s.n_atoms for s in structures)
     B = len(structures)
     with_frag = any(s.frag is not None for s in structures)
@@ -77,7 +85,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         "energy": np.zeros(B), "forces": np.zeros((B, n_max, 3)), "has_energy": np.zeros(B, dtype=bool),
         "has_forces": np.zeros(B, dtype=bool), "weight": np.ones(B), "energy_weight": np.ones(B), "pin_eself": np.zeros((B, n_max)),
         "pin_q": np.zeros((B, n_max)), "pin_mu": np.zeros((B, n_max, 3)), "pin_alpha": np.zeros((B, n_max, n_freq)),
-        "pin_alpha2": np.zeros((B, n_max, n_freq)),
+        "pin_alpha2": np.zeros((B, n_max, n_freq)), "E_ext": np.zeros((B, 3)),
     }
     with_sites = any("vsite_w" in s.pinned for s in structures)
     if with_sites:
@@ -117,6 +125,7 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
         if "alpha" in s.pinned: out["pin_alpha"][b, :n] = s.pinned["alpha"]
         if "alpha2" in s.pinned: out["pin_alpha2"][b, :n] = s.pinned["alpha2"]
         if "eself" in s.pinned: out["pin_eself"][b, :n] = s.pinned["eself"]
+        if getattr(s, "E_ext", None) is not None: out["E_ext"][b] = np.asarray(s.E_ext, float).reshape(3)
         if with_sites and "vsite_w" in s.pinned:
             w = np.asarray(s.pinned["vsite_w"], float); v = len(w)
             if w.shape != (v, n) or np.asarray(s.pinned["vsite_q"]).shape != (v,) or np.asarray(s.pinned["vsite_frag"]).shape != (v,):
@@ -126,7 +135,34 @@ def pad_batch(structures: List[Structure], n_max: Optional[int] = None, n_freq: 
             for k, f in enumerate(s.pinned["vsite_frag"]): out["vs_frag_mask"][b, int(f), k] = True
     if with_frag:
         out["frag_mask"] = frag_mask; out["frag_charge"] = frag_charge; out["has_frag"] = has_frag
+    if with_frag and any(s.pbc for s in structures):
+        out.update(_fragment_grouping(structures, n_max, max_frag, with_sites))
     return {k: jnp.asarray(v) for k, v in out.items()}
+
+
+def _fragment_grouping(structures, n_max, max_frag, with_sites):
+    """every fragment's atoms (and virtual sites) as index arrays, for the periodic model (see pad_batch)."""
+    B = len(structures)
+    frs = [np.asarray(s.frag, int) if s.frag is not None else np.arange(s.n_atoms) for s in structures]
+    A = max(int(np.bincount(fr).max()) for fr in frs)
+    out = {"frag_atoms": np.zeros((B, max_frag, A), np.int32), "frag_atoms_mask": np.zeros((B, max_frag, A), bool),
+           "atom_frag": np.zeros((B, n_max), np.int32), "atom_slot": np.zeros((B, n_max), np.int32)}
+    for b, fr in enumerate(frs):
+        count = np.zeros(max_frag, int)
+        for i, f in enumerate(fr):
+            out["frag_atoms"][b, f, count[f]] = i; out["frag_atoms_mask"][b, f, count[f]] = True
+            out["atom_frag"][b, i] = f; out["atom_slot"][b, i] = count[f]
+            count[f] += 1
+    if with_sites:
+        vfs = [np.asarray(s.pinned["vsite_frag"], int) if "vsite_frag" in s.pinned else np.zeros(0, int) for s in structures]
+        P = max([int(np.bincount(v).max()) for v in vfs if len(v)] + [1])
+        out["frag_sites"] = np.zeros((B, max_frag, P), np.int32); out["frag_sites_mask"] = np.zeros((B, max_frag, P), bool)
+        for b, vf in enumerate(vfs):
+            count = np.zeros(max_frag, int)
+            for k, f in enumerate(vf):
+                out["frag_sites"][b, f, count[f]] = k; out["frag_sites_mask"][b, f, count[f]] = True
+                count[f] += 1
+    return out
 
 
 def pair_geometry(positions, mask, cell=None, pbc=False):

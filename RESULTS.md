@@ -856,3 +856,78 @@ with an MD run). Without an MBX build, 7 more are skipped.
 
 **To run on Niflheim:** `mkdir -p logs logs_error && sbatch run_e4_data.sbatch` (20 CPU tasks, at most about 2.5 h
 each), then `python scripts/e4_data.py assemble`.
+
+## v0.0.19 → v0.0.20 — E4's data produced; the model in a cell (`sseft/periodic.py`)
+
+**E4's data, produced** on Niflheim, 30 Oct (3b343b9; `run_e4_data.sbatch`, 19 min for a 64-molecule trajectory on 8
+threads). All 20 trajectories are clean, and none is flagged.
+
+- Mean temperatures are 297.1–303.0 K, 299.6 K overall. The spreads are the canonical ones: 21.5, 15.3, 10.8, 7.4
+  and 5.2 K for 64–1024 molecules, against 21.7, 15.3, 10.8, 7.7 and 5.4 K.
+- The conserved energy drifts at most 5.6e-5 kcal/mol/ps per molecule.
+- g_OO's first peak is 2.60–2.67 at 2.83–2.88 Å in the 512- and 1024-molecule cells. The small cells scatter from 2.5
+  to 2.9, which is counting noise.
+- The sets hold 180/30/30 frames of 64 molecules, 90/15/15 of 128 and 45/7/8 of 256, and 60 of 512 and 52 of 1024 for
+  test.
+- The energy per molecule is −9.78 to −9.81 kcal/mol at every size, with no trend above ±0.02.
+- The 256-molecule validation and test sets (7 and 8 frames) can watch training but are too small to quote.
+
+**The model in a cell** (items 1–4 of e4-plan.md §5). `Rung(periodic=True)` runs every channel of M_16C2pm_us in a
+cell.
+
+- *The interaction energy* is the cell's periodic energy less every molecule alone, open (`model._fragment_alone`
+  gathers each molecule's atoms and sites and runs the open model). Every pair over every image is in the periodic
+  energy, each molecule's own pairs included, so the own pairs at n = 0 cancel and a molecule keeps its interactions
+  with its own images, as MBX's labels do.
+- *The site model's band*: the charges on the atoms and M-sites, summed by Ewald in reciprocal space (the band kernel
+  is smooth, so there is no real-space part).
+- *The read-out's band field*: every source and image except the own molecule at n = 0. Its other sources are taken
+  out directly and its own atom's analytically.
+- *The response*: the periodic dipole tensor through the band kernel at the response edge, the own molecule at n = 0
+  left out. It is solved directly (the tensor explicit, O(N_k N²)) or matrix-free by restarted GMRES, differentiated
+  implicitly (`lax.custom_linear_solve`). `Rung.bf_solver` picks one.
+- *The field term*: every other molecule whole at its image nearest the atom.
+- *The dispersion band*: pinned to MB-pol's long-range c₆, rank one on O and H (`water.mbpol_dispersion_pins`, given by
+  `e4_structures(..., pins=True)`; C6_OO 237.32 kcal/mol Å⁶). Beyond the truth's 6.5 Å real-space cutoff it is the
+  truth's dispersion.
+- *A uniform external field* at clamped nuclei (`Structure.E_ext`, `b["E_ext"]`) adds to the read-out's band field.
+  `model.induced_dipole` gives −dE/dE_ext, and `model.dielectric_inf` gives ε_∞ = 1 + 4πχ with the tin-foil field.
+- *Mechanics*:
+  - Every reciprocal sum runs over a half space in fixed chunks of k (a `lax.scan` whose body is rematerialised in the
+    backward pass), so memory is O(chunk × sources) at any cell size. The periodic Coulomb and dispersion bands of the
+    older rungs now go through the same sums.
+  - `ewald_n_max` must reach k_max along every lattice vector (`periodic.n_max_for`); otherwise the sums return NaN.
+    The energy is also NaN in cells narrower than 2 r_c, where E₀'s minimum image fails.
+  - Molecules are made whole first (`periodic.make_whole`).
+  - A batch holding a periodic structure with fragments carries the grouping `frag_atoms`, `atom_frag`, `atom_slot`
+    and `frag_sites` (`structure.pad_batch`); every batch carries `E_ext`.
+
+**Checked** (`tests/test_periodic.py`, 13 tests):
+
+- The chunked sums equal ewald.py's and bandfields.py's dense ones to 1e-12 at any chunk size, and a short n_max gives
+  NaN.
+- −½ μ·Tμ equals the periodic band energy of the dipoles alone, an independent sum, to 1e-11. The explicit tensor is
+  the matvec's.
+- Clausius–Mossotti: a simple cubic lattice's ε to 1e-10, with one atom per cell or 2×2×2, by both solves.
+- The site model's band field matches explicit image sums over a zero-dipole cell.
+- E₀'s view of the pinned field in a 20 Å cell equals the open one, part by part, to 1e-12, with molecules split
+  across the faces.
+- M_16C2pm_us with every channel on, a 4-molecule cluster in 30 and 40 Å cells:
+  - E₀ and the field term equal the open ones to 1e-12;
+  - the rest gives V(E − E_open) → −(2π/3)|M_perm + M_ind|² within 0.3 % (extrapolated in 1/L²), the open cluster's
+    whole dipole in the tin-foil image term.
+- The supercell identity holds to 1e-10. A molecule split across a face, or a translation of every atom, changes
+  nothing (1e-12). Forces match differences, and GMRES matches the direct solve to 1e-12.
+- One molecule in a cell gives its own dipole image energy, within 1 %.
+- The external field: −dE/dE_ext is the induced dipole, the dielectric tensor is symmetric, the first-order response
+  lies below the self-consistent one, and without a read-out ε_∞ = 1 exactly.
+- The c₆ pins give MB-pol's C6.
+- A batch of two different cells equals its cells.
+
+**Cost.** On two CPU cores, one 64-molecule E4 frame takes 2.3 s for the energy, 5–7 s with forces and 10–12 s for a
+training step (the energy-and-force loss's gradient), with either solve; the two solves agree to 4e-16 in the forces. The GPU's numbers by size come from `scratch/e4_periodic_timing.py` (`run_e4_periodic_timing.sbatch`). E₀ and
+the pair read-out are still dense in the atoms. That suits training at 64–256 molecules; the 1024-molecule frames will
+need neighbour lists, which come with the readers.
+
+**Tests.** 472 tests: 450 pass and 22 are skipped without the q-AQUA builds (46 min on two CPU cores, file by file).
+Without an MBX build, 7 more are skipped.

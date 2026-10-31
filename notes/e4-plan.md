@@ -150,6 +150,9 @@ which is exact (§2) and costs 8×; from 128 molecules it labels the cell itself
     30 and 15 frames per seed.
   - Seeds 0–2 are training. Seed 3 is split into validation (its first half) and test (its second half), so no
     test frame is correlated with a training frame.
+  - *Produced 30 Oct* on Niflheim (3b343b9). All 20 trajectories are clean: their temperatures are canonical and
+    the conserved energy drifts at most 6e-5 kcal/mol/ps per molecule. The energy per molecule is −9.78 to −9.81
+    kcal/mol at every size.
 - **The read-out's identification data**, computed open as in E3. MB-pol's far-field probes (a core with a molecule
   at 10–15 Å) and far trimers match the read-out before training. Its pins are MB-pol's site charges, M-sites and
   polarisabilities, read from MBX.
@@ -215,6 +218,28 @@ pre-registration replaces them with numbers for these contents.
    sources whole.
 4. **A uniform external field** at clamped nuclei, added to the band field. This gives dM/dE, hence ε_∞, and Z* by
    differences (X4b and T4).
+
+   *Items 1–4 done in v0.0.20* (`sseft/periodic.py`, `tests/test_periodic.py`):
+   - The interaction energy of a cell is its periodic energy less every molecule alone, open. A molecule keeps its
+     interactions with its own images, as MBX's labels do.
+   - The response's band field and dipole tensor leave out the own molecule at n = 0 only, so a molecule is polarised
+     by its own images.
+   - The dipole tensor is explicit for a direct solve, or a matrix-free product for GMRES with implicit derivatives;
+     the two agree to round-off.
+   - The field term takes every other molecule whole at its nearest image.
+   - The dispersion pins are MB-pol's long-range c₆, rank one (`water.mbpol_dispersion_pins`).
+   - All Ewald sums are chunked half-space sums with bounded memory. They return NaN when `ewald_n_max` falls short of
+     k_max, and the energy is NaN in cells narrower than 2 r_c.
+   - Checked:
+     - a cluster in 30–40 Å cells against its open value plus −(2π/3V)|M_perm + M_ind|², within 0.3 %;
+     - Clausius–Mossotti to 1e-10;
+     - the supercell identity to 1e-10;
+     - forces against differences;
+     - invariance under wrapping and translation;
+     - one molecule in a cell against its own dipole image energy.
+   - Still dense in N: E₀'s and the pair read-out's pair arrays. That suits training at 64–256 molecules. The test
+     frames' limit is to be measured on the GPU (`scratch/e4_periodic_timing.py`); 1024 molecules will need neighbour
+     lists, which come with the readers.
 5. **The readers**:
    - Form I: fixed contents in a cell sequence, against the largest cell or an extrapolated E(∞) (§2).
    - Form II: per-molecule errors by size.
@@ -276,7 +301,8 @@ code is still open: CP2K, GPAW, VASP or QE.
      log. *Done 28 Oct (§2).*
 2. **Next patches, here.**
    - The data pipeline; Vadic runs the MD on CPU nodes. *Done in v0.0.19 (`run_e4_data.sbatch`).*
-   - The periodic path, items 1–4 of §5, with tests.
+   - The periodic path, items 1–4 of §5, with tests. *Done in v0.0.20.*
+   - Next: the readers (§5 item 5), with E₀ and the read-out on neighbour lists for the 1024-molecule frames.
 3. **In parallel, on Vadic's GPU**: the MACE/MACE-LES env and the baselines on E3's data (§7).
 4. **The X3 pre-registration** with the numbers from MBX.
 5. **E4's first job**: the ladder at one L₀, read on Form I, ε_∞ and the near field.
