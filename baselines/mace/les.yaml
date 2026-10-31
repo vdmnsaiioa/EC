@@ -1,0 +1,13 @@
+# LES options for the MACE-LES baseline (E4, notes/e4-plan.md section 7).
+# Monopole-only latent charges: the class of Theorem 2 (les-vs-eft-what-is-provable.md section 7), as in Cheng,
+# npj Comput. Mater. 11, 80 (2025). No latent dipoles/quadrupoles, no induced charges or dipoles: those extensions
+# (use_dipole, use_quad, use_induced_charge, use_induced_dipole) give LES a field response and are a different class.
+# The values below are LES's defaults, written out so that a change of default upstream cannot change the baseline.
+
+use_atomwise: False             # the charges come from MACE's own readout (MACELES), not LES's MLP
+sigma: 1.0                      # A, Gaussian smearing of each latent charge (and the Ewald width)
+dl: 2.0                         # A, reciprocal cutoff k_max = 2 pi / dl
+remove_self_interaction: True   # LES's recommended, robust choice
+# is_periodic left unset (None): the legacy Ewald path, which sizes its k-grid from each cell's own vectors. The
+# vectorized path (True) uses a fixed grid N_max = 10 that silently truncates cells longer than N_max * dl = 20 A,
+# i.e. the 512- and 1024-molecule test cells (24.9 and 31.3 A).
