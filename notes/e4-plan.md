@@ -189,10 +189,16 @@ pre-registration replaces them with numbers for these contents.
 | M_1 | learned charges, neutral per molecule | p_min = 3 | at threshold (charge channel), slope 3 (dispersion) | ∝ L₀^−(3+2s_δ) |
 | M_16 | + learned α(iω) | the free dispersion channel | as M_1 | as M_1 |
 | M_16†ᵐ | MB-pol's charges, M-sites and α pinned, no response | the dagger | slope 0, level set by the missing induction | floor ∝ L₀⁻³ |
+| M_16C2†ᵐ | the same without the field term | the field-term ablation (2 Nov) | as M_16C2†ᵐ_us | floor |
 | M_16C2†ᵐ_us | E3's frozen form, retrained | the model | slope 0, small level | floor |
-| M_G | a global function | Gate C | measured (Form III) | measured |
+| M_G | a global pair function | the null | zero tail by construction in a cell* | measured (Form III) |
 | MACE, r_c 6 Å | none | external short-range baseline | → 1 | flat |
 | MACE-LES | latent charges, no sum rule | Theorem 2's class | net charge free: p_min = 1 | ∝ L₀⁻¹ |
+
+\* *Added 2 Nov.* In a cell M_G's pair function runs over minimum-image pairs, so a cluster in a cell wider than twice
+its size has no image term at all: its Form I relative error is 1 by construction, and Gate C cannot be read on it. Its
+informative reading is Form III, its bulk error by size. Gate C as an open question needs a learned global function that
+sees the images (a filter on the k-grid); none is in the harness (`e4-x3-preregistration.md` §5).
 
 ## 5. The harness build: what is not periodic yet
 
@@ -237,9 +243,13 @@ pre-registration replaces them with numbers for these contents.
      - forces against differences;
      - invariance under wrapping and translation;
      - one molecule in a cell against its own dipole image energy.
-   - Still dense in N: E₀'s and the pair read-out's pair arrays. That suits training at 64–256 molecules. The test
-     frames' limit is to be measured on the GPU (`scratch/e4_periodic_timing.py`); 1024 molecules will need neighbour
-     lists, which come with the readers.
+   - Still dense in N: E₀'s and the pair read-out's pair arrays. That suits training at 64–256 molecules.
+   - *Measured 2 Nov* on an RTX 3090 (`run_e4_periodic_timing.sbatch`): a training step takes 0.54, 1.6 and 6.3 s at
+     64, 128 and 256 molecules with GMRES (peak 0.8, 3.1 and 11 GB), and GMRES equals the direct solve to 5e-16 in the
+     forces. 512 and 1024 molecules run out of the card's 24 GB, and it is E₀, not the Ewald sums: compiled with parts
+     switched off (`scratch/e4_periodic_memory.py`), E₀ alone holds 7.5 of the 8.5 GB of a 512-molecule energy's
+     buffers, the read-out 0.8, the field term 0.2, the chunked bands nothing measurable. About 90 atoms lie within
+     6 Å of each atom, so neighbour lists shrink E₀'s arrays 17× at 512 and 34× at 1024: they come with the readers.
 5. **The readers**:
    - Form I: fixed contents in a cell sequence, against the largest cell or an extrapolated E(∞) (§2).
    - Form II: per-molecule errors by size.
@@ -273,6 +283,13 @@ needed only if 2048 molecules are wanted.
 - **The near field.** The C rung's 4-body on the liquid's compact tetramers against MBX's. E3's compact tetramers had
   0.57 against the labels' 0.34.
 - **Theorem 2 on the open probes.** MACE-LES reads 100 % on the far non-additive energy, the daggers' value.
+  *Corrected 2 Nov* (`e4-x3-preregistration.md` §5): a probe's core lies inside r_c, so environment-dependent charges
+  can carry the core's internally induced dipoles, the leading R⁻³ part of the probe's non-additive energy; MACE-LES
+  need not read 100 % there. The clean test is T5, far trimers with every pair beyond r_c, where every rung without a
+  response, MACE-LES included, gives exactly zero.
+- *Added 2 Nov.* Since a uniform field reaches only the read-out and the read-out is matched on the probes and held,
+  ε_∞, the far field, T5 and the Form I tail of contents whose images lie beyond r_c are fixed before training: the
+  pre-registration computes them, it does not estimate them.
 
 ## 7. Baselines
 
@@ -280,8 +297,8 @@ MACE (short range, r_c 6 Å, 2 layers) and MACE-LES:
 
 - trained on the same sets and splits, from the pipeline's extxyz;
 - on Vadic's GPU, in their own PyTorch env;
-- first on E3-QP8's clusters, which needs no new data (T1 on the rare-gas dimers of E1/E2, T5 on the far probes);
-- then on the boxes.
+- on the boxes only (Vadic's decision of 2 Nov), with MB-pol's far-field probes and far trimers read open (T5).
+  E3-QP8's clusters are skipped: E3 is closed.
 
 MACE+D3 is optional. EFA/RANGE come later (`long-range-models-survey.md`).
 
@@ -302,8 +319,16 @@ code is still open: CP2K, GPAW, VASP or QE.
 2. **Next patches, here.**
    - The data pipeline; Vadic runs the MD on CPU nodes. *Done in v0.0.19 (`run_e4_data.sbatch`).*
    - The periodic path, items 1–4 of §5, with tests. *Done in v0.0.20.*
-   - Next: the readers (§5 item 5), with E₀ and the read-out on neighbour lists for the 1024-molecule frames.
-3. **In parallel, on Vadic's GPU**: the MACE/MACE-LES env and the baselines on E3's data (§7).
-4. **The X3 pre-registration** with the numbers from MBX.
-5. **E4's first job**: the ladder at one L₀, read on Form I, ε_∞ and the near field.
-6. **The L₀ sweep** (Form II).
+   - The training driver and job 1 (`scripts/e4_water.py`, `configs/e4_water.yaml`). *Done in v0.0.21.*
+   - Next: the readers (§5 item 5), with E₀ and the read-out on neighbour lists for the 512- and 1024-molecule
+     frames, while job 1 runs.
+3. **In parallel, on Vadic's GPU**: the MACE/MACE-LES env and the baselines on the boxes (§7).
+4. **The X3 pre-registration** with the numbers from MBX. *Done in v0.0.21* (`e4-x3-preregistration.md`).
+5. **E4's first job**: the ladder at L₀ = 12.4 Å (64 molecules), 4 seeds, with the field-term ablation beside the
+   frozen form (Vadic's decision of 2 Nov); read on every frame of 64–256 molecules, the probes, T5 and ε_∞, then by
+   the readers on Form I, the near field and 512–1024 molecules.
+6. **Job 2: the band-edge sweep** (X2-C on real data; Vadic's decision of 2 Nov): ℓ₁ = 0.75 and 1.0 Å at read-out
+   orders 0 and 2, pre-registered with job 1. *Its matched part is computed* (`e4-x3-preregistration.md` §6): ε_∞
+   is set by the matching's regularisation, not identified by the probes. Before it runs, I am proposing matching data
+   from the liquid's own environments.
+7. **The L₀ sweep** (Form II).

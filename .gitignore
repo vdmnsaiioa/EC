@@ -9,6 +9,7 @@ dist/
 results/*.out
 results/*.pkl
 results/*.params.pkl
+results/**/*.pkl
 
 # the q-AQUA builds (external/qaqua/build.sh, build_pol.sh)
 /external/qaqua/build
@@ -16,6 +17,7 @@ results/*.params.pkl
 # the MBX build (external/mbx/build.sh), E4's check readings and the E3-QP8 summary
 /external/mbx/build
 /scratch/e4_mbx_checks.json
+/scratch/e4_x3_preregistration.json
 /scratch/e3qp8_summary.json
 # E4's data (scripts/e4_data.py)
 /data/e4/

@@ -309,7 +309,32 @@ dispersion pins.
 
 ```sh
 python scratch/e4_periodic_timing.py --dir data/e4     # cost by size and solver on the GPU (run_e4_periodic_timing.sbatch)
+python scratch/e4_periodic_memory.py --rep 2           # where a 512-molecule cell's memory goes (E_0's all-pairs arrays)
 ```
+
+**Training on the cells** (`scripts/e4_water.py`, v0.0.21; `configs/e4_water.yaml`; pre-registration
+`notes/e4-x3-preregistration.md`). Job 1 trains the ladder on the 64-molecule cells, 4 seeds, one rung and seed per
+task of an array job:
+
+- the read-out of the C rungs is matched first, open, on MB-pol's far-field probes (E3-QP2's matching), and held through
+  training (`train.fit(..., readout_init=...)`); it depends on neither E₀ nor the seed, so it is solved once per rung;
+- the loss reads the energies and the forces' rigid-body part, each molecule's net force and torque
+  (`train.rigid_force_sums`, `force_mode="rigid"`): the internal components of MBX's atomic forces carry the flux of
+  MB-pol's geometry-dependent charges, which rigid pinned charges cannot represent;
+- every rung is read on every frame of 64, 128 and 256 molecules (energy per molecule, net forces, torques, atomic
+  forces), on the far-field test probes and, for the C rungs, on ε_∞.
+
+```sh
+python scripts/e4_water.py probes --mbx external/mbx/build/MBX           # data/e4/probes_mbpol.npz (run_e4_probes.sbatch)
+python scripts/e4_water.py train --config configs/e4_water.yaml --task 20 --out_dir results/e4_job1   # M_16C2pm_us, seed 0
+python scripts/e4_water.py summary --out_dir results/e4_job1
+python scratch/e4_x3_preregistration.py --mbx external/mbx/build/MBX     # the pre-registration's numbers
+python scripts/e4_far.py read data/e4/probes_mbpol.npz energies.npy      # any model's probes and T5 (NumPy only)
+```
+
+`scripts/e4_far.py` serves the baselines: `probes` also writes the far-field test structures as extxyz
+(`data/e4/probes_mbpol_far.extxyz`, open), and `read` turns any model's energies of those frames (eV, in the file's
+order) into the same probe reading and T5 the driver gives the harness's rungs.
 
 `configs/water.yaml` is the E3-R cluster protocol: the E3-R cluster run (R1 of `notes/e3r-bandfield-response-preregistration.md`, final schedule of `notes/e3r-results.md` §1) — the permanent-source daggers `M_16p`, `M_16S0p`, `M_16S2p` at the band edge ℓ₁ = 0.75 Å without the radial switch, the pre-registered cluster data, K = 2, Adam 1000 with the read-out frozen, its order-0 linear solve, L-BFGS 300, batch 12, chunk 6 — i.e. `scripts/e3_water.py --part clusters --rungs M_16p,M_16S0p,M_16S2p --seeds 2 --steps 1000 --lbfgs 300 --batch 12 --lbfgs_chunk 6 --l1 0.75 --rs_over_l1 0`.
 
@@ -513,7 +538,8 @@ Pieces (one module each):
   carry the `L = 4` environment tensors of the order-2 operators; kept as `Rung.readout = "node"`).
 * `model.py`, `train.py`, `measure.py`, `data.py`, `toys.py` — assembly, training (Adam + optional
   L-BFGS polish on an exact, memory-bounded full-data loss — a rematerialised `lax.map` over padded
-  chunks — targets scaled never shifted), the Phase 1c / X2 measurements, the dimer truths
+  chunks — targets scaled never shifted; since v0.0.21 a read-out matched elsewhere and held, `readout_init`, and the
+  forces' rigid-body projection, `force_mode="rigid"`), the Phase 1c / X2 measurements, the dimer truths
   (Tang–Toennies, and the published ab initio Ar₂ / Ne₂ potentials in the Rostock form with their
   provenance check), the windows of `phase2-reference-data.md`, the sealed E2 targets, and the X2-B
   dielectric toy (with its exact Taylor-class ceiling).

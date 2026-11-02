@@ -299,9 +299,36 @@ class MBPolTruth:
             w[k, 3 * k:3 * k + 3] = [1 - self.gamma_m, 0.5 * self.gamma_m, 0.5 * self.gamma_m]
         return q_site, w, np.full(n, float(self.site_charges[3])), np.arange(n)
 
+    def molecule_charges(self, pos_ang):
+        """three charges per molecule (O, H, H) for the interface of the cluster generators (probe_configurations):
+        the site model's with the M-site's charge on O.  Neutral, but not MB-pol's dipole -- the rungs with MB-pol's
+        sources pin its site model (Rung.msites: pin_rigid_site_model), which these charges never enter."""
+        q = self.site_charges
+        return np.tile([q[0] + q[3], q[1], q[2]], len(pos_ang) // 3)
+
     def describe(self):
         return {"name": self.name, **self.mb.describe(), "gamma_m": self.gamma_m,
                 "site_charges": self.site_charges.tolist(), "site_alpha": self.site_alpha.tolist()}
+
+
+def pin_rigid_site_model(structs, site_q, gamma, K=8, omega0=0.3, alpha=True):
+    """pin a rigid water site model on water structures (O, H, H per molecule; open or periodic), as
+    e4_structures(pins=True) does for E4's cells: the atoms' charges site_q[:3] (O, H, H), one virtual site per molecule
+    at r_O + gamma/2 (r_H1 + r_H2 - 2 r_O) with charge site_q[3], and -- alpha=True -- MB-pol's dispersion pins
+    (mbpol_dispersion_pins on the grid of K and omega0, the rung's).  Every molecule carries the rigid monomer's charges,
+    E3's convention for rigid monomers (pin_site_model's rigid=True)."""
+    site_q = np.asarray(site_q, float)
+    for s in structs:
+        n = s.n_atoms // 3
+        w = np.zeros((n, 3 * n))
+        for k in range(n):
+            w[k, 3 * k:3 * k + 3] = [1 - gamma, 0.5 * gamma, 0.5 * gamma]
+        pins = {"q_site": np.tile(site_q[:3], n), "vsite_w": w, "vsite_q": np.full(n, float(site_q[3])),
+                "vsite_frag": np.arange(n)}
+        if alpha:
+            pins["alpha"] = mbpol_dispersion_pins(s.numbers, K, omega0)
+        s.pinned = {**s.pinned, **pins}
+    return structs
 
 
 # MB-pol's long-range dispersion: beyond MBX's real-space cutoff it is c6_i c6_j / r^6 by particle-mesh Ewald, with
@@ -340,20 +367,15 @@ def e4_structures(path, pins=False, K=8, omega0=0.3):
     src = d["source"] if "source" in d.files else np.zeros(n_frames, int)
     t = d["time_ps"] if "time_ps" in d.files else np.zeros(n_frames)
     gamma, sq = float(d["site_gamma"]), d["site_q"]
-    alpha = mbpol_dispersion_pins(np.tile([8, 1, 1], n), K, omega0) if pins else None
     out = []
     for f in range(n_frames):
         st = water_structure(pos[f], energy=float(d["energy"][f]), forces=np.asarray(d["forces"][f], float),
                              pinned_q=False, info={"n_mol": n, "source": int(src[f]), "time_ps": float(t[f])})
         st.cell = ang_to_bohr(np.asarray(cells[f], float))
         st.pbc = True
-        if pins:
-            w = np.zeros((n, 3 * n))
-            for k in range(n):
-                w[k, 3 * k:3 * k + 3] = [1 - gamma, 0.5 * gamma, 0.5 * gamma]
-            st.pinned = {"q_site": np.tile(sq[:3], n), "vsite_w": w, "vsite_q": np.full(n, float(sq[3])),
-                         "vsite_frag": np.arange(n), "alpha": alpha}
         out.append(st)
+    if pins:
+        pin_rigid_site_model(out, sq, gamma, K, omega0)
     return out
 
 

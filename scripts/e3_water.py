@@ -69,6 +69,7 @@ HELDOUT_CONTACT_BINS = ((0.0, 2.7), (2.7, 3.0), (3.0, math.inf))              # 
 RUNGS = {
     "M_inf": M.RUNGS["M_inf"], "M_G": M.RUNGS["M_G"], "M_A": M.RUNGS["M_A"],
     "M_1": M.RUNGS["M_1"],
+    "M_16": M.RUNGS["M_16"],                                                  # q and alpha learned (E4's ladder)
     "M_1mu": M.with_rung(M.RUNGS["M_1"], dipoles=True),
     "M_1p": M.with_rung(M.RUNGS["M_1"], pin_q=True),
     "M_S0p": M.with_rung(M.RUNGS["M_1"], pin_q=True, band_fields=0),

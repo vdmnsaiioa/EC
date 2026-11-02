@@ -17,12 +17,57 @@ def energy_scale(structures):
     return float(np.std(e) + 1e-30) if len(e) > 1 else float(abs(e[0]) + 1e-30)
 
 
-def make_loss_sums(rung, scale, w_force=10.0):
-    """per-batch sums and counts of the squared scaled residuals: (sum_e, cnt_e, sum_f, cnt_f)."""
+FORCE_MODES = ("atomic", "rigid")
+
+
+def rigid_force_sums(err, positions, mask, frag_mask, cell):
+    """the squared norm of a force residual's projection onto every fragment's rigid-body motions, and the number of
+    rigid-body degrees of freedom, for one structure.  Per fragment f with n_f atoms: |sum_i e_i|^2 / n_f (translation)
+    + tau^T I^+ tau (rotation about the fragment's centroid: tau = sum_i d_i x e_i, I = sum_i |d_i|^2 1 - d_i d_i^T the
+    unweighted inertia tensor, I^+ its pseudo-inverse); the degrees of freedom 3 + rank I.  This is the Euclidean
+    projection on the fragment's atoms, so a residual with no net force and no net torque on any fragment is invisible:
+    on rigid molecules, the flux of a truth's geometry-dependent charges, sum_a phi(s_a) dq_a/dr_i, which pinned rigid
+    charges cannot represent and whose long-range part no local model can (notes/e4-x3-preregistration.md section 2).
+    Each fragment is made whole by the minimum image from its first atom (an open structure's 1e6 cell: a no-op)."""
+    fm = (frag_mask & mask[None, :]).astype(err.dtype)                      # (F, N)
+    n_f = jnp.sum(fm, axis=1)
+    first = jnp.argmax(fm, axis=1)                                          # every fragment's first atom
+    af = jnp.argmax(fm, axis=0)                                             # every atom's fragment
+    d = positions - positions[first[af]]
+    d = d - jnp.round(d @ jnp.linalg.inv(cell)) @ cell
+    d = d - ((fm @ d) / jnp.maximum(n_f, 1.0)[:, None])[af]
+    d = jax.lax.stop_gradient(d * mask[:, None])
+    e = err * mask[:, None]
+    net = fm @ e                                                            # (F, 3)
+    tau = fm @ jnp.cross(d, e)                                              # (F, 3)
+    inertia = jnp.einsum("fi,ijk->fjk", fm, jnp.sum(d * d, axis=1)[:, None, None] * jnp.eye(3, dtype=d.dtype)
+                         - d[:, :, None] * d[:, None, :])
+    lam, vec = jnp.linalg.eigh(inertia)                                     # (F, 3), (F, 3, 3)
+    on = lam > 1e-8 * jnp.maximum(jnp.max(lam, axis=1, keepdims=True), 1e-300)
+    proj = jnp.einsum("fjk,fj->fk", vec, tau)                               # tau in the principal axes
+    rot = jnp.sum(jnp.where(on, proj ** 2 / jnp.where(on, lam, 1.0), 0.0), axis=1)
+    trans = jnp.sum(net ** 2, axis=1) / jnp.maximum(n_f, 1.0)
+    has = n_f > 0
+    return jnp.sum(jnp.where(has, trans + rot, 0.0)), jnp.sum(jnp.where(has, 3.0 + jnp.sum(on, axis=1), 0.0))
+
+
+def make_loss_sums(rung, scale, w_force=10.0, force_mode="atomic"):
+    """per-batch sums and counts of the squared scaled residuals: (sum_e, cnt_e, sum_f, cnt_f).  force_mode "atomic":
+    every atomic force component; "rigid": the residual's projection on every fragment's rigid-body motions, counted
+    per rigid-body degree of freedom (rigid_force_sums)."""
+    if force_mode not in FORCE_MODES:
+        raise ValueError(f"force_mode must be one of {FORCE_MODES}")
+
     def sums(params, batch):
         n = jnp.maximum(jnp.sum(batch["mask"], axis=1), 1.0)
         wgt = batch.get("weight", jnp.ones_like(batch["energy"]))          # per-structure weights (default 1)
-        if w_force > 0:
+        if w_force > 0 and force_mode == "rigid":
+            E, F = M.energy_forces(params, rung, batch)
+            s_b, c_b = jax.vmap(rigid_force_sums)((F - batch["forces"]) / scale, batch["positions"], batch["mask"],
+                                                  batch["frag_mask"], batch["cell"])
+            wf = batch["has_forces"] * wgt
+            sf, cf = jnp.sum(s_b * wf), jnp.sum(c_b * wf)
+        elif w_force > 0:
             E, F = M.energy_forces(params, rung, batch)
             f_err = (F - batch["forces"]) / scale
             fm = batch["mask"][:, :, None] * (batch["has_forces"] * wgt)[:, None, None]
@@ -36,8 +81,8 @@ def make_loss_sums(rung, scale, w_force=10.0):
     return sums
 
 
-def make_loss(rung, scale, w_energy=1.0, w_force=10.0):
-    sums = make_loss_sums(rung, scale, w_force)
+def make_loss(rung, scale, w_energy=1.0, w_force=10.0, force_mode="atomic"):
+    sums = make_loss_sums(rung, scale, w_force, force_mode)
     def loss_fn(params, batch):
         se, ce, sf, cf = sums(params, batch)
         le = se / jnp.maximum(ce, 1.0); lf = sf / jnp.maximum(cf, 1.0)
@@ -45,12 +90,12 @@ def make_loss(rung, scale, w_energy=1.0, w_force=10.0):
     return loss_fn
 
 
-def make_chunked_loss(rung, scale, data, w_energy=1.0, w_force=10.0, chunk=48):
+def make_chunked_loss(rung, scale, data, w_energy=1.0, w_force=10.0, chunk=48, force_mode="atomic"):
     """the full-data loss evaluated chunk by chunk (exact: sums and counts are combined after the chunks) with
     a scan over rematerialised chunks, so that the full-batch gradient of L-BFGS holds the forward graph of one
     chunk only.  The data are padded to a multiple of the chunk size with inert structures (no energy, no
     forces, no atoms), which contribute nothing to the sums."""
-    sums = make_loss_sums(rung, scale, w_force)
+    sums = make_loss_sums(rung, scale, w_force, force_mode)
     n = int(data["mask"].shape[0])
     n_chunks = -(-n // chunk)
     pad = n_chunks * chunk - n
@@ -92,7 +137,7 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         lbfgs_memory=10, lbfgs_scale_init_precond=True, lbfgs_max_linesearch_steps=20,
         lbfgs_readout_only=False, readout_orders="zero", readout_solve_iterations=1, readout_ridge_selection="fixed",
         readout_solve_weights=None, readout_solve_groups=None, lbfgs_freeze_readout=False, readout_first=False,
-        readout_solve_subset=None, readout_solve_w_force=None):
+        readout_solve_subset=None, readout_solve_w_force=None, readout_init=None, force_mode="atomic"):
     """train one model; returns (params, info).  The band-field read-out (when the rung has one) is held at its
     zero initialisation during the Adam stage unless readout_adam=True, and switched on in the L-BFGS polish: a
     quadratic read-out in the band field spans four orders of magnitude in |E|^2 across a training set with near and
@@ -115,7 +160,12 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     configurations E_0 does not see (far-field probes, their interaction energies), then held through Adam and the
     polish while E_0 learns the rest with the response in place.  readout_solve_w_force: the forces' weight in the solve
     (default w_force; 0: energies only -- for rigid monomers whose truth has geometry-dependent charges, the atomic forces'
-    internal components carry the charge flux that pinned charges cannot represent)."""
+    internal components carry the charge flux that pinned charges cannot represent).
+
+    readout_init (v0.0.21, E4): the read-out's parameters matched elsewhere -- on structures of another kind, e.g. the
+    open far-field probes of a model trained on periodic cells (scripts/e4_water.py) -- put in place of its
+    initialisation and held through Adam and the polish (no solve here; the polish may then be skipped).
+    force_mode: "atomic" (every force component) or "rigid" (each fragment's net force and torque: rigid_force_sums)."""
     _integer_option("seed", seed)
     _integer_option("steps", steps)
     _integer_option("lbfgs_steps", lbfgs_steps)
@@ -169,17 +219,34 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
                          "the read-out frozen in Adam and in the polish (lbfgs_freeze_readout)")
     if len(structures) == 0:
         raise ValueError("training structures must not be empty")
+    if force_mode not in FORCE_MODES:
+        raise ValueError(f"force_mode must be one of {FORCE_MODES}")
+    if force_mode == "rigid" and any(s.frag is None for s in structures):
+        raise ValueError("force_mode 'rigid' projects the forces on every fragment's rigid-body motions: every structure "
+                         "needs its fragments")
     key = jax.random.PRNGKey(seed)
     scale = energy_scale(structures) if scale is None else scale
     params = M.init_params(key, rung, energy_scale=scale)
     has_readout = "readout" in params
+    if readout_init is not None:
+        if not has_readout:
+            raise ValueError("readout_init needs a rung with a band-field read-out")
+        if readout_adam or readout_first or readout_linear_solve or lbfgs_readout_only:
+            raise ValueError("readout_init is a matched read-out, held as given: it excludes readout_adam, readout_first, "
+                             "readout_linear_solve and lbfgs_readout_only")
+        ref, new = (jax.tree_util.tree_structure(t) for t in (params["readout"], readout_init))
+        shapes = lambda t: [np.shape(x) for x in jax.tree_util.tree_leaves(t)]
+        if ref != new or shapes(params["readout"]) != shapes(readout_init):
+            raise ValueError("readout_init does not have the rung's read-out structure")
+        params = {**params, "readout": jax.tree_util.tree_map(lambda x: jnp.asarray(x, jnp.float64), readout_init)}
+        readout_linear_solve, lbfgs_freeze_readout = False, True
     freeze_readout = has_readout and not readout_adam
     linear_solve = has_readout and (freeze_readout if readout_linear_solve is None else readout_linear_solve)
     if lbfgs_readout_only and (not has_readout or lbfgs_steps == 0):
         raise ValueError("lbfgs_readout_only requires a band-field read-out and lbfgs_steps > 0")
-    if freeze_readout and lbfgs_steps == 0:
+    if freeze_readout and lbfgs_steps == 0 and readout_init is None:
         raise ValueError("a band-field rung needs the L-BFGS polish (lbfgs_steps > 0): the read-out is frozen during Adam")
-    loss_fn = make_loss(rung, scale, w_energy, w_force)
+    loss_fn = make_loss(rung, scale, w_energy, w_force, force_mode)
     data = pad_batch(structures, n_freq=rung.K)
     n_data = len(structures)
     batch_size = n_data if batch_size is None else batch_size
@@ -251,7 +318,7 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         # optimum of the objective given the Adam-trained rest of the model (sseft.linear), then polish everything
         params, solve = run_solve(params)
     if lbfgs_steps > 0:
-        f = make_chunked_loss(rung, scale, data, w_energy, w_force, chunk=lbfgs_chunk)
+        f = make_chunked_loss(rung, scale, data, w_energy, w_force, chunk=lbfgs_chunk, force_mode=force_mode)
         extra = {"freeze_readout": True} if lbfgs_freeze_readout and has_readout else {}
         params = polish_lbfgs(params, f, lbfgs_steps, verbose, learning_rate=lbfgs_lr,
                               memory_size=lbfgs_memory, scale_init_precond=lbfgs_scale_init_precond,
@@ -268,6 +335,10 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
                    lbfgs_memory=int(lbfgs_memory), lbfgs_scale_init_precond=bool(lbfgs_scale_init_precond),
                    lbfgs_max_linesearch_steps=int(lbfgs_max_linesearch_steps), lbfgs_readout_only=bool(lbfgs_readout_only),
                    verbose=bool(verbose))
+    if readout_init is not None:
+        options["readout_init"] = True                       # matched elsewhere and held (lbfgs_freeze_readout below)
+    if force_mode != "atomic":
+        options["force_mode"] = force_mode
     if (readout_orders, readout_solve_iterations, readout_ridge_selection, lbfgs_freeze_readout, readout_first) != \
             ("zero", 1, "fixed", False, False) or readout_solve_weights is not None or readout_solve_subset is not None \
             or readout_solve_w_force is not None:

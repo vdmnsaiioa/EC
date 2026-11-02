@@ -931,3 +931,98 @@ need neighbour lists, which come with the readers.
 
 **Tests.** 472 tests: 450 pass and 22 are skipped without the q-AQUA builds (46 min on two CPU cores, file by file).
 Without an MBX build, 7 more are skipped.
+
+## v0.0.20 → v0.0.21 — the periodic path on the GPU; E4's training driver; job 1 pre-registered (`scripts/e4_water.py`)
+
+**The periodic path on the GPU** (Niflheim, RTX 3090, 2 Nov; `run_e4_periodic_timing.sbatch` at 64a7c79):
+
+- `tests/test_periodic.py` passes on the GPU, 13 of 13.
+- On real frames GMRES gives the direct solve's energies and forces, to 5e-16 in the forces at 64, 128 and 256
+  molecules.
+- GMRES is the solver from 128 molecules up: its training steps are 2.5× (128) and 5× (256) faster, and it compiles
+  3–4× faster.
+
+| molecules | energy | energy + forces | training step | peak memory | (direct: training step) |
+|---|---|---|---|---|---|
+| 64 | 0.13 s | 0.27 s | 0.54 s | 0.8 GB | 0.64 s |
+| 128 | 0.40 s | 0.84 s | 1.6 s | 3.1 GB | 4.0 s |
+| 256 | 1.5 s | 3.3 s | 6.3 s | 11 GB | 31 s |
+| 512, 1024 | out of memory on the 24 GB card | | | | |
+
+**Where the memory goes** (`scratch/e4_periodic_memory.py`, compiled on CPU and never run). At 512 molecules the energy's
+temporary buffers are:
+
+- 8.52 GB with every part on;
+- 8.28 GB without the field term;
+- 7.52 GB with the bands alone, and the same with E₀ alone.
+
+E₀'s all-pairs arrays (1536 × 1536 × 128 and kin) are 90 % of it, and the chunked Ewald sums cost nothing measurable.
+About 90 atoms lie within 6 Å of each atom, so neighbour lists shrink E₀'s arrays 17× at 512 molecules and 34× at 1024.
+They come with the readers.
+
+**Training on the cells** (`scripts/e4_water.py`, `configs/e4_water.yaml`; `run_e4_probes.sbatch`, `run_e4_job1.sbatch`):
+
+- `probes` makes MB-pol's far-field probes through MBX, by E3's recipe and seeds: 384 training and 80 test probes, hash
+  72b73e3aa6c7b53f, the same on every regeneration. It also makes 40 far trimers for T5.
+- `train` matches the read-out of a C rung on the training probes beyond r_c, open, and caches it per rung. It then
+  trains the rung on the cells with the read-out held, and reads it:
+  - energy per molecule and forces (rigid-body and atomic) on every frame of every size given;
+  - the far-field probes and T5;
+  - ε_∞ for the C rungs.
+  One json and one parameter file per rung and seed: `--task` picks them for an array job.
+- `summary` gives the seed means.
+- `train.fit(..., readout_init=...)` holds a read-out matched elsewhere through Adam and the polish.
+  `force_mode="rigid"` reads each fragment's net force and torque (`train.rigid_force_sums`). That is the Euclidean
+  projection of the residual on the rigid-body motions, blind to the flux of MB-pol's geometry-dependent charges in the
+  atomic forces.
+- `water.pin_rigid_site_model` pins the rigid site model and c₆ on any water structure, the pins `e4_structures` gives
+  the cells. `MBPolTruth.molecule_charges` serves the cluster generators.
+- `e3_water.RUNGS` gains M_16 (q and α learned). `e4_water` adds M_16C0pm_us, the frozen form at read-out order 0, for
+  job 2.
+
+**Job 1, pre-registered** (`notes/e4-x3-preregistration.md`, numbers from `scratch/e4_x3_preregistration.py`). The
+model's IR readings are fixed by the matching, so they are computed before training.
+
+- *Far field*, non-additive part of the probes at 8 / 10 / 12 / 15 Å: the C rungs leave 1.9 / 2.5 / 2.6 / 2.0 %
+  (on q-AQUA-pol, E3: 4 / 5 / 3 %). The dagger leaves 100 %.
+- *T5*, the far trimers' three-body energy (many-body induction only): the C rungs' slope is 1.026, rmse 3.7 % of the
+  rms. Every rung without a response gives exactly 0.
+- *Form I*: the C rung is within 1–2 % of MB-pol's tail up to 25 Å for a polar hexamer and a non-polar tetramer. The
+  dagger gives 0.6–0.8 of it, the induced share.
+- *ε_∞*: the C rung gives 1.800 against MB-pol's 1.688 on the same 64-molecule frames, so χ is 16 % too high. **The plan's
+  "within a few per cent" fails before training.**
+  - The monomer's polarisability is matched to 2.6 %.
+  - The excess is the local-field enhancement: 1.30 against MB-pol's 1.17.
+  - The response's dipole tensor at the 0.75 Å band edge is nearly bare at a hydrogen bond, where MB-pol's Thole
+    damping keeps 12–60 % of it.
+  - The far probes cannot fix that. It is the band edge acting on an IR observable, H3's question, read without
+    training.
+- *Job 2's band-edge sweep, its matched part, computed now* (ℓ₁ = 0.75 and 1.0 Å; read-out orders 0 and 2):
+  - ε_∞ is 1.821 / 1.800 at 0.75 Å and 1.833 / **1.390** at 1.0 Å (orders 0 / 2).
+  - Its regulator dependence is 30 times larger at order 2 than at order 0: H3's fall-off is inverted.
+  - On the hexamer's Form I the dependence falls as H3 asks (2.5–6×), and on the far probes it is flat.
+  - The held-out cores choose a ridge of 10⁻³ at 1.0 Å instead of 10⁻¹. The probes do not identify the read-out's
+    environment dependence, so in the liquid it is the regularisation that sets ε_∞.
+  - The remedy proposed: MB-pol's response on clusters cut from the liquid as matching data, before job 2.
+- *Corrections to e4-plan.md*:
+  - MACE-LES need not read 100 % on the far probes: a core's internal induction is representable by
+    environment-dependent charges. T5 is the clean test.
+  - Gate C cannot be read on M_G in a cell: its minimum-image pair function has no image term.
+
+`scripts/e4_far.py` (NumPy only) writes the far-field test structures as extxyz for the baselines and reads any model's
+energies of them into the probe reading and T5, so MACE-LES can be read on Theorem 2's T5.
+
+**Tests.** `tests/test_e4_train.py`, 9 tests:
+
+- the rigid-body projection: a rigid field is kept whole, an internal one is invisible, and wrapping changes nothing;
+- the rigid loss is blind to an internal force field;
+- `readout_init` holds the read-out exactly;
+- the pins match `e4_structures`';
+- the driver's M_16C2pm_us is E3's frozen form;
+- the probe file round-trips;
+- `e4_far` reads the truth's own energies at zero error and a harness model's exactly as the driver does;
+- the driver runs end to end on fake cells;
+- MB-pol's charges and pins, with MBX.
+
+The full suite: 481 tests, 459 pass and 22 are skipped without the q-AQUA builds (63 min on two CPU cores, file by
+file). Without an MBX build, 8 more are skipped.
