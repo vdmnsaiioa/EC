@@ -15,6 +15,15 @@ probe's interaction E - E_core and its non-additive part, less the probe's dimer
 three-body energy against the truth's: rmse, rms and slope), the same numbers scripts/e4_water.py reads for the
 harness's rungs.  A model whose sources do not answer a far field -- MACE, MACE-LES (Theorem 2), the dagger -- gives
 T5 exactly zero.
+
+    python scripts/e4_far.py cells data/e4/test_n128.npz mace_test_n128.npz [--json out.json]
+
+The bulk readings of any model on an E4 data set, as the driver reads the harness's rungs: energy per molecule (rmse,
+mean, per frame) and the forces' rigid-body part (each molecule's net force and torque, sseft.train.rigid_force_sums),
+with the atomic forces beside them.  The model file holds energy (F,) in eV -- the interaction energy, REF_energy's
+convention -- and forces (F, 3n, 3) in eV/A, in the data set's frame order; from MACE's evaluated extxyz, e.g.
+    fr = ase.io.read("test_n128_mace.extxyz", ":")
+    np.savez("mace_test_n128.npz", energy=[a.info["MACE_energy"] for a in fr], forces=[a.arrays["MACE_forces"] for a in fr])
 """
 import argparse
 import json
@@ -25,6 +34,7 @@ import numpy as np
 
 EV_PER_HARTREE = 27.211386245988
 KCAL_PER_HARTREE = 627.5094740631
+BOHR_PER_ANGSTROM = 1.8897259886
 PAIRS = ((0, 1), (0, 2), (1, 2))
 
 
@@ -107,6 +117,51 @@ def readings(path, energies_ev):
     return out
 
 
+def rigid_errors(err, pos, cell):
+    """one frame of whole water molecules (atoms O H H in order): each molecule's net force error, its torque error about
+    the centroid, and the rigid-body projection's sum of squares and degrees of freedom -- sseft.train.rigid_force_sums
+    and scripts/e4_water.py's rigid_errors, in NumPy.  err (3n, 3) kcal/mol/A, pos (3n, 3) A, cell (3, 3) A."""
+    n = len(pos) // 3
+    d = pos.reshape(n, 3, 3) - pos.reshape(n, 3, 3)[:, :1]
+    d = d - np.round(d @ np.linalg.inv(cell)) @ cell
+    d = d - d.mean(axis=1, keepdims=True)
+    e = err.reshape(n, 3, 3)
+    net, tau = e.sum(axis=1), np.cross(d, e).sum(axis=1)
+    inertia = np.sum(d * d, axis=(1, 2))[:, None, None] * np.eye(3) - np.einsum("mai,maj->mij", d, d)
+    lam, vec = np.linalg.eigh(inertia)
+    on = lam > 1e-8 * np.maximum(lam.max(axis=1, keepdims=True), 1e-300)
+    proj = np.einsum("mjk,mj->mk", vec, tau)
+    rot = np.sum(np.where(on, proj ** 2 / np.where(on, lam, 1.0), 0.0), axis=1)
+    return net, tau, float(np.sum(np.sum(net ** 2, axis=1) / 3.0 + rot)), float(np.sum(3 + on.sum(axis=1)))
+
+
+def cell_readings(data_path, energies_ev, forces_ev_ang):
+    """a model's bulk readings on an E4 data set (scripts/e4_data.py's frames, in their order), the numbers
+    scripts/e4_water.py reads for the harness's rungs: energy per molecule rmse, mean and per-frame errors (kcal/mol),
+    rigid-body force rmse, net force and torque rmse, atomic force rmse (kcal/mol/A).  The model's energies are the
+    interaction energy (the isolated monomer at zero, as REF_energy in the data set's extxyz) in eV, its forces in eV/A."""
+    d = np.load(data_path, allow_pickle=False)
+    pos, E_ref, F_ref = d["positions"], d["energy"], d["forces"]
+    cells = d["cell"] if d["cell"].ndim == 3 else np.broadcast_to(d["cell"], (len(pos), 3, 3))
+    E = np.asarray(energies_ev, float).reshape(-1)
+    F = np.asarray(forces_ev_ang, float).reshape(pos.shape)
+    if len(E) != len(pos):
+        raise ValueError(f"{len(E)} energies for {len(pos)} frames")
+    n_mol = pos.shape[1] // 3
+    dE = (E / EV_PER_HARTREE - E_ref) * KCAL_PER_HARTREE / n_mol
+    net, tau, ss, cc, fa = [], [], 0.0, 0.0, []
+    for f in range(len(pos)):
+        err = F[f] * KCAL_PER_HARTREE / EV_PER_HARTREE - F_ref[f] * KCAL_PER_HARTREE * BOHR_PER_ANGSTROM
+        fa.append(np.mean(err ** 2))
+        n_, t_, s_, c_ = rigid_errors(err, pos[f], np.asarray(cells[f], float))
+        net.append(n_); tau.append(t_); ss += s_; cc += c_
+    rms = lambda v: float(np.sqrt(np.mean(np.square(v))))
+    return {"frames": int(len(pos)), "n_mol": int(n_mol), "energy_per_molecule_rmse": rms(dE),
+            "energy_per_molecule_mean_error": float(np.mean(dE)), "energy_per_molecule_errors": dE.tolist(),
+            "force_rigid_rmse": float(np.sqrt(ss / cc)), "net_force_rmse": rms(np.concatenate(net)),
+            "torque_rmse": rms(np.concatenate(tau)), "force_atomic_rmse": float(np.sqrt(np.mean(fa)))}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -115,9 +170,24 @@ def main():
     r = sub.add_parser("read", help="a model's probe reading and T5 from its energies of the extxyz's frames")
     r.add_argument("probes"); r.add_argument("energies", help=".npy (eV), one per frame in the extxyz's order")
     r.add_argument("--json", default=None)
+    c = sub.add_parser("cells", help="a model's bulk readings on an E4 data set (energy per molecule, rigid forces)")
+    c.add_argument("data", help="an E4 data set, e.g. data/e4/test_n128.npz")
+    c.add_argument("model", help=".npz with energy (F,) in eV and forces (F, 3n, 3) in eV/A, in the data set's order")
+    c.add_argument("--json", default=None)
     a = ap.parse_args()
     if a.cmd == "extxyz":
         print(write_extxyz(a.probes, a.out))
+        return
+    if a.cmd == "cells":
+        m = np.load(a.model, allow_pickle=False)
+        v = cell_readings(a.data, m["energy"], m["forces"])
+        print(f"{a.data} ({v['frames']} frames of {v['n_mol']} molecules): energy per molecule rmse "
+              f"{v['energy_per_molecule_rmse']:.4f} kcal/mol (mean {v['energy_per_molecule_mean_error']:+.4f}), rigid "
+              f"forces {v['force_rigid_rmse']:.3f} kcal/mol/A (net {v['net_force_rmse']:.3f}, torque {v['torque_rmse']:.3f} "
+              f"kcal/mol; atomic {v['force_atomic_rmse']:.3f})")
+        if a.json:
+            with open(a.json, "w") as fh:
+                json.dump(v, fh, indent=1)
         return
     out = readings(a.probes, np.load(a.energies))
     pct = lambda b, k: 100 * b[f"{k}_rmse"] / b[f"{k}_rms"]

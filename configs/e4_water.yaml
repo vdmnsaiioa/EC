@@ -8,8 +8,8 @@
 #   python scripts/e4_water.py train --config configs/e4_water.yaml --task 0 --out_dir results/e4_job1
 #   python scripts/e4_water.py summary --out_dir results/e4_job1
 #
-# (run_e4_job1.sbatch: the training as an array of 28 tasks, one rung and seed each.)  Every value of the experiment is
-# in this file; scripts/e4_water.py's DEFAULTS hold the same numbers.
+# (run_e4_job1.sbatch: 4 jobs of the same length, one per seed, each training the 7 rungs in turn.)  Every value of
+# the experiment is in this file; scripts/e4_water.py's DEFAULTS hold the same numbers.
 experiment:
   type: e4
 

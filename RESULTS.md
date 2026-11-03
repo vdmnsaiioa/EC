@@ -1026,3 +1026,40 @@ energies of them into the probe reading and T5, so MACE-LES can be read on Theor
 
 The full suite: 481 tests, 459 pass and 22 are skipped without the q-AQUA builds (63 min on two CPU cores, file by
 file). Without an MBX build, 8 more are skipped.
+
+## v0.0.21 → v0.0.22 — E4's job 1 run and read (`notes/e4-job1-results.md`); the report and a bulk reader for any model
+
+**Job 1** ran on Niflheim at e6746b3 as pre-registered: 4 jobs, one per seed, 7 rungs each; all 28 runs finished in
+8.2–9.2 h per job (16 h estimated). First read, from the logs:
+
+- *The infrared, as computed before training.* ε_∞ 1.8009, T5 slope 1.0260 and the 10–15 Å far probes (2 / 3 / 2 %
+  non-additive) on all 8 C-rung runs; the dagger 100 % and 0; T5 0 on every rung without a response. Training did not
+  move them. The pre-registration's 8 Å column was wrongly listed as fixed: 9 of its 20 test probes reach inside r_c.
+- *Rigid-body forces, the same at every size* (seed means, 64–256 molecules): M_∞ 0.90–0.95, the dagger 0.72–0.74, the
+  field-term ablation 0.74–0.76, the frozen form **0.60–0.62** kcal/mol/Å. Long range with pinned sources gains 20 %,
+  the response without the field term nothing, the field term 19 %.
+- *Predictions.* 1 fails: the ablation is no better than the dagger (the frozen form passes on forces everywhere and
+  fails one energy reading). 2 holds on forces at every size and split (−18 to −20 %) and fails on the validation
+  split's energies at 128 and 256 molecules. 3 is pending the per-frame errors. 4 holds: M_G's error grows from 0.10
+  to 9.6 and 28 kcal/mol per molecule (Form III).
+- *Energies* (0.006–0.04 kcal/mol per molecule) do not separate the rungs beyond 64 molecules: each split there is half
+  of one trajectory, and the comparisons flip between its halves. The pooled frames are the reading to use.
+- *M_1 and M_16 did not train*: both read worse than M_∞, which they contain. M_16's learned α(iω) starts with a C₆
+  4× (O–O) to 49× (H–H) MB-pol's, an energy term of 4×10⁷ in the loss; M_1 starts near M_∞. A training fix is proposed.
+- *ε_∞* stays the recorded failure (1.80 against 1.69).
+
+**`scripts/e4_report.py`** (NumPy only): job 1's jsons against the pre-registration, with the data sets' frames for the
+trajectories and the truth's energies. It prints the fixed readings against §4, the bulk table by size and frame set
+(each split and the unseen frames pooled), predictions 1 and 2 paired by seed, prediction 3 with the frame-to-frame
+standard error as registered (and, marked as an addition, with the frames' lag-1 correlation in time), the truth's
+energy per molecule by size and trajectory with each rung's per-frame error against it, M_G's Form III and the Adam
+curves; `--json` keeps every number.
+
+**`scripts/e4_far.py cells`** reads any model's energies and forces of an E4 data set (eV, eV/Å) into the driver's bulk
+readings — energy per molecule, the rigid-body forces (`rigid_errors`, NumPy), net forces, torques, atomic forces —
+for the MACE baselines.
+
+**Tests.** `tests/test_e4_report.py`, 6 tests, on made-up results with known answers (the fixed readings' agreement,
+the pooled frames, the paired counts, prediction 3's shift, the truth by trajectory and an error's slope against it,
+the json). `tests/test_e4_train.py`'s end-to-end test now also checks that `e4_far.py cells` reproduces the driver's
+readings of a trained model to 1e-9 and that the report reads the driver's json.

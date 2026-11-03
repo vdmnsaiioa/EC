@@ -326,7 +326,9 @@ code is still open: CP2K, GPAW, VASP or QE.
 4. **The X3 pre-registration** with the numbers from MBX. *Done in v0.0.21* (`e4-x3-preregistration.md`).
 5. **E4's first job**: the ladder at L₀ = 12.4 Å (64 molecules), 4 seeds, with the field-term ablation beside the
    frozen form (Vadic's decision of 2 Nov); read on every frame of 64–256 molecules, the probes, T5 and ε_∞, then by
-   the readers on Form I, the near field and 512–1024 molecules.
+   the readers on Form I, the near field and 512–1024 molecules. *Run 3 Nov (8–9 h per seed); first read in
+   `e4-job1-results.md`: the infrared as computed, the field term −19 % on the rigid forces at every size, the
+   response without it nothing; M_1 and M_16 did not train. `scripts/e4_report.py` completes the read.*
 6. **Job 2: the band-edge sweep** (X2-C on real data; Vadic's decision of 2 Nov): ℓ₁ = 0.75 and 1.0 Å at read-out
    orders 0 and 2, pre-registered with job 1. *Its matched part is computed* (`e4-x3-preregistration.md` §6): ε_∞
    is set by the matching's regularisation, not identified by the probes. Before it runs, I am proposing matching data

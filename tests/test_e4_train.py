@@ -280,7 +280,8 @@ def _fake_cells(path, n_frames, n_mol, L, seed):
 def test_driver_end_to_end_on_fake_cells(tmp_path):
     """scripts/e4_water.py train and summary on fake 16-molecule cells (12.5 A, wide enough for r_c 6 A) and the fake
     probes, for M_inf: one json and one parameter file per rung and seed, every split read, the probes read, the summary
-    printed; --task picks (rung, seed) as rung task // n_seeds, seed task % n_seeds."""
+    printed; --task picks (rung, seed) as rung task // n_seeds, seed task % n_seeds.  Then scripts/e4_far.py's bulk
+    readings for any model reproduce the driver's, and scripts/e4_report.py reads the json."""
     cfg = _small_cfg(tmp_path)
     truth = FakeMBPol()
     E4.save_probes(cfg["data"]["probes"], E4.make_probes(truth, cfg), truth, cfg)
@@ -305,6 +306,30 @@ def test_driver_end_to_end_on_fake_cells(tmp_path):
     by = r["readings"]["probes"]["by_distance_angstrom"]
     assert by["12"]["nonadditive_rmse"] == pytest.approx(by["12"]["nonadditive_rms"], rel=1e-9)    # M_inf: 100 %
     E4.run_summary(SimpleNamespace(out_dir=str(out)))
+    # scripts/e4_far.py cells (NumPy, for any model): the trained model's energies and forces of the valid frames read
+    # exactly what the driver read for it; scripts/e4_report.py reads the driver's json
+    import pickle
+    import e4_far
+    import e4_report
+    with open(out / "M_inf_seed1.params.pkl", "rb") as fh:
+        params = pickle.load(fh)
+    path = str(tmp_path / "valid_n16.npz")
+    structs = W.e4_structures(path, pins=True)
+    rung, _ = E4.rungs_for("M_inf", E4.load_config(str(tmp_path / "c.yaml")), structs[0].cell)
+    f = jax.jit(lambda p, b: M.energy_forces_single(p, rung, b))
+    E_ev, F_ev = [], []
+    for st in structs:
+        b = {k: v[0] for k, v in S.pad_batch([st], n_freq=rung.K).items()}
+        E, F = f(params, b)
+        E_ev.append(float(E) * e4_far.EV_PER_HARTREE)
+        F_ev.append(np.asarray(F)[:st.n_atoms] * e4_far.EV_PER_HARTREE * e4_far.BOHR_PER_ANGSTROM)
+    mine = e4_far.cell_readings(path, E_ev, F_ev)
+    for key in ("energy_per_molecule_rmse", "energy_per_molecule_mean_error", "force_rigid_rmse", "net_force_rmse",
+                "torque_rmse", "force_atomic_rmse"):
+        assert mine[key] == pytest.approx(cells["valid"][key], rel=1e-9, abs=1e-12), key
+    rep = e4_report.report(str(out), str(tmp_path), verbose=False)
+    assert abs(rep["fixed"]["M_inf"][1]["t5_slope"]) < 1e-9 and np.isfinite(rep["truth"][16]["mean"])
+    assert rep["bulk"]["M_inf"][16]["valid"][1]["force_rigid"] == pytest.approx(cells["valid"]["force_rigid_rmse"])
 
 
 @needs_mbx

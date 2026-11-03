@@ -38,8 +38,10 @@ ablation in job 1 and the band-edge sweep as job 2; the MACE baselines on the bo
 - ε_∞ on 10 test frames (C rungs).
 - Later, once the readers come: Form I, the near field, and the 512- and 1024-molecule frames.
 
-**Cost.** One task per rung and seed (`run_e4_job1.sbatch`, 28 tasks). On the RTX 3090 that is about 5 h for a C
-rung and 1–3 h for the others: about 70 GPU hours.
+**Cost.** `run_e4_job1.sbatch` runs it as 4 jobs of the same length, one per seed, each training the 7 rungs one after
+another on its GPU (the C rungs first). On the RTX 3090 a C rung takes about 5 h, M_16 3 h, M_1 and M_16†ᵐ 1.5 h each,
+M_G and M_∞ under 1 h each: about 16 h per job, 65 GPU hours in all (2 Nov: every rung's training step compiled and
+run in a cell, its cost relative to the C rung's measured on CPU).
 
 ## 2. Two things fixed before training
 
