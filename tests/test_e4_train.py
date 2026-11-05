@@ -177,6 +177,14 @@ def test_rungs_for_is_e3s_frozen_form():
                            e0_field_off=base.e0_field_off, e0_field_self_on=0.0, e0_field_self_off=0.0,
                            e0_field_cross_species=False)
     assert E4.rungs_for("M_16C0pm_us", cfg, cell)[0] == replace(rc, name="M_16C0pm_us", band_fields=0)
+    # job 2's M_16pm_us: the dagger M_16pm with the frozen form's field term, every setting of it the frozen form's
+    dag, pm = E4.rungs_for("M_16pm_us", cfg, cell)[0], E4.rungs_for("M_16pm", cfg, cell)[0]
+    field = lambda r: (r.e0_field, r.e0_field_whole, r.e0_field_form, r.e0_field_cross, r.e0_field_cross_species,
+                       r.e0_field_on, r.e0_field_off, r.e0_field_self_on, r.e0_field_self_off, r.e0_field_unit)
+    assert dag.band_fields < 0 and field(dag) == field(rc)
+    assert replace(dag, name=pm.name, e0_field=False, e0_field_whole=False, e0_field_on=pm.e0_field_on,
+                   e0_field_off=pm.e0_field_off, e0_field_self_on=0.0, e0_field_self_off=0.0,
+                   e0_field_cross_species=False) == pm
 
 
 # ---------------------------------------------------------------- the probes and the driver ------------------------

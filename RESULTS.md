@@ -1030,22 +1030,29 @@ file). Without an MBX build, 8 more are skipped.
 ## v0.0.21 → v0.0.22 — E4's job 1 run and read (`notes/e4-job1-results.md`); the report and a bulk reader for any model
 
 **Job 1** ran on Niflheim at e6746b3 as pre-registered: 4 jobs, one per seed, 7 rungs each; all 28 runs finished in
-8.2–9.2 h per job (16 h estimated). First read, from the logs:
+8.2–9.2 h per job (16 h estimated). Read with `scripts/e4_report.py` (`notes/e4-job1-results.md`):
 
-- *The infrared, as computed before training.* ε_∞ 1.8009, T5 slope 1.0260 and the 10–15 Å far probes (2 / 3 / 2 %
-  non-additive) on all 8 C-rung runs; the dagger 100 % and 0; T5 0 on every rung without a response. Training did not
-  move them. The pre-registration's 8 Å column was wrongly listed as fixed: 9 of its 20 test probes reach inside r_c.
-- *Rigid-body forces, the same at every size* (seed means, 64–256 molecules): M_∞ 0.90–0.95, the dagger 0.72–0.74, the
-  field-term ablation 0.74–0.76, the frozen form **0.60–0.62** kcal/mol/Å. Long range with pinned sources gains 20 %,
-  the response without the field term nothing, the field term 19 %.
-- *Predictions.* 1 fails: the ablation is no better than the dagger (the frozen form passes on forces everywhere and
-  fails one energy reading). 2 holds on forces at every size and split (−18 to −20 %) and fails on the validation
-  split's energies at 128 and 256 molecules. 3 is pending the per-frame errors. 4 holds: M_G's error grows from 0.10
-  to 9.6 and 28 kcal/mol per molecule (Form III).
-- *Energies* (0.006–0.04 kcal/mol per molecule) do not separate the rungs beyond 64 molecules: each split there is half
-  of one trajectory, and the comparisons flip between its halves. The pooled frames are the reading to use.
-- *M_1 and M_16 did not train*: both read worse than M_∞, which they contain. M_16's learned α(iω) starts with a C₆
-  4× (O–O) to 49× (H–H) MB-pol's, an energy term of 4×10⁷ in the loss; M_1 starts near M_∞. A training fix is proposed.
+- *The infrared, as computed before training.* ε_∞ 1.8009, T5 3.74 % with slope 1.0260, and the 10–15 Å far probes
+  (2.5 / 2.6 / 2.0 % non-additive) on all 8 C-rung runs, agreeing to 2×10⁻⁸; the dagger 100 % and 0; T5 0 on every
+  rung without a response. Training did not move them. The pre-registration's 8 Å column was wrongly listed as fixed:
+  9 of its 20 test probes reach inside r_c.
+- *Rigid-body forces, the same at every size* (unseen frames, 64 / 128 / 256 molecules): M_∞ 0.907 / 0.917 / 0.929,
+  the dagger 0.721 / 0.735 / 0.738, the field-term ablation 0.751 / 0.760 / 0.761, the frozen form
+  **0.605 / 0.619 / 0.618** kcal/mol/Å. Long range with pinned sources gains 20 % (mostly in the torques), the response without the field term
+  nothing, the field term 19 %.
+- *Predictions.* 1 fails: the ablation is no better than the dagger (the frozen form passes). 2 holds on the unseen
+  frames, energies and forces at every size. 3 fails on M_∞. 4 holds: M_G's error grows from 0.10 to 9.7 and 28
+  kcal/mol per molecule (Form III).
+- *The cutoff model's energy moves with the cell.* Against the dagger on the same frames, M_∞'s mean error per
+  molecule shifts by −0.0089 ± 0.0008 kcal/mol at 128 molecules and −0.0102 ± 0.0016 at 256, on every trajectory;
+  the ablation's does not drift, the frozen form's moves +0.004 ± 0.002 at 256 (2 se, the other sign). A model whose long range is all in E₀ carries the training cell's long-range
+  energy into larger cells. The truth's own energy per molecule cannot show this: its trajectories scatter 6–12 times
+  more.
+- *Energies on the pooled frames* rank the rungs as the forces do (the frozen form 0.026 / 0.021 / 0.012 kcal/mol per
+  molecule). Single splits at 128 and 256 molecules (7–15 frames of one trajectory) flip.
+- *M_1 and M_16 did not train*: both read worse than M_∞, which they contain. M_16 starts far off (its learned α(iω)
+  gives a C₆ 4× (O–O) to 49× (H–H) MB-pol's); M_1 starts where M_∞ does and stalls at 2–7× its loss. A training fix
+  is proposed.
 - *ε_∞* stays the recorded failure (1.80 against 1.69).
 
 **`scripts/e4_report.py`** (NumPy only): job 1's jsons against the pre-registration, with the data sets' frames for the
@@ -1063,3 +1070,103 @@ for the MACE baselines.
 the pooled frames, the paired counts, prediction 3's shift, the truth by trajectory and an error's slope against it,
 the json). `tests/test_e4_train.py`'s end-to-end test now also checks that `e4_far.py cells` reproduces the driver's
 readings of a trained model to 1e-9 and that the report reads the driver's json.
+
+## v0.0.22 → v0.0.23 — the response's regulator: the mutual tensor's own edge, scanned before training (`notes/e4-response-regulator.md`)
+
+**Why.** The EFT of large-scale structure (Baumann, Nicolis, Senatore, Zaldarriaga, arXiv:1004.2488) smooths at Λ with
+k ≪ Λ ≪ q⋆: the smoothing length above the non-linear scale. Job 1's response edge, 0.75 Å, leaves the induced dipoles'
+mutual coupling 97.5–100 % bare at hydrogen-bond distances, where MB-pol's Thole damping (a_DD 0.055) keeps 12–60 %:
+its smoothing length is below the coupling's non-linear scale. An erf edge of 2.0 Å does at contact what MB-pol's
+damping does (12–39 % at O···H 1.9 Å, 44–73 % at O–O 2.8 Å) and is bare at r_c; it was fixed in advance.
+
+**The scan** (matched as job 1, no training; ε_∞ on the pre-registration's 8 frames, MB-pol 1.6876):
+
+- *The bands' and the response's edges together at 2.0 Å* (job 2's registered form): ε_∞ 1.538 / 1.237 at read-out
+  orders 0 / 2, and the far field lost (probes 19–32 % at order 0, T5 slope 1.74). The far probes measure the cores'
+  charge-induced dipoles at contact; smoothing the field the read-out reads removes them. MB-pol leaves that field bare
+  (a_CD 0.4). The response edge alone (`Rung.bf_l`) does the same.
+- *The mutual tensor alone* (`Rung.bf_l_mutual`, new), at 1.5 / 2.0 / 2.5 Å: ε_∞ 1.768 / **1.723** / 1.692 at order 0
+  and 1.774 / **1.744** / 1.721 at order 2, the far field unchanged (order 2: probes 1.8–2.9 %, T5 slope 1.03–1.05).
+  At the a-priori 2.0 Å the susceptibility is 5–8 % too high instead of 16–20 %, before training and with no liquid
+  data.
+- ε_∞ still runs with the edge, 1.4× less at order 2 than at order 0 between 1.5 and 2.5 Å (H3 asks ≥ 2): the contact
+  mutual coupling is a counterterm the far probes do not see. The paper's other move, calibrating it on the full
+  theory where it acts (MB-pol's per-molecule induced dipoles in liquid frames), is proposed for the rest.
+
+**Code.** `Rung.bf_l_mutual` smears the mutual response's dipole tensor (open and periodic) on its own edge, the field
+the read-out reads unchanged; 0 is the model as before. `configs/e4_water.yaml` `model.mutual_edge_angstrom` (null: as
+job 1) sets it through `scripts/e4_water.py`, and the results' model record carries it. `scratch/e4_x3_preregistration.py`
+gains `--sweep_edges`, `--sweep_mode both|response|mutual` and `--sweep_form1`.
+
+**Tests.** `tests/test_mutual_edge.py`, 4 tests: 0 and the response's own edge give the model as before to the bit, open
+and in a cell; first order does not see the edge; a cluster with the 2.0 Å edge in 30 and 40 Å cells is its open
+energy plus the dipole image term to 3×10⁻³; the edge weakens the coupling at contact; the driver sets it from the
+config and records it.
+
+## v0.0.23 → v0.0.24 — job 2 re-registered: the response regulated, and calibrated on MB-pol's liquid (`notes/e4-job2-preregistration.md`)
+
+**Why.** The regulator at 2.0 Å halves ε_∞'s error before training (v0.0.23). What remains is the contact counterterm
+that the far probes do not see. The EFT of large-scale structure's second move calibrates such a parameter in the
+full theory, where it acts. Here that is MB-pol's induced dipoles and field response in liquid cells, through MBX. Job 2
+is re-registered with both moves; §6 of the X3 pre-registration is superseded before it was trained.
+
+**Fixed before training** (local frames, `scratch/e4_job2_preregistration.py`):
+
+- **Arm A** (the 2.0 Å mutual edge, far probes only), order 2: ε_∞ 1.743 against MB-pol's 1.687.
+  - The molecules' induced dipoles follow MB-pol's (r 0.998) but are 6 % too large; job 1's model at 0.75 Å is 17 %
+    too large. This is the contact over-polarisation, measured molecule by molecule.
+  - The molecules' response to a uniform field spreads 1.7 times MB-pol's from molecule to molecule. The read-out's
+    polarisability is built from pairs with the neighbours; the isolated monomer's is zero.
+- **Arm B** (the same, then calibrated on 10 liquid cells), order 2: ε_∞ 1.688.
+  - The molecules' dipoles are 4.6 % off and 3 % small; their response is 2.2 % off, spreading 1.2 times MB-pol's.
+  - The far probes are 2.1 / 2.6 / 2.8 % at 10–15 Å and T5's slope is 1.040. The probes' objective rises 1.22-fold.
+  - Calibrated, ε_∞ is 1.688–1.690 at every edge from 1.5 to 2.5 Å and both orders: the regulator dependence is gone
+    from the long-wavelength readings.
+  - Two of the five expectations written before arm B ran fail: the cell sums constrain the molecules' response more
+    than expected.
+- **Predictions for training**, registered:
+  - J1: calibrated, the ablation reaches the dagger;
+  - J1a: the regulator alone halves the ablation's cost;
+  - J2: the frozen form moves less than 5 %;
+  - J3: the calibrated frozen form beats the dagger with the field term;
+  - J4: the field term's gain falls as the contact error does.
+
+**Code.**
+
+- `model.induced_response(params, rung, b)`: a structure's induced dipole −∂E/∂E_ext and its response to a uniform field
+  −∂²E/∂E_ext², with every read-out order. For a cell, ε_∞ = 1 + 4πR/V.
+- `model.molecular_response`: every fragment's induced dipole (the mutual response's) and its response to a uniform
+  field.
+- `linear.solve_readout(..., extra={"fn", "batches", "targets", "weights"})`: further rows of the read-out's least
+  squares, always fitted and linearised with the rest.
+  - The ridge stays relative to the energy and force rows, so the solve without them is the one of before.
+  - With extra rows, Gauss-Newton steps are halved where the regularised objective rises (at most 5 times).
+  - `report.extra_history` records that part's objective.
+- `scripts/e4_water.py`:
+  - `response --mbx`: MB-pol's liquid response on calibration and held-out frames (`liquid.calibration_frames`,
+    `heldout_frames`, `delta`), into `data.response`, with the frames' hash.
+  - `training.readout.liquid` (`weight`, `alpha_ref_angstrom3`, `mu_ref_eangstrom`): `match_readout`'s second stage,
+    from the far-field read-out, which is cached on its own and reused. The calibrated read-out is cached under a tag of
+    the settings and the response file.
+  - Every rung with a read-out is read on the held-out liquid frames before and after training (`read_liquid`): ε_∞,
+    the cells' dipole, the molecules' dipoles and response, their spread and correlation against MB-pol's.
+  - New rung `M_16pm_us`: the dagger with the frozen form's field term.
+- `scripts/e4_report.py --job2 A,B --job1 DIR`: job 2's two arms against job 1. It prints the fixed readings by arm, the
+  liquid readings, predictions J1–J3 and the readings beside them, the field term's gains (J4), and prediction 3's rule
+  on job 2's rungs (J5).
+- Configs: `configs/e4_job2a.yaml` (arm A: the mutual edge at 2.0 Å, the frozen form, the ablation, `M_16pm_us`) and
+  `configs/e4_job2b.yaml` (arm B: the same with `training.readout.liquid`, the two C rungs). Sbatch:
+  `run_e4_response.sbatch`, then `run_e4_job2.sbatch` (4 seeds, 5 runs each).
+
+**Tests.**
+
+- `tests/test_liquid_calibration.py`, 5 tests:
+  - the induced response is ε_∞'s, and the molecules' responses sum to the cell's;
+  - extra rows move a cell's response to their target, and the solve without them is the old one;
+  - on a fake MBX: the liquid response, its file's round trip and its refusal of changed frames, and the calibration
+    rows;
+  - the driver end to end with the calibration: the second stage's rows recorded and cached under their own name, and
+    the liquid readings the same before and after training;
+  - job 2's configs are job 1's but for the liquid and the mutual edge.
+- `tests/test_e4_report.py` gains the job-2 read on made-up runs.
+- `tests/test_e4_train.py` checks `M_16pm_us`: the dagger with the frozen form's field term, every setting of it.

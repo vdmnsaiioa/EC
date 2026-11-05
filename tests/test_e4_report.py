@@ -162,3 +162,63 @@ def test_json_written(made):
     with open(root / "report.json") as fh:
         j = json.load(fh)
     assert j["train_size"] == 64 and j["sizes"] == [64, 128, 256] and "prediction_3" in j
+
+
+# ---------------------------------------------------------------- job 2 -----------------------------------------------
+def _rewrite(d, name, new_name, force, liquid=None):
+    """a made-up run of job 2 from a job-1 one: renamed, its rigid forces set to force + 0.001 seed (net 1.5 times),
+    with the liquid readings before and after training."""
+    for seed in SEEDS:
+        with open(os.path.join(d, f"{name}_seed{seed}.json")) as fh:
+            r = json.load(fh)
+        os.remove(os.path.join(d, f"{name}_seed{seed}.json"))
+        r["rung"] = new_name
+        for by in r["readings"]["cells"].values():
+            for v in by.values():
+                v["force_rigid_rmse"] = force + 0.001 * seed
+                v["net_force_rmse"] = 1.5 * v["force_rigid_rmse"]
+        if liquid is not None:
+            r["matching"] = {"liquid_before_training": liquid, "liquid_objective": [[1e-4, 1e-5]]}
+            r["readings"]["liquid"] = liquid
+        with open(os.path.join(d, f"{new_name}_seed{seed}.json"), "w") as fh:
+            json.dump(r, fh)
+
+
+def test_job2_report(tmp_path):
+    """scripts/e4_report.py --job2: both arms read against job 1 -- the registered comparisons with their rules, the
+    readings beside them, the field term's gains in order, the liquid readings before and after training."""
+    rng = np.random.default_rng(3)
+    frames = truth_frames(rng)
+    data = tmp_path / "data"; data.mkdir()
+    write_data(str(data), frames)
+    dirs = {}
+    for tag in ("job1", "a", "b"):
+        dirs[tag] = tmp_path / tag; dirs[tag].mkdir()
+        write_runs(str(dirs[tag]), frames, rng)
+    liq = {"frames": 10, "eps_inf_model": 1.743, "eps_inf_truth": 1.6875, "cell_dipole_rel_rmse": 0.09,
+           "molecular_dipole_rel_rmse": 0.08, "molecular_response_rel_rmse": 0.09, "molecular_response_iso_rel_rmse": 0.087}
+    a, b = str(dirs["a"]), str(dirs["b"])
+    for name in ("M_inf", "M_G"):
+        for d in (a, b):
+            for seed in SEEDS:
+                os.remove(os.path.join(d, f"{name}_seed{seed}.json"))
+    _rewrite(a, "M_16C2pm_us", "M_16C2pm_us", 0.60, liq)        # J2: as job 1's
+    _rewrite(a, "M_16C2pm", "M_16C2pm", 0.715, liq)              # J1a: -0.9 % against the dagger's 0.7215
+    _rewrite(a, "M_16pm", "M_16pm_us", 0.62)
+    _rewrite(b, "M_16C2pm_us", "M_16C2pm_us", 0.61, {**liq, "eps_inf_model": 1.689})   # J2 +1.7 %; J3 below 0.62
+    _rewrite(b, "M_16C2pm", "M_16C2pm", 0.70, {**liq, "eps_inf_model": 1.689})         # J1: 4 of 4 below the dagger
+    for seed in SEEDS:
+        os.remove(os.path.join(b, f"M_16pm_seed{seed}.json"))
+    res = R.report_job2(a, b, str(dirs["job1"]), str(data), json_path=str(tmp_path / "j2.json"), verbose=True)
+    verdict = lambda pid, a_, n=256: next(r for r in res["predictions"] if r["prediction"] == pid and r["a"] == a_
+                                          and r["n"] == n and r["reading"] == "unseen")
+    assert verdict("J1", "M_16C2pm [B]")["wins"] == 4 and verdict("J1", "M_16C2pm [B]")["ok"]
+    assert verdict("J1a", "M_16C2pm [A]")["ok"] and verdict("J1a", "M_16C2pm [A]")["change"] == pytest.approx(0.7165 / 0.7215 - 1)
+    assert verdict("J2", "M_16C2pm_us [A]")["ok"] and verdict("J2", "M_16C2pm_us [B]")["ok"]
+    assert verdict("J3", "M_16C2pm_us [B]")["ok"]
+    g = res["field_term_gains"]
+    assert g["job 1"][64] > g["A"][64] > g["B"][64]
+    assert g["dagger"][64] == pytest.approx(1 - 0.6215 / 0.7215)
+    assert res["liquid"]["M_16C2pm_us [B]"][0]["after"]["eps_inf_model"] == 1.689
+    assert any(r["a"] == "M_16pm_us [A]" for r in res["readings"])
+    assert "M_16C2pm_us [job 1]" in res["runs"] and "M_16pm_us [B]" not in res["runs"]

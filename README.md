@@ -334,9 +334,36 @@ python scripts/e4_far.py read data/e4/probes_mbpol.npz energies.npy      # any m
 python scripts/e4_far.py cells data/e4/test_n128.npz mace_test_n128.npz  # any model's bulk readings (NumPy only)
 ```
 
+`model.mutual_edge_angstrom` (v0.0.23, `Rung.bf_l_mutual`) smears the mutual response's dipole tensor alone on its own
+edge, the field the read-out reads left at the response edge: MB-pol damps the dipole-dipole coupling at contact and
+hardly the charge-dipole field (`notes/e4-response-regulator.md`). `null` is job 1's model.
+
+**Job 2** (v0.0.24; `configs/e4_job2a.yaml`, `configs/e4_job2b.yaml`; pre-registration
+`notes/e4-job2-preregistration.md`) trains with the mutual edge at 2.0 Å: arm A the frozen form, its field-term
+ablation and `M_16pm_us` (the dagger with the frozen form's field term), the read-out matched on the far probes as in
+job 1; arm B the frozen form with its read-out then calibrated on MB-pol's response in the liquid.
+
+- `scripts/e4_water.py response` computes MB-pol's induced dipoles in 64-molecule cells through MBX at clamped nuclei,
+  every molecule's at zero field and its response to a uniform field, on calibration frames spread over the training
+  frames and held-out frames spread over the test frames (`data/e4/response_mbpol.npz`, checked against the frames).
+- With `training.readout.liquid` the matching gains a second stage: from the far-field solution, every calibration
+  cell's induced dipole and field response (12 numbers a cell, `model.induced_response`) become further rows of the
+  read-out's least squares (`linear.solve_readout(..., extra=...)`, its Gauss-Newton steps halved where they
+  overshoot), the probes' ridge kept.
+- Every rung with a read-out is read on the held-out liquid frames before and after training: ε_∞, the cells' induced
+  dipole, and every molecule's induced dipole and field response against MB-pol's (`model.molecular_response`).
+
+```sh
+python scripts/e4_water.py response --mbx external/mbx/build/MBX --config configs/e4_job2b.yaml   # run_e4_response.sbatch
+python scripts/e4_water.py train --config configs/e4_job2a.yaml --rungs M_16C2pm_us --seeds 0 --out_dir results/e4_job2a
+python scripts/e4_water.py train --config configs/e4_job2b.yaml --rungs M_16C2pm_us --seeds 0 --out_dir results/e4_job2b
+python scratch/e4_job2_preregistration.py --config local.yaml --arm A    # the pre-registration's numbers; then --arm B
+python scripts/e4_report.py --job2 results/e4_job2a,results/e4_job2b --job1 results/e4_job1   # job 2 read
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
-standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. The first
+standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's
 read is `notes/e4-job1-results.md`.
 
 `scripts/e4_far.py` serves the baselines: `probes` also writes the far-field test structures as extxyz

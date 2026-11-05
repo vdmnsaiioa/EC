@@ -217,6 +217,11 @@ of them the way the driver reads the harness's rungs.
 
 ## 6. Job 2: the band-edge sweep (registered now, run after job 1)
 
+*Superseded 5 Nov by `e4-job2-preregistration.md`, before any of it was trained. Its form — the bands' and the
+read-out's edges moved together — lost the far field at 2.0 Å (`e4-response-regulator.md` §2); job 2 now moves the
+mutual tensor's edge alone, to the a-priori 2.0 Å, and adds the read-out's calibration on MB-pol's liquid response.
+The numbers below stand as computed.*
+
 **Design.**
 
 - ℓ₁ = 0.75 and 1.0 Å, the bands' and the read-out's edges together.

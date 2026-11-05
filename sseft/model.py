@@ -47,6 +47,9 @@ class Rung:
     bf_E_ref: float = 0.01                 # unit of the field tensors in the read-out (a.u.; ~ an intermolecular field), see bandfields
     bf_l: float = 0.0                      # the response's band edge (bohr): the band field read by the read-out and its dipole
     # tensor smeared at bf_l instead of l1 (0: l1) -- the regulator of the response, which does what Thole damping does
+    bf_l_mutual: float = 0.0               # the mutual response's dipole tensor alone smeared at bf_l_mutual (bohr; 0: the
+    # response's edge): the induced dipoles' coupling damped at contact on its own scale while the field they read stays
+    # bare there, as MB-pol damps dipole-dipole (Thole a_DD 0.055) and hardly charge-dipole (a_CD 0.4) (v0.0.23)
     readout: str = "pair"                  # band-field read-out: "pair" (Taylor class on the structure) or "node" (L <= 2)
     bf_mutual: int = 0                     # the order-0 read-out's induced dipoles: 0 first order (-1/2 E.C.E, as before);
     # -1 self-consistent through their mutual fields (the band kernel's dipole tensor between fragments), all orders;
@@ -388,14 +391,15 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
             assert grouped or not rung.periodic, "the mutual response in a cell needs the fragment grouping"
             eps_hi, C = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s_ro, r, D, pmask, mask, Ef, gE, ggE,
                                                 l_bf, E_ref=rung.bf_E_ref, e_scale=unit, tensor=True)
+            l_mut = rung.bf_l_mutual if rung.bf_l_mutual > 0 else l_bf
             if rung.periodic:
                 own_idx, own_on = PB.own_fragment(b)
-                _, mu_ind = PB.mutual_response_pbc(C, Ef, pos, mask, own_idx, own_on, b["cell"], l_bf, n_max, b_max,
+                _, mu_ind = PB.mutual_response_pbc(C, Ef, pos, mask, own_idx, own_on, b["cell"], l_mut, n_max, b_max,
                                                    order=rung.bf_mutual, solver=rung.bf_solver, tol=rung.bf_tol,
                                                    maxiter=rung.bf_maxiter, restart=rung.bf_restart, chunk=chunk)
             else:
                 Tmask = pmask if same_frag is None else (pmask & ~same_frag)
-                _, mu_ind = BF.mutual_response(C, BF.band_dipole_tensor(pos, Tmask, l_bf), Ef, rung.bf_mutual)
+                _, mu_ind = BF.mutual_response(C, BF.band_dipole_tensor(pos, Tmask, l_mut), Ef, rung.bf_mutual)
             eps_bf = eps_hi - 0.5 * jnp.sum(Ef * mu_ind, axis=-1)                  # per atom: -1/2 E_i . mu_i + the orders >= 1
             aux["mu_ind"] = mu_ind
         elif rung.readout == "pair":
@@ -477,3 +481,23 @@ def dielectric_inf(params, rung: Rung, b):
     V = jnp.abs(jnp.linalg.det(b["cell"]))
     H = jax.hessian(lambda ext: energy_single(params, rung, {**b, "E_ext": ext})[0])(jnp.zeros(3, b["positions"].dtype))
     return jnp.eye(3) - 4.0 * jnp.pi * H / V
+
+
+def induced_response(params, rung: Rung, b):
+    """the structure's induced dipole M = -dE/dE_ext (3,) and its response to a uniform external field R = -d^2E/dE_ext^2
+    (3, 3), both at zero external field, clamped nuclei, atomic units (e bohr, bohr^3): the read-out's whole response,
+    its orders >= 1 included.  For a cell eps_inf = 1 + 4 pi R / V (dielectric_inf); job 2 matches M and R of liquid
+    cells to MB-pol's (v0.0.24)."""
+    z = jnp.zeros(3, b["positions"].dtype)
+    g = lambda ext: -jax.grad(lambda e: energy_single(params, rung, {**b, "E_ext": e})[0])(ext)
+    return g(z), jax.jacfwd(g)(z)
+
+
+def molecular_response(params, rung: Rung, b):
+    """per fragment: the induced dipoles of the order-0 sector (the mutual response's, aux mu_ind) at zero external field
+    (F, 3), and their response to a uniform field (F, 3, 3), atomic units.  The orders >= 1 add nothing to the response
+    (a uniform field has no gradient) and a field-gradient term to the dipoles, which this leaves out (v0.0.24)."""
+    fm = b["frag_mask"].astype(b["positions"].dtype)
+    mu = lambda ext: fm @ energy_single(params, rung, {**b, "E_ext": ext})[1]["mu_ind"]
+    z = jnp.zeros(3, b["positions"].dtype)
+    return mu(z), jax.jacfwd(mu)(z)

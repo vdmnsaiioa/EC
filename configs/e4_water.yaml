@@ -24,6 +24,8 @@ model:                              # E3-QP8's (configs/water_qaqua_pol8.yaml), 
   features: 32
   band_edge_angstrom: 0.75
   response_edge_angstrom: 0.75
+  mutual_edge_angstrom: null        # v0.0.23 (Rung.bf_l_mutual): the mutual response's dipole tensor alone smeared at this
+                                    # edge, the field the read-out reads left at the response edge; null: the response edge
   analytic_envelope_angstrom: 4.0
   rs_over_l1: 0.0
   charge_neutrality: fragment

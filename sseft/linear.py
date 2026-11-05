@@ -70,7 +70,7 @@ def _validation_split(groups, n):
 
 
 def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12, *, w_energy=1.0, orders="zero",
-                  iterations=1, groups=None, ridge_grid=None):
+                  iterations=1, groups=None, ridge_grid=None, extra=None):
     """set the read-out's output layers to the weighted least-squares optimum of the training objective (energies per
     atom and forces, scaled as in train.make_loss_sums, per-structure weights included), the rest of the model fixed.
     w_energy and w_force match train.make_loss; ridge is relative to the average diagonal of the normal matrix.
@@ -79,7 +79,11 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
     first-order read-out), stopped when a step does not lower the objective.  ridge_grid with groups: the ridge is the
     grid value whose solution, fitted without every fifth group, has the lowest objective on those groups (chosen at
     the first step and kept through the Gauss-Newton steps); the final solve uses all structures.  Returns the new params and a SolveReport: (the unregularised
-    objective before, after), with .history (before and after of each step) and .ridge (the relative ridge of each)."""
+    objective before, after), with .history (before and after of each step) and .ridge (the relative ridge of each).
+    extra (v0.0.24): further rows of the objective, sum_k sum_i w_ki (t_ki - fn(params, b_k)_i)^2, given as {"fn",
+    "batches", "targets", "weights"} -- e.g. job 2's liquid cells, fn their induced dipole and field response; always
+    fitted (never held out), linearised with the rest, the ridge kept relative to the energy and force rows alone.
+    .extra_history holds that part's (before, after) of each step."""
     if not np.isfinite(scale) or scale <= 0:
         raise ValueError("scale must be finite and > 0")
     if any(not np.isfinite(value) or value < 0 for value in (w_energy, w_force, ridge)):
@@ -121,6 +125,19 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
         return jax.jacrev(ef)(cc)                                                    # (nc,), (N, 3, nc)
     jac = jax.jit(lambda cc, b: jax.vmap(lambda bb: jac_single(cc, bb))(b))
 
+    blocks, val_x, jac_x = [], None, None
+    if extra is not None:
+        fx = extra["fn"]
+        val_x = jax.jit(lambda cc, bb: fx(_with_last(params, cc, unflat), bb))
+        jac_x = jax.jit(jax.jacrev(lambda cc, bb: fx(_with_last(params, cc, unflat), bb)))
+        if not len(extra["batches"]) == len(extra["targets"]) == len(extra["weights"]):
+            raise ValueError("extra needs one target and one weight vector per batch")
+        blocks = [(bb, np.asarray(t, float), np.asarray(w, float))
+                  for bb, t, w in zip(extra["batches"], extra["targets"], extra["weights"])]
+
+    def objective_extra(cc):
+        return float(sum(np.sum(w * (t - np.array(val_x(jnp.asarray(cc), bb))) ** 2) for bb, t, w in blocks))
+
     def objective(cc):
         out = 0.0
         for i0 in range(0, n, chunk):
@@ -129,7 +146,7 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
             we = (w_energy * has_e[idx] / natoms[idx] ** 2 / cnt_e / scale ** 2)
             out += float(np.sum(we * (np.array(b["energy"]) - E1) ** 2))
             out += float(np.sum(fm_all[idx] * (w_force / cnt_f / scale ** 2) * (np.array(b["forces"]) - F1) ** 2))
-        return out
+        return out + (objective_extra(cc) if blocks else 0.0)
 
     def normal_equations(c0):
         """A, b of the model linearised at c0 (E = E0 + J (c - c0)), for the fitted and the held-out structures, and the
@@ -152,32 +169,48 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
                 r[h] += we[k] * JE[k] * rE[k] + Jf[k].T @ (wf[k] * rF[k])
                 if h:
                     k_held += we[k] * rE[k] ** 2 + float(np.sum(wf[k] * rF[k] ** 2))
-        return A, r, k_held
+        # the ridge's scales, from the energy and force rows alone (as before the extra rows existed)
+        traces = (float(np.trace(A[False])), float(np.trace(A[False] + A[True])))
+        for bb, t, w in blocks:                                     # the extra rows: always fitted
+            y0 = np.array(val_x(c0, bb)); J = np.array(jac_x(c0, bb))
+            A[False] += J.T @ (w[:, None] * J)
+            r[False] += J.T @ (w * (t - y0 + J @ np.array(c0)))
+        return A, r, k_held, traces
 
     def solve(A, r, lam):
         if lam > 0:
             return np.linalg.solve(A + lam * np.eye(nc), r)
         return np.linalg.lstsq(A, r, rcond=None)[0]
 
-    history, ridges = [], []
+    history, ridges, history_x = [], [], []
     current = objective(c)
+    current_x = objective_extra(c) if blocks else 0.0
     rel, lam = ridge, None
     for it in range(iterations):
-        A, r, k_held = normal_equations(c)
+        A, r, k_held, (trace_fit, trace_rows) = normal_equations(c)
         if it == 0:
             if ridge_grid is not None and held.any():
                 scores = []
                 for g in ridge_grid:
-                    cg = solve(A[False], r[False], g * np.trace(A[False]) / nc)
+                    cg = solve(A[False], r[False], g * trace_fit / nc)
                     scores.append(float(cg @ A[True] @ cg - 2 * cg @ r[True] + k_held))
                 rel = float(ridge_grid[int(np.argmin(scores))])
             # the ridge, chosen on the first (first-order) step, is kept in absolute terms: the Gauss-Newton steps then
             # minimise one regularised objective (re-choosing it at later linearisations drifts to vanishing ridges)
-            lam = rel * np.trace(A[False] + A[True]) / nc
+            lam = rel * trace_rows / nc
         c_new = jnp.asarray(solve(A[False] + A[True], r[False] + r[True], lam))
         new = objective(c_new)
-        history.append((float(current), float(new))); ridges.append(rel)
-        if it > 0 and not new + lam * float(c_new @ c_new) < current + lam * float(c @ c):
+        if blocks:
+            # with extra rows (a self-consistent response far from linear in c) a step can overshoot: halve it until the
+            # regularised objective falls, at most five times
+            step, frac = c_new - c, 1.0
+            while not new + lam * float(c_new @ c_new) < current + lam * float(c @ c) and frac > 1 / 32:
+                frac /= 2; c_new = c + frac * step; new = objective(c_new)
+        new_x = objective_extra(c_new) if blocks else 0.0
+        history.append((float(current), float(new))); ridges.append(rel); history_x.append((current_x, new_x))
+        if (it > 0 or blocks) and not new + lam * float(c_new @ c_new) < current + lam * float(c @ c):
             break                                              # a Gauss-Newton step that does not help: keep the last
-        c, current = c_new, new
-    return _with_last(params, c, unflat), SolveReport(history, ridges)
+        c, current, current_x = c_new, new, new_x
+    report = SolveReport(history, ridges)
+    report.extra_history = history_x
+    return _with_last(params, c, unflat), report

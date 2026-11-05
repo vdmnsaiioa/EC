@@ -420,6 +420,7 @@ def model_record(name, a):
             **({"e0_field_cross_form": "species"} if rung.e0_field and rung.e0_field_cross_species else {}),
             **({"readout_coefficients": "species"} if rung.bf_species else {}),
             **({"mutual_response": int(rung.bf_mutual)} if rung.bf_mutual else {}),
+            **({"mutual_edge_angstrom": ang(rung.bf_l_mutual)} if rung.bf_mutual and rung.bf_l_mutual > 0 else {}),
             "r_cut_angstrom": ang(rung.e0["r_cut"]), "features": int(rung.e0["F"]),
             "analytic_envelope_angstrom": ang(rung.lA), "periodic": bool(rung.periodic)}
 

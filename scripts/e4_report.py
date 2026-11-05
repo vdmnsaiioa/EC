@@ -46,6 +46,31 @@ PREREG = {
     "probes_hash": "72b73e3aa6c7b53f",
 }
 
+# notes/e4-job2-preregistration.md: the readings fixed before training (sections 3-4; arm B's from the local calibration
+# on 10 frames, Niflheim's on 30) and the bulk predictions (section 5) as (id, rung a, rung b, metric, rule); the
+# readings beside them are printed the same way, unregistered
+_ARM_A = {"eps_inf": 1.744, "t5_pct": 4.7, "t5_slope": 1.042, "nonadditive_pct": {"10": 2.3, "12": 2.1, "15": 2.1},
+          "eps_inf_model": 1.743, "cell_dipole_rel_rmse": 0.089, "molecular_dipole_rel_rmse": 0.082,
+          "molecular_response_rel_rmse": 0.092, "molecular_response_iso_rel_rmse": 0.087}
+_ARM_B = {"eps_inf": 1.688, "t5_pct": 4.2, "t5_slope": 1.040, "nonadditive_pct": {"10": 2.1, "12": 2.6, "15": 2.8},
+          "eps_inf_model": 1.688, "cell_dipole_rel_rmse": 0.021, "molecular_dipole_rel_rmse": 0.046,
+          "molecular_response_rel_rmse": 0.022, "molecular_response_iso_rel_rmse": 0.017}
+JOB2_PREREG = {"probes_hash": "72b73e3aa6c7b53f", "M_16C2pm_us [A]": _ARM_A, "M_16C2pm [A]": _ARM_A,
+               "M_16C2pm_us [B]": _ARM_B, "M_16C2pm [B]": _ARM_B, "pinned": PREREG["pinned"]}
+JOB2_PREDICTIONS = [
+    ("J1", "M_16C2pm [B]", "M_16pm [job 1]", "force_rigid", "le"),
+    ("J1a", "M_16C2pm [A]", "M_16pm [job 1]", "force_rigid", ("change_le", 0.02)),
+    ("J2", "M_16C2pm_us [A]", "M_16C2pm_us [job 1]", "force_rigid", ("abs_change_le", 0.05)),
+    ("J2", "M_16C2pm_us [B]", "M_16C2pm_us [A]", "force_rigid", ("abs_change_le", 0.05)),
+    ("J3", "M_16C2pm_us [B]", "M_16pm_us [A]", "force_rigid", "le"),
+]
+JOB2_READINGS = [
+    ("reading", "M_16pm_us [A]", "M_16C2pm_us [job 1]", "force_rigid", "le"),
+    ("reading", "M_16C2pm_us [A]", "M_16pm_us [A]", "force_rigid", "le"),
+    ("reading", "M_16C2pm [A]", "M_16pm [job 1]", "net", "le"),
+    ("reading", "M_16C2pm [B]", "M_16pm [job 1]", "net", "le"),
+] + [("energy", a, b, "energy_rmse", rule) for _, a, b, _, rule in JOB2_PREDICTIONS]
+
 
 # ---------------------------------------------------------------- loading -------------------------------------------
 def load_runs(out_dir):
@@ -160,13 +185,14 @@ def fixed_readings(runs):
     return rows, agree
 
 
-def print_fixed(rows, agree):
-    print("1. The readings the matching fixes (pre-registration section 4)")
+def print_fixed(rows, agree, prereg=None, title="1. The readings the matching fixes (pre-registration section 4)"):
+    prereg = PREREG if prereg is None else prereg
+    print(title)
     hashes = sorted({row["probes_hash"] for by in rows.values() for row in by.values() if row["probes_hash"]})
-    print(f"   probes hash: {', '.join(hashes)} (pre-registered {PREREG['probes_hash']})")
+    print(f"   probes hash: {', '.join(hashes)} (pre-registered {prereg.get('probes_hash', PREREG['probes_hash'])})")
     for name, by in rows.items():
         k = next(iter(by.values()))["kind"]
-        pre = PREREG.get(k, {})
+        pre = prereg.get(name, prereg.get(k, {}))
         line = f"   {name} ({k}, seeds {sorted(by)}):"
         e = [row["eps_inf"] for row in by.values() if "eps_inf" in row]
         if e:
@@ -381,8 +407,8 @@ def prediction_3(table, frames_meta, runs, L0):
     return out
 
 
-def print_prediction_3(p3, L0, big):
-    print(f"4. Prediction 3: the energy bias from {L0} to {big} molecules against twice its frame-to-frame standard "
+def print_prediction_3(p3, L0, big, label="4. Prediction 3"):
+    print(f"{label}: the energy bias from {L0} to {big} molecules against twice its frame-to-frame standard "
           "error (seed-mean per-frame errors; the seeds share the frames)")
     print("   'corr': the same with the frames' lag-1 correlation in time (an addition, not the registered criterion)")
     for name, by in p3.items():
@@ -545,13 +571,169 @@ def report(out_dir, data_dir, json_path=None, verbose=True):
     return result
 
 
+# ---------------------------------------------------------------- job 2 (notes/e4-job2-preregistration.md) ----------
+def job2_runs(job2a, job2b, job1=None):
+    """job 2's runs and the job-1 runs they are read against, {label: {seed: json}}: '<rung> [A]' (arm A, the mutual
+    edge at 2.0 A), '<rung> [B]' (arm B, calibrated on the liquid) and '<rung> [job 1]'."""
+    out = {}
+    for d, tag in ((job2a, "A"), (job2b, "B"), (job1, "job 1")):
+        if d and os.path.isdir(d):
+            for name, by in load_runs(d).items():
+                out[f"{name} [{tag}]"] = by
+    return out
+
+
+def liquid_rows(runs):
+    """every run's held-out liquid readings, before training (on the matched read-out) and after."""
+    out = {}
+    for label, by in runs.items():
+        for seed, r in sorted(by.items()):
+            after = r["readings"].get("liquid")
+            before = (r.get("matching") or {}).get("liquid_before_training")
+            if after or before:
+                out.setdefault(label, {})[seed] = {"before": before, "after": after,
+                                                   "liquid_objective": (r.get("matching") or {}).get("liquid_objective")}
+    return out
+
+
+def print_liquid(rows):
+    print("J0. The liquid readings on MB-pol's held-out frames (fixed before training): eps_inf, the cells' induced dipole,"
+          " every molecule's induced dipole and field response (rmse / rms)")
+    keys = (("eps_inf_model", "eps", 4, 1), ("cell_dipole_rel_rmse", "cell M %", 1, 100),
+            ("molecular_dipole_rel_rmse", "mu %", 1, 100), ("molecular_response_rel_rmse", "R %", 1, 100),
+            ("molecular_response_iso_rel_rmse", "R iso %", 1, 100))
+    for label, by in rows.items():
+        pre = JOB2_PREREG.get(label, {})
+        after = [v["after"] for v in by.values() if v["after"]]
+        before = [v["before"] for v in by.values() if v["before"]]
+        if not after:
+            continue
+        truth = after[0]["eps_inf_truth"]
+        drift = max(abs(a["eps_inf_model"] - b["eps_inf_model"]) for a, b in
+                    ((v["after"], v["before"]) for v in by.values() if v["after"] and v["before"])) if before else float("nan")
+        print(f"   {label} (seeds {sorted(by)}; {after[0]['frames']} frames, MB-pol eps_inf {truth:.4f}):"
+              f" largest change in training {drift:.1e}")
+        print("      " + "; ".join(f"{name} {ms([scale * v[key] for v in after if key in v], d)}"
+                                    + (f" ({pre[key] * scale:.{d}f})" if key in pre else "")
+                                    for key, name, d, scale in keys))
+    print()
+
+
+def job2_predictions(table, runs, entries=None):
+    """the registered comparisons (id, rung a, rung b, metric key, rule): rule 'le' -- a at or below b on >= 3 of 4
+    seeds, paired; ('change_le', x) -- the seed means' change a / b - 1 at most x; ('abs_change_le', x) -- its size
+    at most x."""
+    out = []
+    for pid, a, b, key, rule in (JOB2_PREDICTIONS if entries is None else entries):
+        if a not in table or b not in table:
+            out.append({"prediction": pid, "a": a, "b": b, "metric": key, "rule": rule, "missing": True})
+            continue
+        for n in sizes_of(runs):
+            for reading in ("valid", "test", "unseen"):
+                p = paired(table, a, b, n, reading, key)
+                if p is None:
+                    continue
+                ok = p["pass"] if rule == "le" else (p["change"] if rule[0] == "change_le" else abs(p["change"])) <= rule[1]
+                out.append(dict(p, prediction=pid, a=a, b=b, n=n, reading=reading, metric=key, rule=rule, ok=bool(ok)))
+    return out
+
+
+def field_term_gains(table, runs, reading="unseen", key="force_rigid"):
+    """J4: the field term's gain on the C rungs, 1 - F(frozen form) / F(ablation), seed means, for job 1, arm A and arm
+    B at every size; and on the dagger, 1 - F(M_16pm_us) / F(M_16pm), a reading."""
+    out = {}
+    pairs = [(f"{FIELD} [{t}]", f"{ABLATION} [{t}]", t) for t in ("job 1", "A", "B")]
+    pairs.append(("M_16pm_us [A]", f"{DAGGER} [job 1]", "dagger"))
+    for a, b, tag in pairs:
+        for n in sizes_of(runs):
+            va = table.get(a, {}).get(n, {}).get(reading, {})
+            vb = table.get(b, {}).get(n, {}).get(reading, {})
+            if va and vb:
+                out.setdefault(tag, {})[n] = 1.0 - np.mean([v[key] for v in va.values()]) / np.mean([v[key] for v in vb.values()])
+    return out
+
+
+def print_job2_predictions(rows, title=None, registered=True):
+    print(title or "J1-J3. The bulk predictions (notes/e4-job2-preregistration.md section 5), paired by seed; the "
+          "registered reading is the unseen frames pooled at every size")
+    groups = {}
+    for r in rows:
+        groups.setdefault((r["prediction"], r["a"], r["b"], r["metric"], str(r["rule"])), []).append(r)
+    for (pid, a, b, key, rule), rs in groups.items():
+        if rs[0].get("missing"):
+            print(f"   {pid}: {a} vs {b} ({key}): not run")
+            continue
+        r0 = rs[0]["rule"]
+        what = (f"{a} <= {b}" if rule == "le" else f"{a} at most {100 * r0[1]:+.0f} % from {b}" if r0[0] == "change_le"
+                else f"{a} within {100 * r0[1]:.0f} % of {b}")
+        line = "; ".join(f"n{r['n']} {r['reading']} {r['wins']}/{r['seeds']} ({100 * r['change']:+.1f} %)"
+                         + ("" if r["ok"] or not registered else " FAIL") for r in rs)
+        verdict = all(r["ok"] for r in rs if r["reading"] == "unseen")
+        print(f"   {pid}: {what}, {key}" + (f": {'holds' if verdict else 'FAILS'} on the unseen frames" if registered else ""))
+        print(f"      {line}")
+    print()
+
+
+def report_job2(job2a, job2b, job1, data_dir, json_path=None, verbose=True):
+    runs = job2_runs(job2a, job2b, job1)
+    if not runs:
+        raise SystemExit(f"no results in {job2a}, {job2b}")
+    L0 = train_size(runs)
+    table = bulk_table(runs, L0)
+    fixed = {arm: fixed_readings({k: v for k, v in runs.items() if k.endswith(f"[{arm}]")}) for arm in ("A", "B")}
+    liq = liquid_rows(runs)
+    pred = job2_predictions(table, runs)
+    readings = job2_predictions(table, runs, JOB2_READINGS)
+    gains = field_term_gains(table, runs)
+    frames_meta = load_frames(data_dir, sizes_of(runs)) if data_dir and os.path.isdir(data_dir) else {}
+    job2_only = {k: v for k, v in table.items() if not k.endswith("[job 1]")}
+    p3 = prediction_3(job2_only, frames_meta, runs, L0) if frames_meta else {}
+    if verbose:
+        print(f"job 2: {job2a}, {job2b}, against {job1}: {sum(len(b) for b in runs.values())} runs; labels {sorted(runs)}\n")
+        for arm, (rows, agree) in fixed.items():
+            if rows:
+                print_fixed(rows, agree, JOB2_PREREG, f"J0. Arm {arm}: the readings the matching fixes (pre-registration "
+                                                       "section 4; the probes at 10-15 A, T5 and eps_inf must agree)")
+        print_liquid(liq)
+        print_job2_predictions(pred)
+        print_job2_predictions([r for r in readings if not r.get("missing")],
+                               "   Beside them, not registered: seeds at or below, and the change of the seed means",
+                               registered=False)
+        if gains:
+            print("J4. The field term's gain on the rigid forces, 1 - F(with) / F(without), seed means, unseen frames: "
+                  "on the C rungs (job 1, arm A, arm B: registered to fall in that order at every size) and on the dagger")
+            for tag, by in gains.items():
+                print(f"   {tag:7s}: " + "; ".join(f"n{n} {100 * g:+.1f} %" for n, g in sorted(by.items())))
+            ok = all(gains.get(x, {}).get(n, -1) < gains.get(y, {}).get(n, 1) for x, y in (("A", "job 1"), ("B", "A"))
+                     for n in sizes_of(runs) if n in gains.get(x, {}) and n in gains.get(y, {}))
+            print(f"   J4 {'holds' if ok else 'FAILS'} on the runs present\n")
+        if p3:
+            print_prediction_3(p3, L0, max(sizes_of(runs)), "J5. As job 1's prediction 3")
+        print_bulk(table, L0)
+    strip = {name: {n: {rd: {s: {k: v for k, v in x.items() if k != "errors"} for s, x in vals.items()}
+                        for rd, vals in by_r.items()} for n, by_r in by_n.items()} for name, by_n in table.items()}
+    result = {"runs": {k: sorted(v) for k, v in runs.items()}, "fixed": {a: f[0] for a, f in fixed.items()},
+              "fixed_agreement": {a: f[1] for a, f in fixed.items()}, "liquid": liq, "predictions": pred,
+              "readings": readings, "field_term_gains": gains, "prediction_5": p3, "bulk": strip, "prereg": JOB2_PREREG}
+    if json_path:
+        with open(json_path, "w") as fh:
+            json.dump(jsonable(result), fh, indent=1)
+    return result
+
+
 def main():
     ap = argparse.ArgumentParser(description="E4's results read against the pre-registration")
     ap.add_argument("--out_dir", default="results/e4_job1")
     ap.add_argument("--data", default="data/e4", help="the data sets (for the truth's energies and the trajectories)")
     ap.add_argument("--json", default=None, help="also write every number to this json")
+    ap.add_argument("--job2", default=None, help="job 2: its two arms' out_dirs, 'results/e4_job2a,results/e4_job2b'")
+    ap.add_argument("--job1", default="results/e4_job1", help="job 2: job 1's out_dir, read beside it")
     a = ap.parse_args()
-    report(a.out_dir, a.data, a.json)
+    if a.job2:
+        ja, jb = (a.job2.split(",") + [None])[:2]
+        report_job2(ja, jb, a.job1, a.data, a.json)
+    else:
+        report(a.out_dir, a.data, a.json)
 
 
 if __name__ == "__main__":

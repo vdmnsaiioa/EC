@@ -177,6 +177,11 @@ def main():
     ap.add_argument("--parts", default="contents,form1,eps,probes,trimers,sweep")
     ap.add_argument("--eps_frames", type=int, default=16)
     ap.add_argument("--out", default=os.path.join(REPO, "scratch", "e4_x3_preregistration.json"))
+    ap.add_argument("--sweep_edges", default="0.75,1.0", help="the sweep's edges (A), comma-separated")
+    ap.add_argument("--sweep_mode", default="both", choices=("both", "response", "mutual"),
+                    help="move the band and read-out edges together (job 2 as registered), the read-out's alone, or only "
+                         "the mutual response's dipole tensor (Rung.bf_l_mutual; the band field read stays at the config's)")
+    ap.add_argument("--sweep_form1", type=int, default=1, help="0: skip the hexamer's Form I in the sweep")
     a = ap.parse_args()
     parts = a.parts.split(",")
     out = json.load(open(a.out)) if os.path.exists(a.out) else {}
@@ -191,9 +196,11 @@ def main():
     sq, gamma = probes["site_q"], probes["site_gamma"]
     t_all = time.time()
 
-    cont = contents(truth)
-    out["contents"] = {k: {kk: (vv.tolist() if isinstance(vv, np.ndarray) else vv) for kk, vv in v.items()}
-                       for k, v in cont.items()}
+    need_contents = "form1" in parts or ("sweep" in parts and a.sweep_form1)
+    cont = contents(truth) if need_contents else {}
+    if cont:
+        out["contents"] = {k: {kk: (vv.tolist() if isinstance(vv, np.ndarray) else vv) for kk, vv in v.items()}
+                           for k, v in cont.items()}
     for k, v in cont.items():
         print(f"{k}: {v['n_mol']} molecules, |mu_perm| {np.linalg.norm(v['mu_perm_debye']):.3f} D, |mu_ind| "
               f"{np.linalg.norm(v['mu_ind_debye']):.3f} D, largest distance {v['largest_distance']:.2f} A, E_open "
@@ -272,15 +279,21 @@ def main():
 
     if "sweep" in parts:
         out["sweep"] = {}
-        hexa = {"hexamer": cont["hexamer"]}
-        for edge in (0.75, 1.0):
-            cfg_e = E4.merge(cfg, {"model": {"band_edge_angstrom": edge, "response_edge_angstrom": edge}})
+        hexa = {"hexamer": cont["hexamer"]} if a.sweep_form1 else None
+        for edge in [float(x) for x in a.sweep_edges.split(",")]:
+            edges = {} if a.sweep_mode == "mutual" else {"response_edge_angstrom": edge}
+            if a.sweep_mode == "both":
+                edges["band_edge_angstrom"] = edge
+            cfg_e = E4.merge(cfg, {"model": edges})
             for name in ("M_16C0pm_us", "M_16C2pm_us"):
-                key = f"{name}_l{edge:g}"
+                key = f"{name}_l{edge:g}" + {"both": "", "response": "r", "mutual": "m"}[a.sweep_mode]
                 t0 = time.time()
                 rung_cell, rung_open = E4.rungs_for(name, cfg_e, train[0].cell)
+                if a.sweep_mode == "mutual":
+                    rung_cell = replace(rung_cell, bf_l_mutual=ang_to_bohr(edge))
+                    rung_open = replace(rung_open, bf_l_mutual=ang_to_bohr(edge))
                 params = M.init_params(jax.random.PRNGKey(0), rung_open, energy_scale=scale)
-                readout, match = E4.matched(f"{name}_l{edge:g}", rung_open, probes, scale, cfg_e, cache)
+                readout, match = E4.matched(key, rung_open, probes, scale, cfg_e, cache)
                 params = {**params, "readout": readout}
                 rec = {"matching": match}
                 if frames:
@@ -289,9 +302,13 @@ def main():
                 rec["probes"] = E4.read_probes(params, rung_open, probes)
                 if "trimers" in probes:
                     rec["trimers"] = E4.read_trimers(params, rung_open, probes)
-                rec["form1_hexamer"] = model_form1(params, rung_cell, rung_open, hexa, sq, gamma)["hexamer"]
+                if hexa:
+                    rec["form1_hexamer"] = model_form1(params, rung_cell, rung_open, hexa, sq, gamma)["hexamer"]
                 out["sweep"][key] = rec
-                print(f"sweep {key}: eps_inf {np.mean(rec['eps']['isotropic']) if frames else float('nan'):.4f}; "
+                t5 = rec.get("trimers", {})
+                print(f"sweep {key}: eps_inf {np.mean(rec['eps']['isotropic']) if frames else float('nan'):.4f}; ridge "
+                      f"{(match or {}).get('ridge', ['-'])[-1]}; T5 slope {t5.get('slope', float('nan')):.4f}, rmse/rms "
+                      f"{100 * t5.get('three_body_rmse', float('nan')) / t5.get('three_body_rms', float('nan')):.1f} %; "
                       f"probes {E4.E3.probe_summary(rec['probes'])}  [{time.time() - t0:.0f} s]", flush=True)
                 json.dump(out, open(a.out, "w"), indent=1)
     print(f"done in {time.time() - t_all:.0f} s: {a.out}", flush=True)

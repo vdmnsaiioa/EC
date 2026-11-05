@@ -185,15 +185,19 @@ pre-registration replaces them with numbers for these contents.
 
 | rung | IR sector | why it is here | Form I | Form II, saturated error |
 |---|---|---|---|---|
-| M_∞ | none (E₀ to 6 Å) | the short-range control | relative error → 1 | flat in L₀ |
+| M_∞ | none (E₀ to 6 Å) | the short-range control | relative error → 1 | flat in L₀ (but see †) |
 | M_1 | learned charges, neutral per molecule | p_min = 3 | at threshold (charge channel), slope 3 (dispersion) | ∝ L₀^−(3+2s_δ) |
 | M_16 | + learned α(iω) | the free dispersion channel | as M_1 | as M_1 |
 | M_16†ᵐ | MB-pol's charges, M-sites and α pinned, no response | the dagger | slope 0, level set by the missing induction | floor ∝ L₀⁻³ |
 | M_16C2†ᵐ | the same without the field term | the field-term ablation (2 Nov) | as M_16C2†ᵐ_us | floor |
 | M_16C2†ᵐ_us | E3's frozen form, retrained | the model | slope 0, small level | floor |
 | M_G | a global pair function | the null | zero tail by construction in a cell* | measured (Form III) |
-| MACE, r_c 6 Å | none | external short-range baseline | → 1 | flat |
+| MACE, r_c 6 Å | none | external short-range baseline | → 1 | flat (but see †) |
 | MACE-LES | latent charges, no sum rule | Theorem 2's class | net charge free: p_min = 1 | ∝ L₀⁻¹ |
+
+† *Added 3 Nov, from job 1* (`e4-job1-results.md` §4b): trained at 64 molecules, M_∞'s mean error per molecule shifts
+by −0.009 to −0.010 kcal/mol at 128–256 molecules against the dagger's, on every trajectory. Its bulk error at L is
+the training cell's long-range energy carried along, so its Form II bias depends on L₀ rather than being flat in it.
 
 \* *Added 2 Nov.* In a cell M_G's pair function runs over minimum-image pairs, so a cluster in a cell wider than twice
 its size has no image term at all: its Form I relative error is 1 by construction, and Gate C cannot be read on it. Its
@@ -326,11 +330,18 @@ code is still open: CP2K, GPAW, VASP or QE.
 4. **The X3 pre-registration** with the numbers from MBX. *Done in v0.0.21* (`e4-x3-preregistration.md`).
 5. **E4's first job**: the ladder at L₀ = 12.4 Å (64 molecules), 4 seeds, with the field-term ablation beside the
    frozen form (Vadic's decision of 2 Nov); read on every frame of 64–256 molecules, the probes, T5 and ε_∞, then by
-   the readers on Form I, the near field and 512–1024 molecules. *Run 3 Nov (8–9 h per seed); first read in
+   the readers on Form I, the near field and 512–1024 molecules. *Run 3 Nov (8–9 h per seed); read in
    `e4-job1-results.md`: the infrared as computed, the field term −19 % on the rigid forces at every size, the
-   response without it nothing; M_1 and M_16 did not train. `scripts/e4_report.py` completes the read.*
+   response without it nothing; M_∞'s energy drifts with the cell (−0.010 kcal/mol per molecule against the dagger
+   at 128–256 molecules); M_1 and M_16 did not train.*
 6. **Job 2: the band-edge sweep** (X2-C on real data; Vadic's decision of 2 Nov): ℓ₁ = 0.75 and 1.0 Å at read-out
    orders 0 and 2, pre-registered with job 1. *Its matched part is computed* (`e4-x3-preregistration.md` §6): ε_∞
-   is set by the matching's regularisation, not identified by the probes. Before it runs, I am proposing matching data
-   from the liquid's own environments.
+   is set by the matching's regularisation, not identified by the probes. *4 Nov* (`e4-response-regulator.md`): by the
+   EFT-of-LSS hierarchy the regulator belongs above the coupling's non-linear scale. Smearing the bands' edge with it
+   loses the far field; smearing only the mutual tensor, at the a-priori 2.0 Å, brings ε_∞ to 1.72–1.74 (MB-pol 1.69)
+   with the far field intact. Proposed: job 2 at that edge, and the remaining dependence on the edge calibrated on
+   MB-pol's response in liquid frames. *Re-registered 5 Nov* (`e4-job2-preregistration.md`, v0.0.24; Vadic's go of
+   5 Nov): arm A the frozen form, its ablation and the dagger with the field term at the 2.0 Å mutual edge; arm B the
+   frozen form calibrated on MB-pol's induced dipoles and field response in 30 liquid cells (`run_e4_response.sbatch`,
+   then `run_e4_job2.sbatch`).
 7. **The L₀ sweep** (Form II).
