@@ -209,7 +209,16 @@ def test_job2_report(tmp_path):
     _rewrite(b, "M_16C2pm", "M_16C2pm", 0.70, {**liq, "eps_inf_model": 1.689})         # J1: 4 of 4 below the dagger
     for seed in SEEDS:
         os.remove(os.path.join(b, f"M_16pm_seed{seed}.json"))
-    res = R.report_job2(a, b, str(dirs["job1"]), str(data), json_path=str(tmp_path / "j2.json"), verbose=True)
+    # arm C (v0.0.26): the ablation 0.712 (below arm A's 0.715 on every seed), the frozen form 0.603 (+0.5 %)
+    dirs["c"] = tmp_path / "c"; dirs["c"].mkdir()
+    write_runs(str(dirs["c"]), frames, rng)
+    c = str(dirs["c"])
+    for name in ("M_inf", "M_G", "M_16pm"):
+        for seed in SEEDS:
+            os.remove(os.path.join(c, f"{name}_seed{seed}.json"))
+    _rewrite(c, "M_16C2pm_us", "M_16C2pm_us", 0.603, {**liq, "eps_inf_model": 1.6895})
+    _rewrite(c, "M_16C2pm", "M_16C2pm", 0.712, {**liq, "eps_inf_model": 1.6895})
+    res = R.report_job2(a, b, str(dirs["job1"]), str(data), json_path=str(tmp_path / "j2.json"), verbose=True, job2c=c)
     verdict = lambda pid, a_, n=256: next(r for r in res["predictions"] if r["prediction"] == pid and r["a"] == a_
                                           and r["n"] == n and r["reading"] == "unseen")
     assert verdict("J1", "M_16C2pm [B]")["wins"] == 4 and verdict("J1", "M_16C2pm [B]")["ok"]
@@ -222,3 +231,7 @@ def test_job2_report(tmp_path):
     assert res["liquid"]["M_16C2pm_us [B]"][0]["after"]["eps_inf_model"] == 1.689
     assert any(r["a"] == "M_16pm_us [A]" for r in res["readings"])
     assert "M_16C2pm_us [job 1]" in res["runs"] and "M_16pm_us [B]" not in res["runs"]
+    assert verdict("C1", "M_16C2pm [C]")["ok"] and verdict("C2", "M_16C2pm [C]")["wins"] == 4
+    assert verdict("C3", "M_16C2pm [C]")["ok"] and verdict("C4", "M_16C2pm_us [C]")["ok"]
+    assert g["C"][64] == pytest.approx(1 - 0.6045 / 0.7135)
+    assert res["fixed"]["C"]["M_16C2pm [C]"][0]["kind"] == "response"

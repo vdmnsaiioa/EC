@@ -1,0 +1,86 @@
+# E4, job 2, arm C (v0.0.26; pre-registration notes/e4-job2c-preregistration.md): arm B with the calibration on the
+# order-0 columns alone.  Job 2's arm B calibrated every read-out order on the liquid's uniform-field response and moved
+# 0.8 kcal/mol per molecule of contact energy into the field-gradient orders, which the field term absorbs and E_0 alone
+# does not (notes/e4-job2-results.md section 4b); k = 0 data identify the order-0 coefficient alone (the derivative
+# counting, eft-of-lss-workflow.md section 5).  The same liquid response file as arms A and B (data/e4/response_mbpol.npz).
+#
+#   python scripts/e4_water.py train --config configs/e4_job2c.yaml --task 0 --out_dir results/e4_job2c
+#   python scripts/e4_water.py summary --out_dir results/e4_job2c
+#
+# Every value of the experiment is in this file; it differs from configs/e4_job2b.yaml in training.readout.liquid.orders
+# only (tests/test_liquid_calibration.py).
+experiment:
+  type: e4
+
+data:
+  dir: data/e4                      # scripts/e4_data.py assemble: {train,valid,test}_n{64,128,256}.npz
+  train_size: 64
+  eval_sizes: [64, 128, 256]
+  probes: data/e4/probes_mbpol.npz  # scripts/e4_water.py probes
+  response: data/e4/response_mbpol.npz   # scripts/e4_water.py response (run_e4_response.sbatch)
+
+liquid:                             # MB-pol's induced dipoles and field response in liquid cells (MBX, clamped nuclei)
+  calibration_frames: 30            # spread over train_n64's frames (every trajectory)
+  heldout_frames: 10                # spread over test_n64's frames
+  delta: 1.0e-4                     # the uniform field's central-difference step, e/A^2 (the response is linear)
+
+model:                              # E3-QP8's (configs/water_qaqua_pol8.yaml), in a cell
+  r_cut_angstrom: 6.0
+  features: 32
+  band_edge_angstrom: 0.75
+  response_edge_angstrom: 0.75
+  mutual_edge_angstrom: 2.0         # v0.0.23 (Rung.bf_l_mutual): the mutual response's dipole tensor alone smeared at
+                                    # 2.0 A, fixed in advance (notes/e4-response-regulator.md section 1); the field the
+                                    # read-out reads stays at the response edge, 0.75 A
+  analytic_envelope_angstrom: 4.0
+  rs_over_l1: 0.0
+  charge_neutrality: fragment
+  ewald_b_max: 4.0                  # k_max = 2 b_max / l_1; n_max per cell (periodic.n_max_for)
+  solver: gmres                     # the mutual response in a cell: GMRES with implicit derivatives (the timing, 2 Nov)
+  solver_tol: 1.0e-10
+  K: 8                              # the dispersion band's Casimir-Polder grid (MB-pol's c6, water.mbpol_dispersion_pins)
+  omega0: 0.3
+
+rungs: [M_16C2pm_us, M_16C2pm]    # the frozen form and its field-term ablation, calibrated at order 0
+seeds: [0, 1, 2, 3]
+
+training:
+  adam: {steps: 3000, batch_size: 6, learning_rate: 3.0e-3, final_learning_rate_ratio: 0.01,
+         beta1: 0.9, beta2: 0.999, epsilon: 1.0e-8}
+  lbfgs: {steps: 50, chunk_size: 12, memory_size: 10, max_linesearch_steps: 20}
+  loss:
+    energy_weight: 100.0            # E3-QP2 on: the per-atom energy term, against force_weight 1
+    force_weight: 1.0
+    forces: rigid                   # each molecule's net force and torque (sseft.train.rigid_force_sums)
+  readout:                          # E3-QP2's matching, on MB-pol's probes, before training; held through it
+    orders: all
+    solve_iterations: 4
+    ridge: 1.0e-8
+    ridge_selection: groups
+    solve_chunk: 64
+    liquid:                         # arm C: then calibrated on the liquid cells (match_readout's second stage)
+      weight: 0.1                   # a 1 % error of the cells' response costs about the far probes' matched objective
+      orders: zero                  # v0.0.25: the order-0 columns and the node term alone (arm B: every order)
+      alpha_ref_angstrom3: 1.4075   # the response rows' unit per molecule: MB-pol's monomer polarisability
+      mu_ref_eangstrom: 0.15        # the dipole rows' unit per molecule (MB-pol's induced dipole in the liquid ~0.17 e A rms)
+
+probes:                             # E3-QP8's probe settings and seeds (configs/water_qaqua_pol8.yaml), on MB-pol
+  distances_angstrom: [8.0, 10.0, 12.0, 15.0]
+  train_per_distance: 2
+  train_cores: 16
+  train_core_sizes: [3, 4, 5]
+  test_per_distance: 10
+  test_cores: 2
+  seed: 400
+  mc_steps: 300
+  temperature_kelvin: 300.0
+  min_oo_angstrom: 2.7
+  min_atom_distance_angstrom: 1.7
+  far_trimers: 40                   # Theorem 2's T5: three molecules, every intermolecular pair beyond 6.5 A (> r_c)
+  trimer_seed: 900
+  trimer_min_angstrom: 6.5
+  trimer_max_oo_angstrom: 12.0
+
+reading:
+  eps_frames: 10                    # eps_inf on the first test frames of the training size (rungs with a response)
+  splits: [train, valid, test]      # at 128 and 256 molecules every split is unseen by a model trained at 64

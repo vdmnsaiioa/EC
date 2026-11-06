@@ -349,7 +349,8 @@ job 1; arm B the frozen form with its read-out then calibrated on MB-pol's respo
 - With `training.readout.liquid` the matching gains a second stage: from the far-field solution, every calibration
   cell's induced dipole and field response (12 numbers a cell, `model.induced_response`) become further rows of the
   read-out's least squares (`linear.solve_readout(..., extra=...)`, its Gauss-Newton steps halved where they
-  overshoot), the probes' ridge kept.
+  overshoot), the probes' ridge kept. `liquid.orders: zero` (v0.0.25) lets that stage move the order-0 columns alone,
+  as the derivative counting gives k = 0 data (`notes/e4-job2-results.md` §4b, §4f).
 - Every rung with a read-out is read on the held-out liquid frames before and after training: ε_∞, the cells' induced
   dipole, and every molecule's induced dipole and field response against MB-pol's (`model.molecular_response`).
 
@@ -359,6 +360,14 @@ python scripts/e4_water.py train --config configs/e4_job2a.yaml --rungs M_16C2pm
 python scripts/e4_water.py train --config configs/e4_job2b.yaml --rungs M_16C2pm_us --seeds 0 --out_dir results/e4_job2b
 python scratch/e4_job2_preregistration.py --config local.yaml --arm A    # the pre-registration's numbers; then --arm B
 python scripts/e4_report.py --job2 results/e4_job2a,results/e4_job2b --job1 results/e4_job1   # job 2 read
+```
+
+Job 2's read is `notes/e4-job2-results.md`. Its arm C (v0.0.26; `configs/e4_job2c.yaml`, `run_e4_job2c.sbatch`,
+pre-registration `notes/e4-job2c-preregistration.md`) is arm B with the calibration on the order-0 columns alone. It is
+read with the other arms:
+
+```sh
+python scripts/e4_report.py --job2 results/e4_job2a,results/e4_job2b,results/e4_job2c --job1 results/e4_job1
 ```
 
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching

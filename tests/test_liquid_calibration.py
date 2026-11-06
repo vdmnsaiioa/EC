@@ -146,8 +146,9 @@ def test_liquid_response_round_trip_and_rows(tmp_path):
 def test_driver_with_the_liquid_calibration(tmp_path):
     """scripts/e4_water.py train with training.readout.liquid on fake cells, fake probes and a fake MBX's response, for
     the frozen form at width 8: the matching's second stage records its liquid rows and is cached under its own name,
-    the held-out liquid readings are taken before and after training -- the same, the read-out held -- and MB-pol's
-    eps_inf is the fake's; a rung without a read-out is read without them; the summary prints."""
+    beside the far-field stage it starts from; with liquid.orders zero (v0.0.25) it moves the order-0 columns and the
+    node term alone; the held-out liquid readings are taken before and after training -- the same, the read-out held
+    -- and MB-pol's eps_inf is the fake's; a rung without a read-out is read without them; the summary prints."""
     import e4_water as E4
     from test_e4_train import _fake_cells, _small_cfg, FakeMBPol
     import yaml
@@ -163,7 +164,7 @@ def test_driver_with_the_liquid_calibration(tmp_path):
     cfg["rungs"], cfg["seeds"] = ["M_16C2pm_us", "M_16pm_us"], [0]
     cfg["training"]["adam"].update(steps=1, batch_size=1)
     cfg["training"]["lbfgs"].update(steps=0)
-    cfg["training"]["readout"].update(liquid={"weight": 0.1}, solve_iterations=2)
+    cfg["training"]["readout"].update(liquid={"weight": 0.1, "orders": "zero"}, solve_iterations=2)
     cfg["reading"]["splits"] = ["valid"]
     with open(tmp_path / "c.yaml", "w") as fh:
         yaml.safe_dump(cfg, fh)
@@ -180,7 +181,13 @@ def test_driver_with_the_liquid_calibration(tmp_path):
         E4.W.MBPolTruth = real
     out = tmp_path / "out"
     E4.run_train(SimpleNamespace(config=str(tmp_path / "c.yaml"), rungs=None, seeds=None, task=None, out_dir=str(out)))
-    assert any(f.startswith("matched_M_16C2pm_us_") and "_liq" in f for f in os.listdir(out))
+    import pickle
+    files = sorted(f for f in os.listdir(out) if f.startswith("matched_M_16C2pm_us_"))
+    assert len(files) == 2 and "_liq" in files[1]
+    far, cal = (pickle.load(open(out / f, "rb"))["readout"] for f in files)
+    n0 = 2 * 8                                                          # the order-0 invariants' radial columns
+    w_far, w_cal = np.asarray(far["theta"][-1]["w"]), np.asarray(cal["theta"][-1]["w"])
+    assert np.array_equal(w_far[:, n0:], w_cal[:, n0:]) and not np.allclose(w_far[:, :n0], w_cal[:, :n0])
     r = json.load(open(out / "M_16C2pm_us_seed0.json"))
     m, liq = r["matching"], r["readings"]["liquid"]
     assert m["liquid_cells"] == 2 and len(m["liquid_objective"]) >= 1
@@ -198,7 +205,8 @@ def test_driver_with_the_liquid_calibration(tmp_path):
 
 def test_job2_configs_are_job1s_but_for_the_liquid_and_the_mutual_edge():
     """configs/e4_job2a.yaml is configs/e4_water.yaml with the liquid response, the mutual edge at 2.0 A and its three
-    rungs; e4_job2b.yaml is e4_job2a.yaml with the liquid calibration and the two C rungs; both build their rungs."""
+    rungs; e4_job2b.yaml is e4_job2a.yaml with the liquid calibration and the two C rungs; both build their rungs;
+    e4_job2c.yaml is e4_job2b.yaml with the calibration on the order-0 columns alone."""
     import e4_water as E4
     root = os.path.dirname(HERE)
     load = lambda name: E4.load_config(os.path.join(root, "configs", name))
@@ -221,3 +229,7 @@ def test_job2_configs_are_job1s_but_for_the_liquid_and_the_mutual_edge():
     cell = np.eye(3) * A2B(12.43)
     for name in ca["rungs"]:
         E4.rungs_for(name, ca, cell)
+    # arm C (v0.0.26): arm B with the calibration on the order-0 columns alone
+    cc = load("e4_job2c.yaml")
+    assert cc["training"]["readout"]["liquid"].pop("orders") == "zero"
+    assert cc == cb

@@ -343,5 +343,10 @@ code is still open: CP2K, GPAW, VASP or QE.
    MB-pol's response in liquid frames. *Re-registered 5 Nov* (`e4-job2-preregistration.md`, v0.0.24; Vadic's go of
    5 Nov): arm A the frozen form, its ablation and the dagger with the field term at the 2.0 Å mutual edge; arm B the
    frozen form calibrated on MB-pol's induced dipoles and field response in 30 liquid cells (`run_e4_response.sbatch`,
-   then `run_e4_job2.sbatch`).
+   then `run_e4_job2.sbatch`). *Run 5–6 Nov; read in `e4-job2-results.md`: the regulator −9 % on the frozen form's
+   rigid forces at every size (0.551 kcal/mol/Å at 64 molecules), the ablation level with the dagger; the calibration
+   exact in the infrared and neutral for the frozen form's bulk, but it moved contact energy into the field-gradient
+   orders (the ablation +2–5 %). Proposed: the calibration on the order-0 columns alone (v0.0.25), retrained.*
+   *Registered 6 Nov as job 2's arm C (`e4-job2c-preregistration.md`, v0.0.26; Vadic's go of 6 Nov):
+   `run_e4_job2c.sbatch`, about 26 GPU hours.*
 7. **The L₀ sweep** (Form II).

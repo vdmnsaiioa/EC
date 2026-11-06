@@ -1170,3 +1170,63 @@ is re-registered with both moves; §6 of the X3 pre-registration is superseded b
   - job 2's configs are job 1's but for the liquid and the mutual edge.
 - `tests/test_e4_report.py` gains the job-2 read on made-up runs.
 - `tests/test_e4_train.py` checks `M_16pm_us`: the dagger with the frozen form's field term, every setting of it.
+
+## v0.0.24 → v0.0.25 — E4 job 2 read; the calibration on the order-0 columns alone (`notes/e4-job2-results.md`)
+
+**Job 2 ran** at fc7900d: 20 runs in four jobs of 13.0–14.3 h, about 55 GPU hours. Read from the logs against
+`notes/e4-job2-preregistration.md`. Rigid forces in kcal/mol/Å on the unseen frames, seed means at 64 / 128 / 256
+molecules:
+
+| | job 1 (0.75 Å) | arm A (2.0 Å) | arm B (calibrated) |
+|---|---|---|---|
+| frozen form | 0.605 / 0.619 / 0.618 | **0.551 / 0.563 / 0.563** | 0.555 / 0.564 / 0.566 |
+| ablation | 0.751 / 0.760 / 0.761 | 0.721 / 0.731 / 0.733 | 0.747 / 0.756 / 0.757 |
+| beside them | dagger 0.721 / 0.735 / 0.738 | M_16†ᵐ_us 0.561 / 0.574 / 0.577 | |
+
+- **The regulator** (the 2.0 Å mutual edge, fixed a priori) is E4's largest bulk gain so far.
+  - The frozen form gains 9 % on every seed and at every size, and its energies 6–19 %.
+  - The ablation gains 4 % and is level with the dagger.
+  - J2 failed by this improvement: the field term had not absorbed the contact over-polarisation.
+- **The calibration** gets the infrared exactly: ε_∞ 1.6887 against MB-pol's 1.6885, the molecules' response within 2 %.
+  - It leaves the frozen form's bulk unchanged (+0.2 to +0.7 %) and costs the ablation 2–5 % on every seed (J1
+    fails).
+  - Diagnosed without training: it moved 0.8 kcal/mol per molecule of contact energy into the read-out's
+    field-gradient orders, which the field term absorbs and E₀ does not.
+- **Beside the field term, the regulated response gains about 2 %** over M_16†ᵐ_us (J3, 3 of 4 seeds). M_16†ᵐ_us is
+  7 % below job 1's frozen form, so the unregulated response had cost that much.
+- **The field term's gain grows** as the contact error falls (19 → 24 → 26 %; 22 % on the dagger). J4 fails.
+
+**Code.** `training.readout.liquid.orders` (`zero` | `all`; unset, the read-out's own): the read-out orders the
+calibration stage moves. The workflow note's derivative counting gives k = 0 data the order-0 columns alone. On the
+local frames at 2.0 Å, order 2, the order-0 columns alone give:
+
+- ε_∞ 1.6895 and the dipoles' scale 0.991;
+- the far probes 2.3 / 2.2 / 2.7 % and T5 1.040;
+- the probes' objective ×1.73;
+- contact forces moved by 0.33 kcal/mol/Å rms against arm B's 0.47, and nothing into the orders ≥ 1.
+
+`scratch/e4_job2_preregistration.py --liquid_orders`.
+
+**Tests.** `tests/test_liquid_calibration.py`: the driver test now calibrates on the order-0 columns. The far-field
+read-out is cached beside the calibrated one, and the two differ in the order-0 columns alone.
+
+## v0.0.25 → v0.0.26 — job 2's arm C registered: the calibration on the order-0 columns alone (`notes/e4-job2c-preregistration.md`)
+
+**Why.** Arm B's calibration moved every read-out order and cost the ablation 2–5 % on every seed. Uniform-field data
+identify the order-0 coefficient alone. At the matching level the order-0 columns alone get ε_∞ and the dipoles' scale
+right, keep the far field, and move the contact forces by 0.33 kcal/mol/Å rms instead of 0.47.
+
+**Design.** `configs/e4_job2c.yaml` is arm B's config with `liquid.orders: zero`. It trains the two C rungs, 4 seeds,
+into `results/e4_job2c` (`run_e4_job2c.sbatch`, about 26 GPU hours), on job 2's liquid response file.
+
+**Predictions** (rigid forces, unseen frames, every size). Two readings of arm B's cost compete: (i) the orders ≥ 1 that
+moved, (ii) any change at contact that E₀ cannot absorb, which predicts about +1.8 %.
+
+- C1: arm C's ablation within +1 % of arm A's.
+- C2: at or below arm A's on ≥ 3 of 4 seeds (reading (i)).
+- C3: J1 again, at or below the dagger.
+- C4: the frozen form within ±1 % of arm A's.
+- C0: the calibration's fixed readings on Niflheim.
+
+**Code.** `scripts/e4_report.py --job2 A,B,C` reads arm C against the other arms, job 1 and the pre-registration.
+Tested on made-up runs (`tests/test_e4_report.py`), with arm C's config tested against arm B's.

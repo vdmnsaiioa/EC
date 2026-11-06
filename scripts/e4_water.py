@@ -416,7 +416,10 @@ def liquid_block(rung_cell, response, lq):
     batches = [{k: v[0] for k, v in S.pad_batch([st], n_freq=r.K).items()} for st in cal["structures"]]
     targets = [np.concatenate([mu.sum(0), R.sum(0).reshape(-1)]) for mu, R in zip(cal["mu"], cal["R"])]
     tag = hashlib.sha256(json.dumps({**lq, "response": response["hash"]}, sort_keys=True).encode()).hexdigest()[:8]
-    return {"block": {"fn": fn, "batches": batches, "targets": targets, "weights": [w] * nf}, "hash": tag}
+    # lq["orders"] (v0.0.25): the read-out orders the second stage moves -- "zero" for the order-0 columns alone, as the
+    # derivative counting asks of k = 0 data (notes/e4-job2-results.md section 4b); unset, the readout's own orders
+    return {"block": {"fn": fn, "batches": batches, "targets": targets, "weights": [w] * nf}, "hash": tag,
+            "orders": lq.get("orders")}
 
 
 def read_liquid(params, rung_cell, response, split="heldout"):
@@ -509,8 +512,8 @@ def match_readout(rung_open, probes, scale, cfg, verbose=True, liquid=None, star
         params, report = LIN.solve_readout(params, rung_open, data, scale, w_force=0.0, ridge=rel,
                                            chunk=int(ro["solve_chunk"]),
                                            w_energy=float(cfg["training"]["loss"]["energy_weight"]),
-                                           orders=ro["orders"], iterations=int(ro["solve_iterations"]),
-                                           extra=liquid["block"])
+                                           orders=liquid.get("orders") or ro["orders"],
+                                           iterations=int(ro["solve_iterations"]), extra=liquid["block"])
         hist += [(float(b), float(c)) for b, c in report.history]
         hist_x = [(float(b), float(c)) for b, c in report.extra_history]
     if verbose:

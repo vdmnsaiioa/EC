@@ -72,6 +72,8 @@ def main():
     ap.add_argument("--names", default="M_16C0pm_us,M_16C2pm_us")
     ap.add_argument("--cache", default=None, help="the matched read-outs (default: the config's data directory)")
     ap.add_argument("--weight", type=float, default=0.1, help="arm B: training.readout.liquid's weight")
+    ap.add_argument("--liquid_orders", default=None, help="arm B: the read-out orders the calibration moves (zero, all; "
+                                                          "default the readout's own); its readings go under armB_<orders>")
     ap.add_argument("--eps_ref", default=None, help="json with eps_truth.isotropic of the scan's frames (test, valid, "
                                                     "train order), for eps_inf on the frames no calibration uses")
     ap.add_argument("--splits", default="heldout,calibration", help="the liquid frames read")
@@ -102,6 +104,10 @@ def main():
     if other_truth:
         out["meta"]["other_frames_truth"] = other_truth
     lq = {"weight": a.weight}
+    section = f"arm{a.arm}"
+    if a.liquid_orders:
+        lq["orders"] = a.liquid_orders
+        section = f"armB_{a.liquid_orders}"
     for edge in [float(x) for x in a.edges.split(",")]:
         cfg_e = cfg_for(cfg, edge)
         for name in a.names.split(","):
@@ -112,7 +118,7 @@ def main():
             liquid = E4.liquid_block(rung_cell, response, lq) if a.arm == "B" else None
             readout, match = E4.matched(key, rung_open, probes, scale, cfg_e, cache, liquid=liquid)
             params = E4.with_readout(p0, readout)
-            rec = out.setdefault(f"arm{a.arm}", {}).get(f"{name}_l{edge:g}", {})
+            rec = out.setdefault(section, {}).get(f"{name}_l{edge:g}", {})
             rec.update(edge=edge, name=name, matching={k: v for k, v in match.items() if k != "probes_before_training"})
             rec["probes"] = match.get("probes_before_training") or E4.read_probes(params, rung_open, probes)
             rec["trimers"] = match.get("far_trimers_before_training") or E4.read_trimers(params, rung_open, probes)
@@ -120,10 +126,10 @@ def main():
                 rec[split] = E4.read_liquid(params, rung_cell, response, split)
             if other:
                 rec["eps_other"] = eps_other(params, rung_cell, other)
-            out[f"arm{a.arm}"][f"{name}_l{edge:g}"] = rec
+            out[section][f"{name}_l{edge:g}"] = rec
             json.dump(out, open(a.out, "w"), indent=1)
             t5, pr = rec["trimers"], rec["probes"]["by_distance_angstrom"]
-            print(f"arm {a.arm} {name} at {edge:g} A [{time.time() - t0:.0f} s]\n"
+            print(f"{section} {name} at {edge:g} A [{time.time() - t0:.0f} s]\n"
                   + "".join(f"  {split + ':':12s} {short(rec[split])}\n" for split in ("heldout", "calibration") if split in rec)
                   + (f"  eps on the {len(rec['eps_other'])} frames no calibration uses: {np.mean(rec['eps_other']):.4f} "
                      f"(MB-pol {np.mean(out['meta']['other_frames_truth']):.4f})\n" if "eps_other" in rec else "")

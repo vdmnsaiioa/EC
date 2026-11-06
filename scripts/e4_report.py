@@ -55,8 +55,13 @@ _ARM_A = {"eps_inf": 1.744, "t5_pct": 4.7, "t5_slope": 1.042, "nonadditive_pct":
 _ARM_B = {"eps_inf": 1.688, "t5_pct": 4.2, "t5_slope": 1.040, "nonadditive_pct": {"10": 2.1, "12": 2.6, "15": 2.8},
           "eps_inf_model": 1.688, "cell_dipole_rel_rmse": 0.021, "molecular_dipole_rel_rmse": 0.046,
           "molecular_response_rel_rmse": 0.022, "molecular_response_iso_rel_rmse": 0.017}
+# arm C (notes/e4-job2c-preregistration.md section 3): the calibration on the order-0 columns alone, on the local frames
+_ARM_C = {"eps_inf": 1.689, "t5_pct": 4.1, "t5_slope": 1.040, "nonadditive_pct": {"10": 2.3, "12": 2.2, "15": 2.7},
+          "eps_inf_model": 1.6895, "cell_dipole_rel_rmse": 0.031, "molecular_dipole_rel_rmse": 0.050,
+          "molecular_response_rel_rmse": 0.031, "molecular_response_iso_rel_rmse": 0.023}
 JOB2_PREREG = {"probes_hash": "72b73e3aa6c7b53f", "M_16C2pm_us [A]": _ARM_A, "M_16C2pm [A]": _ARM_A,
-               "M_16C2pm_us [B]": _ARM_B, "M_16C2pm [B]": _ARM_B, "pinned": PREREG["pinned"]}
+               "M_16C2pm_us [B]": _ARM_B, "M_16C2pm [B]": _ARM_B, "M_16C2pm_us [C]": _ARM_C, "M_16C2pm [C]": _ARM_C,
+               "pinned": PREREG["pinned"]}
 JOB2_PREDICTIONS = [
     ("J1", "M_16C2pm [B]", "M_16pm [job 1]", "force_rigid", "le"),
     ("J1a", "M_16C2pm [A]", "M_16pm [job 1]", "force_rigid", ("change_le", 0.02)),
@@ -64,6 +69,18 @@ JOB2_PREDICTIONS = [
     ("J2", "M_16C2pm_us [B]", "M_16C2pm_us [A]", "force_rigid", ("abs_change_le", 0.05)),
     ("J3", "M_16C2pm_us [B]", "M_16pm_us [A]", "force_rigid", "le"),
 ]
+# arm C's bulk predictions (notes/e4-job2c-preregistration.md section 4)
+JOB2C_PREDICTIONS = [
+    ("C1", "M_16C2pm [C]", "M_16C2pm [A]", "force_rigid", ("change_le", 0.01)),
+    ("C2", "M_16C2pm [C]", "M_16C2pm [A]", "force_rigid", "le"),
+    ("C3", "M_16C2pm [C]", "M_16pm [job 1]", "force_rigid", "le"),
+    ("C4", "M_16C2pm_us [C]", "M_16C2pm_us [A]", "force_rigid", ("abs_change_le", 0.01)),
+]
+JOB2C_READINGS = [
+    ("reading", "M_16C2pm [C]", "M_16C2pm [B]", "force_rigid", "le"),
+    ("reading", "M_16C2pm_us [C]", "M_16pm_us [A]", "force_rigid", "le"),
+    ("reading", "M_16C2pm [C]", "M_16C2pm [A]", "net", "le"),
+] + [("energy", a, b, "energy_rmse", rule) for _, a, b, _, rule in JOB2C_PREDICTIONS]
 JOB2_READINGS = [
     ("reading", "M_16pm_us [A]", "M_16C2pm_us [job 1]", "force_rigid", "le"),
     ("reading", "M_16C2pm_us [A]", "M_16pm_us [A]", "force_rigid", "le"),
@@ -572,11 +589,12 @@ def report(out_dir, data_dir, json_path=None, verbose=True):
 
 
 # ---------------------------------------------------------------- job 2 (notes/e4-job2-preregistration.md) ----------
-def job2_runs(job2a, job2b, job1=None):
+def job2_runs(job2a, job2b, job1=None, job2c=None):
     """job 2's runs and the job-1 runs they are read against, {label: {seed: json}}: '<rung> [A]' (arm A, the mutual
-    edge at 2.0 A), '<rung> [B]' (arm B, calibrated on the liquid) and '<rung> [job 1]'."""
+    edge at 2.0 A), '<rung> [B]' (arm B, calibrated on the liquid), '<rung> [C]' (arm C, calibrated on the order-0
+    columns alone) and '<rung> [job 1]'."""
     out = {}
-    for d, tag in ((job2a, "A"), (job2b, "B"), (job1, "job 1")):
+    for d, tag in ((job2a, "A"), (job2b, "B"), (job2c, "C"), (job1, "job 1")):
         if d and os.path.isdir(d):
             for name, by in load_runs(d).items():
                 out[f"{name} [{tag}]"] = by
@@ -642,7 +660,7 @@ def field_term_gains(table, runs, reading="unseen", key="force_rigid"):
     """J4: the field term's gain on the C rungs, 1 - F(frozen form) / F(ablation), seed means, for job 1, arm A and arm
     B at every size; and on the dagger, 1 - F(M_16pm_us) / F(M_16pm), a reading."""
     out = {}
-    pairs = [(f"{FIELD} [{t}]", f"{ABLATION} [{t}]", t) for t in ("job 1", "A", "B")]
+    pairs = [(f"{FIELD} [{t}]", f"{ABLATION} [{t}]", t) for t in ("job 1", "A", "B", "C")]
     pairs.append(("M_16pm_us [A]", f"{DAGGER} [job 1]", "dagger"))
     for a, b, tag in pairs:
         for n in sizes_of(runs):
@@ -654,8 +672,9 @@ def field_term_gains(table, runs, reading="unseen", key="force_rigid"):
 
 
 def print_job2_predictions(rows, title=None, registered=True):
-    print(title or "J1-J3. The bulk predictions (notes/e4-job2-preregistration.md section 5), paired by seed; the "
-          "registered reading is the unseen frames pooled at every size")
+    print(title or "J1-J3 (and arm C's C1-C4). The bulk predictions (notes/e4-job2-preregistration.md section 5; "
+          "notes/e4-job2c-preregistration.md section 4), paired by seed; the registered reading is the unseen frames "
+          "pooled at every size")
     groups = {}
     for r in rows:
         groups.setdefault((r["prediction"], r["a"], r["b"], r["metric"], str(r["rule"])), []).append(r)
@@ -674,22 +693,24 @@ def print_job2_predictions(rows, title=None, registered=True):
     print()
 
 
-def report_job2(job2a, job2b, job1, data_dir, json_path=None, verbose=True):
-    runs = job2_runs(job2a, job2b, job1)
+def report_job2(job2a, job2b, job1, data_dir, json_path=None, verbose=True, job2c=None):
+    runs = job2_runs(job2a, job2b, job1, job2c)
     if not runs:
         raise SystemExit(f"no results in {job2a}, {job2b}")
     L0 = train_size(runs)
     table = bulk_table(runs, L0)
-    fixed = {arm: fixed_readings({k: v for k, v in runs.items() if k.endswith(f"[{arm}]")}) for arm in ("A", "B")}
+    fixed = {arm: fixed_readings({k: v for k, v in runs.items() if k.endswith(f"[{arm}]")}) for arm in ("A", "B", "C")}
     liq = liquid_rows(runs)
-    pred = job2_predictions(table, runs)
-    readings = job2_predictions(table, runs, JOB2_READINGS)
+    arm_c = any(k.endswith("[C]") for k in runs)
+    pred = job2_predictions(table, runs, JOB2_PREDICTIONS + (JOB2C_PREDICTIONS if arm_c else []))
+    readings = job2_predictions(table, runs, JOB2_READINGS + (JOB2C_READINGS if arm_c else []))
     gains = field_term_gains(table, runs)
     frames_meta = load_frames(data_dir, sizes_of(runs)) if data_dir and os.path.isdir(data_dir) else {}
     job2_only = {k: v for k, v in table.items() if not k.endswith("[job 1]")}
     p3 = prediction_3(job2_only, frames_meta, runs, L0) if frames_meta else {}
     if verbose:
-        print(f"job 2: {job2a}, {job2b}, against {job1}: {sum(len(b) for b in runs.values())} runs; labels {sorted(runs)}\n")
+        print(f"job 2: {job2a}, {job2b}" + (f", {job2c}" if job2c else "") + f", against {job1}: "
+              f"{sum(len(b) for b in runs.values())} runs; labels {sorted(runs)}\n")
         for arm, (rows, agree) in fixed.items():
             if rows:
                 print_fixed(rows, agree, JOB2_PREREG, f"J0. Arm {arm}: the readings the matching fixes (pre-registration "
@@ -726,12 +747,13 @@ def main():
     ap.add_argument("--out_dir", default="results/e4_job1")
     ap.add_argument("--data", default="data/e4", help="the data sets (for the truth's energies and the trajectories)")
     ap.add_argument("--json", default=None, help="also write every number to this json")
-    ap.add_argument("--job2", default=None, help="job 2: its two arms' out_dirs, 'results/e4_job2a,results/e4_job2b'")
+    ap.add_argument("--job2", default=None, help="job 2: its arms' out_dirs, 'results/e4_job2a,results/e4_job2b"
+                                                  "[,results/e4_job2c]'")
     ap.add_argument("--job1", default="results/e4_job1", help="job 2: job 1's out_dir, read beside it")
     a = ap.parse_args()
     if a.job2:
-        ja, jb = (a.job2.split(",") + [None])[:2]
-        report_job2(ja, jb, a.job1, a.data, a.json)
+        ja, jb, jc = (a.job2.split(",") + [None, None])[:3]
+        report_job2(ja, jb, a.job1, a.data, a.json, job2c=jc)
     else:
         report(a.out_dir, a.data, a.json)
 
