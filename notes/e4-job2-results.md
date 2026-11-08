@@ -211,7 +211,9 @@ ablation's 2–5 % is a training question: §6.
    v0.0.25). At the matching level it does the calibration's job and keeps the far field (§4f). Retrain the two C
    rungs with it: 2 runs × 4 seeds, about 26 GPU hours. J1's question — whether the calibrated response stops costing
    the ablation — is asked again there, with the contact forces moved by 0.33 kcal/mol/Å rms instead of 0.47 and
-   nothing moved into the orders ≥ 1. *Registered 6 Nov as arm C: `e4-job2c-preregistration.md`.*
+   nothing moved into the orders ≥ 1. *Registered 6 Nov as arm C: `e4-job2c-preregistration.md`. Read 7 Nov
+   (`e4-job2c-results.md`): the ablation 1.4–1.6 % below arm A's and the frozen form 1.2–1.5 % below, on every seed,
+   with ε_∞ 1.6893. Arm B's cost was the orders ≥ 1, and arm C is the model.*
 3. **The locality test of the workflow note** (§5): calibrate on the liquid alone and read the far probes as an
    out-of-state prediction. Matching only.
 4. **Then** the finite-k response (the order-2 coefficients, X2-C) with H3 read on it; the drift's attribution check;

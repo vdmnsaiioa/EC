@@ -1,12 +1,14 @@
 """
 e4_water.py -- E4's training driver: the ladder on MB-pol's periodic water cells of one size L0 (notes/e4-plan.md
 sections 4 and 9; the pre-registrations are notes/e4-x3-preregistration.md and, for job 2,
-notes/e4-job2-preregistration.md).  Four steps:
+notes/e4-job2-preregistration.md; for job 3, notes/e4-job3-preregistration.md).  Six steps:
 
     python scripts/e4_water.py probes --mbx external/mbx/build/MBX [--config configs/e4_water.yaml]
     python scripts/e4_water.py response --mbx external/mbx/build/MBX [--config configs/e4_job2b.yaml]
     python scripts/e4_water.py train --config configs/e4_water.yaml [--rungs M_16C2pm_us] [--seeds 0] [--task 5]
     python scripts/e4_water.py summary --out_dir results/e4_job1
+    python scripts/e4_water.py response_k --mbx external/mbx/build/MBX --config configs/e4_job3.yaml [--part 0/2]
+    python scripts/e4_water.py kread --config configs/e4_job3.yaml --out_dir results/e4_job3
 
 probes   MB-pol's far-field probes through MBX, E3's recipe (sseft.water.probe_configurations): Metropolis-relaxed cores
          of 3-5 molecules and one molecule at 8-15 A from the core's centre, with each core's own energy and forces and,
@@ -33,6 +35,14 @@ train    for every rung and seed (or one, --task i: rung i // n_seeds, seed i % 
               response; the others have eps_inf = 1 by construction).
          One json and one parameter file per rung and seed in out_dir.
 summary  seed means and spreads of every rung's readings, from the jsons in out_dir.
+response_k (job 3, v0.0.27) MB-pol's response of the same liquid cells to longitudinal plane waves of the cell
+         (sseft.modes; liquid_k: axes, harmonics, phases), every molecule's induced dipole and each mode's
+         susceptibility, through a field set at every site MBX evaluates (mbpol.set_site_fields); --part i/n and
+         --merge n split the frames across tasks.
+kread    (job 3) no training: the read-outs of kread.arms, held in their output directories, read on the finite-k and
+         uniform responses with the far probes and T5 (model.mode_response); with the orders >= 1 off for
+         kread.order_zero_of; and the locality test (kread.locality): the order-0 columns solved on every calibration
+         molecule's dipole and response alone, no probe in the objective, the far probes then out of state.
 
 Energies are interaction energies (MBX's 1-body term off, every molecule's own energy zero), in hartree inside and in
 kcal/mol in the readings; forces in kcal/mol/A.
@@ -60,6 +70,7 @@ import jax                                    # noqa: E402
 import jax.numpy as jnp                       # noqa: E402
 import sseft                                  # noqa: E402
 from sseft import model as M, train as T, water as W, periodic as PB, structure as S, linear as LIN  # noqa: E402
+from sseft import modes as MD                  # noqa: E402
 from sseft.units import ang_to_bohr, bohr_to_ang, KCALMOL_PER_HARTREE, BOHR_PER_ANGSTROM  # noqa: E402
 import e3_water as E3                         # E3's rungs, their configuration and the probe readings  # noqa: E402
 
@@ -75,8 +86,14 @@ E3.RUNGS.setdefault("M_16pm_us", M.with_rung(E3.RUNGS["M_16pm_w"], name="M_16pm_
 
 DEFAULTS = {
     "data": {"dir": "data/e4", "train_size": 64, "eval_sizes": [64, 128, 256], "probes": "data/e4/probes_mbpol.npz",
-             "response": "data/e4/response_mbpol.npz"},
+             "response": "data/e4/response_mbpol.npz", "response_k": "data/e4/response_k_mbpol.npz"},
     "liquid": {"calibration_frames": 30, "heldout_frames": 10, "delta": 1.0e-4},
+    # job 3 (v0.0.27): the plane-wave modes of the liquid cells (sseft.modes), on the frames of "liquid"
+    "liquid_k": {"axes": [0, 1, 2], "harmonics": [1, 2], "phases": [0, 1], "delta": 1.0e-4},
+    # job 3's reading (run_kread): the rung, the read-outs read (each arm's config and output directory, where its
+    # matched read-out is cached), which of them also with the orders >= 1 off, and the locality test (None: off)
+    "kread": {"rung": "M_16C2pm_us", "arms": {}, "order_zero_of": [], "splits": ["heldout", "calibration"],
+              "locality": None},
     "model": {"r_cut_angstrom": 6.0, "features": 32, "band_edge_angstrom": 0.75, "response_edge_angstrom": 0.75,
               "mutual_edge_angstrom": None, "analytic_envelope_angstrom": 4.0, "rs_over_l1": 0.0,
               "charge_neutrality": "fragment", "ewald_b_max": 4.0, "solver": "gmres", "solver_tol": 1.0e-10, "K": 8,
@@ -401,25 +418,43 @@ def liquid_block(rung_cell, response, lq):
     """the calibration rows of job 2's matching (LIN.solve_readout's extra): every calibration cell's induced dipole M (3)
     and field response R (3, 3) against MB-pol's, with the dense response solve (64 molecules).  Weights: lq["weight"]
     times the mean over cells and components of the squared residual relative to n alpha_ref (R) and sqrt(n) mu_ref (M)
-    -- weight 0.1 makes a 1 % error of the cells' response cost as much as the far probes' matched objective (~1e-5)."""
+    -- weight 0.1 makes a 1 % error of the cells' response cost as much as the far probes' matched objective (~1e-5).
+    lq["rows"] = "molecules" (v0.0.27, job 3's locality test): every molecule's induced dipole (3) and field response
+    (3, 3) instead (model.molecular_response: the order-0 sector's, which is the whole response of a read-out at order
+    0), relative to mu_ref and alpha_ref, the same weight per cell; their Jacobian by forward mode (many rows)."""
     cal = response["calibration"]
     r = in_cell(replace(rung_cell, bf_solver="direct"), cal["structures"][0].cell)
     n_mol = cal["mu"].shape[1]
-    s_R = n_mol * ang_to_bohr(ang_to_bohr(ang_to_bohr(float(lq.get("alpha_ref_angstrom3", 1.4075)))))
-    s_M = math.sqrt(n_mol) * ang_to_bohr(float(lq.get("mu_ref_eangstrom", 0.15)))
+    a_ref = ang_to_bohr(ang_to_bohr(ang_to_bohr(float(lq.get("alpha_ref_angstrom3", 1.4075)))))
+    m_ref = ang_to_bohr(float(lq.get("mu_ref_eangstrom", 0.15)))
     nf = len(cal["structures"])
-    w = float(lq["weight"]) / nf * np.concatenate([np.full(3, 1.0 / (3 * s_M ** 2)), np.full(9, 1.0 / (9 * s_R ** 2))])
-
-    def fn(params, b):
-        Mi, R = M.induced_response(params, r, b)
-        return jnp.concatenate([Mi, R.reshape(-1)])
     batches = [{k: v[0] for k, v in S.pad_batch([st], n_freq=r.K).items()} for st in cal["structures"]]
-    targets = [np.concatenate([mu.sum(0), R.sum(0).reshape(-1)]) for mu, R in zip(cal["mu"], cal["R"])]
+    rows = lq.get("rows", "cells")
+    if rows == "molecules":
+        w = float(lq["weight"]) / nf * np.concatenate([np.full(3 * n_mol, 1.0 / (3 * n_mol * m_ref ** 2)),
+                                                       np.full(9 * n_mol, 1.0 / (9 * n_mol * a_ref ** 2))])
+
+        def fn(params, b):
+            mu, R = M.molecular_response(params, r, b)
+            return jnp.concatenate([mu[:n_mol].reshape(-1), R[:n_mol].reshape(-1)])
+        targets = [np.concatenate([mu.reshape(-1), R.reshape(-1)]) for mu, R in zip(cal["mu"], cal["R"])]
+    elif rows == "cells":
+        s_R, s_M = n_mol * a_ref, math.sqrt(n_mol) * m_ref
+        w = float(lq["weight"]) / nf * np.concatenate([np.full(3, 1.0 / (3 * s_M ** 2)), np.full(9, 1.0 / (9 * s_R ** 2))])
+
+        def fn(params, b):
+            Mi, R = M.induced_response(params, r, b)
+            return jnp.concatenate([Mi, R.reshape(-1)])
+        targets = [np.concatenate([mu.sum(0), R.sum(0).reshape(-1)]) for mu, R in zip(cal["mu"], cal["R"])]
+    else:
+        raise ValueError(f"liquid rows must be 'cells' or 'molecules', not {rows!r}")
     tag = hashlib.sha256(json.dumps({**lq, "response": response["hash"]}, sort_keys=True).encode()).hexdigest()[:8]
     # lq["orders"] (v0.0.25): the read-out orders the second stage moves -- "zero" for the order-0 columns alone, as the
     # derivative counting asks of k = 0 data (notes/e4-job2-results.md section 4b); unset, the readout's own orders
-    return {"block": {"fn": fn, "batches": batches, "targets": targets, "weights": [w] * nf}, "hash": tag,
-            "orders": lq.get("orders")}
+    block = {"fn": fn, "batches": batches, "targets": targets, "weights": [w] * nf}
+    if rows == "molecules":
+        block.update(jac="forward", jac_chunk=int(lq.get("jac_chunk", 32)))
+    return {"block": block, "hash": tag, "orders": lq.get("orders")}
 
 
 def read_liquid(params, rung_cell, response, split="heldout"):
@@ -442,7 +477,8 @@ def read_liquid(params, rung_cell, response, split="heldout"):
             mu_m, R_m = (np.asarray(x)[:len(mu_t)] for x in f(params, b))
             dmu.append((mu_m - mu_t, mu_t)); dR.append((R_m - R_t, R_t))
     rel = lambda pairs: float(np.sqrt(np.mean([np.mean(e ** 2) for e, _ in pairs]) / np.mean([np.mean(t ** 2) for _, t in pairs])))
-    out = {"frames": len(eps_m), "eps_inf_model": float(np.mean(eps_m)), "eps_inf_truth": float(np.mean(eps_t)),
+    out = {"split": split, "frames": len(eps_m), "eps_inf_model": float(np.mean(eps_m)),
+           "eps_inf_truth": float(np.mean(eps_t)),
            "eps_inf_model_frames": eps_m, "eps_inf_truth_frames": eps_t, "cell_dipole_rel_rmse": rel(dM)}
     if dmu:
         iso = lambda x: np.trace(x, axis1=-2, axis2=-1) / 3
@@ -459,7 +495,8 @@ def read_liquid(params, rung_cell, response, split="heldout"):
 
 
 def liquid_line(v):
-    return (f"liquid cells (held out, {v['frames']} frames): eps_inf {v['eps_inf_model']:.4f} against MB-pol's "
+    which = {"heldout": "held out", None: "held out"}.get(v.get("split"), v.get("split"))
+    return (f"liquid cells ({which}, {v['frames']} frames): eps_inf {v['eps_inf_model']:.4f} against MB-pol's "
             f"{v['eps_inf_truth']:.4f}; cell induced dipole {100 * v['cell_dipole_rel_rmse']:.1f} %"
             + (f"; per molecule: induced dipole {100 * v['molecular_dipole_rel_rmse']:.1f} %, field response "
                f"{100 * v['molecular_response_rel_rmse']:.1f} % (isotropic {100 * v['molecular_response_iso_rel_rmse']:.1f} %)"
@@ -467,6 +504,312 @@ def liquid_line(v):
             + (f"; the isotropic response's spread {v['molecular_response_iso_sd_ratio']:.2f} of MB-pol's, r "
                f"{v['molecular_response_iso_corr']:.2f}; the dipoles' size {v['molecular_dipole_norm_ratio']:.3f} of "
                f"MB-pol's, r {v['molecular_dipole_corr']:.3f}" if "molecular_response_iso_sd_ratio" in v else ""))
+
+
+# ---------------------------------------------------------------- the liquid's finite-k response (job 3) -----------
+def k_modes(cfg):
+    """job 3's plane-wave modes of the cell (sseft.modes): [(axis, harmonic, phase)], harmonic by harmonic."""
+    kc = cfg["liquid_k"]
+    return [(int(ax), int(n), int(ph)) for n in kc["harmonics"] for ax in kc["axes"] for ph in kc["phases"]]
+
+
+def liquid_response_k(mb, pos_ang, cell_ang, modes, delta=1e-4):
+    """MB-pol's response to plane-wave fields of the cell (sseft.modes), clamped nuclei (MBX): for every mode, every
+    molecule's induced dipole per unit amplitude (n, 3) A^3 (its sites O, H, H, M summed) and the mode's susceptibility
+    sum_s u_s . dmu_s/da over the cell's own sites (A^3), by central differences of amplitude delta e/A^2 (the response
+    is linear: the step only sets the rounding).  The field is set at every site MBX evaluates, a replica's included.
+    Molecules in the frame's order."""
+    n = len(pos_ang) // 3
+    mb.set_external_field(pos_ang, None, cell_ang)
+    X = mb.evaluated_sites(pos_ang, cell_ang)
+    own = 4 * n
+    dmu, chi = np.zeros((len(modes), n, 3)), np.zeros(len(modes))
+    for m, (axis, harm, phase) in enumerate(modes):
+        u = MD.mode_field(X, cell_ang, axis, harm, phase)[0]
+
+        def induced(sign):
+            mb.set_site_fields(pos_ang, sign * delta * u, cell_ang)
+            return mb.sites(pos_ang, cell_ang)["induced"]                      # the cell's own sites, (4n, 3)
+        d = (induced(1.0) - induced(-1.0)) / (2.0 * delta)
+        dmu[m] = d.reshape(n, 4, 3).sum(axis=1)
+        chi[m] = float(np.sum(u[:own] * d))
+    mb.set_site_fields(pos_ang, None, cell_ang)
+    return dmu, chi
+
+
+def _parts(spec):
+    if not spec:
+        return 0, 1
+    i, n = (int(x) for x in spec.split("/"))
+    if not 0 <= i < n:
+        raise ValueError(f"--part i/n needs 0 <= i < n, got {spec}")
+    return i, n
+
+
+def part_path(path, i, n):
+    stem, ext = os.path.splitext(path)
+    return f"{stem}.part{i}of{n}{ext}"
+
+
+def run_response_k(a):
+    """MB-pol's finite-k response of job 2's liquid frames (the same calibration and held-out frames as the uniform
+    response), every mode of liquid_k; --part i/n computes the i-th of n contiguous shares of the frames into a part
+    file, --merge n joins the n part files into the response file."""
+    cfg = load_config(a.config)
+    path = a.out or cfg["data"]["response_k"]
+    modes = k_modes(cfg)
+    delta = float(cfg["liquid_k"]["delta"])
+    frames = response_frames(cfg)
+    if a.merge:
+        parts = [np.load(part_path(path, i, a.merge), allow_pickle=False) for i in range(a.merge)]
+        metas = [json.loads(str(p["meta"])) for p in parts]
+        if len({json.dumps({k: m[k] for k in ("modes", "delta", "sseft")}, sort_keys=True) for m in metas}) != 1:
+            raise ValueError("the part files were computed with different modes, steps or versions")
+        arrays, meta = {}, {k: metas[0][k] for k in ("truth", "delta", "sseft", "modes", "modes_k_inv_angstrom")}
+        meta["splits"] = {}
+        for split, (fpath, idx) in frames.items():
+            got = [(p[f"{split}_index"], p[f"{split}_dmu"], p[f"{split}_chi"]) for p in parts if f"{split}_index" in p]
+            ix = np.concatenate([g[0] for g in got]) if got else np.zeros(0, int)
+            if not np.array_equal(ix, idx):
+                raise ValueError(f"the parts' {split} frames {ix.tolist()} are not the config's {idx.tolist()}")
+            arrays[f"{split}_index"] = ix
+            arrays[f"{split}_dmu"] = np.concatenate([g[1] for g in got])
+            arrays[f"{split}_chi"] = np.concatenate([g[2] for g in got])
+            pos = np.load(fpath)["positions"][idx]
+            meta["splits"][split] = {"file": fpath, "frames": int(len(idx)), "positions_hash": frames_hash(pos)}
+        arrays["meta"] = np.array(json.dumps(meta))
+        np.savez(path, **arrays)
+        print(f"written {path} from {a.merge} parts", flush=True)
+        return
+    i_part, n_parts = _parts(a.part)
+    jobs = [(split, fpath, int(i)) for split, (fpath, idx) in frames.items() for i in idx]
+    lo, hi = (len(jobs) * i_part) // n_parts, (len(jobs) * (i_part + 1)) // n_parts
+    truth = W.MBPolTruth(a.mbx)
+    print(f"MB-pol through MBX at {a.mbx}: {json.dumps(truth.describe())}", flush=True)
+    data = {}
+    cell0 = None
+    t0 = time.time()
+    for split, fpath, i in jobs[lo:hi]:
+        d = np.load(fpath)
+        pos = d["positions"][i]
+        cell = d["cell"] if d["cell"].ndim == 2 else d["cell"][i]
+        cell0 = cell if cell0 is None else cell0
+        dmu, chi = liquid_response_k(truth.mb, pos, cell, modes, delta)
+        rec = data.setdefault(split, {"index": [], "dmu": [], "chi": []})
+        rec["index"].append(i); rec["dmu"].append(dmu); rec["chi"].append(chi)
+        V = abs(np.linalg.det(cell))
+        line = "; ".join(f"eps_L(k{n}) {1 / (1 - 4 * np.pi * np.mean([c for c, md in zip(chi, modes) if md[1] == n]) * 2 / V):.4f}"
+                         for n in sorted({md[1] for md in modes}))
+        print(f"  {split} frame {i}: {line}  [{time.time() - t0:.0f} s]", flush=True)
+    meta = {"truth": truth.describe(), "delta": delta, "sseft": sseft.__version__, "modes": modes,
+            "modes_k_inv_angstrom": [m["k"] for m in MD.describe(cell0, modes)] if cell0 is not None else [],
+            "part": [i_part, n_parts], "splits": {}}
+    arrays = {}
+    for split, rec in data.items():
+        arrays[f"{split}_index"] = np.array(rec["index"], int)
+        arrays[f"{split}_dmu"] = np.array(rec["dmu"])
+        arrays[f"{split}_chi"] = np.array(rec["chi"])
+    arrays["meta"] = np.array(json.dumps(meta))
+    out = path if n_parts == 1 else part_path(path, i_part, n_parts)
+    if n_parts == 1:                                       # the whole file: its frames' hash, as the uniform response's
+        for split, (fpath, idx) in frames.items():
+            meta["splits"][split] = {"file": fpath, "frames": int(len(idx)),
+                                     "positions_hash": frames_hash(np.load(fpath)["positions"][idx])}
+        arrays["meta"] = np.array(json.dumps(meta))
+    np.savez(out, **arrays)
+    print(f"written {out}", flush=True)
+
+
+def load_response_k(path, cfg, response=None):
+    """job 3's finite-k response file, checked against the data sets' frames: {split: {"structures", "index", "dmu"
+    (frames, modes, n, 3) bohr^3, "chi" (frames, modes) bohr^3}, "modes", "hash", "meta"}; the structures are the
+    uniform response's (load_response) when it reads the same frames."""
+    d = np.load(path, allow_pickle=False)
+    meta = json.loads(str(d["meta"]))
+    K, om = int(cfg["model"]["K"]), float(cfg["model"]["omega0"])
+    out = {"hash": hashlib.sha256(open(path, "rb").read()).hexdigest()[:8], "meta": meta,
+           "modes": [tuple(int(x) for x in m) for m in meta["modes"]]}
+    for split, info in meta["splits"].items():
+        idx = d[f"{split}_index"]
+        data = np.load(info["file"])
+        if frames_hash(data["positions"][idx]) != info["positions_hash"]:
+            raise ValueError(f"{path}: its {split} frames are not those of {info['file']} any more")
+        if response is not None and split in response and np.array_equal(response[split]["index"], idx):
+            structs = response[split]["structures"]
+        else:
+            all_structs = W.e4_structures(info["file"], pins=True, K=K, omega0=om)
+            structs = [all_structs[i] for i in idx]
+        a3 = lambda x: ang_to_bohr(ang_to_bohr(ang_to_bohr(x)))
+        out[split] = {"structures": structs, "index": idx, "dmu": a3(d[f"{split}_dmu"]), "chi": a3(d[f"{split}_chi"])}
+    return out
+
+
+def order_zero(readout, n0):
+    """the read-out with its orders >= 1 switched off: the pair coefficients' output columns beyond the order-0 ones
+    (n0 = 2 n_rbf_readout) at zero, the order-0 columns and the node term as they are."""
+    th = readout["theta"][-1]
+    w, b = np.array(th["w"]), np.array(th["b"])
+    w[:, n0:] = 0.0; b[n0:] = 0.0
+    theta = list(readout["theta"]); theta[-1] = {"w": w, "b": b}
+    return {**readout, "theta": theta}
+
+
+def read_response_k(params, rung_cell, resp_k, split="heldout", eps0=None):
+    """on liquid cells, the model's response to the plane-wave modes (model.mode_response) against MB-pol's, harmonic by
+    harmonic: the cells' longitudinal susceptibility chi(k) = (chi_cos + chi_sin) / V averaged over the axes and
+    eps_L(k) = 1 / (1 - 4 pi chi(k)), the model's and MB-pol's, their relative difference (frame by frame, then the
+    mean); every molecule's induced dipole response (rmse / rms over molecules and modes, r, the norms' ratio).  eps0:
+    the frames' eps_inf at k = 0 (model, MB-pol), for the screened limit chi(0+) = (1 - 1/eps0) / 4 pi."""
+    h = resp_k[split]
+    r = in_cell(replace(rung_cell, bf_solver="direct"), h["structures"][0].cell)
+    f = jax.jit(lambda p, b, u, g, hh: M.mode_response(p, r, b, u, g, hh))
+    modes = resp_k["modes"]
+    harmonics = sorted({m[1] for m in modes})
+    acc = {n: {"chi_m": [], "chi_t": [], "d_m": [], "d_t": []} for n in harmonics}
+    for st, dmu_t, chi_t in zip(h["structures"], h["dmu"], h["chi"]):
+        b = {k: v[0] for k, v in S.pad_batch([st], n_freq=r.K).items()}
+        pos, cell = np.asarray(b["positions"]), np.asarray(st.cell)
+        mask = np.asarray(b["mask"], float)[:, None]
+        V = abs(np.linalg.det(cell))
+        cm, ct = {n: 0.0 for n in harmonics}, {n: 0.0 for n in harmonics}
+        naxes = {n: len({m[0] for m in modes if m[1] == n}) for n in harmonics}
+        for j, (axis, n, phase) in enumerate(modes):
+            u, g, hh = MD.mode_field(pos, cell, axis, n, phase)
+            d_m, c_m = f(params, b, u * mask, g * mask[..., None], hh * mask[..., None, None])
+            cm[n] += float(c_m) / (naxes[n] * V); ct[n] += float(chi_t[j]) / (naxes[n] * V)
+            acc[n]["d_m"].append(np.asarray(d_m)[:len(dmu_t[j])]); acc[n]["d_t"].append(dmu_t[j])
+        for n in harmonics:
+            acc[n]["chi_m"].append(cm[n]); acc[n]["chi_t"].append(ct[n])
+    out = {"frames": len(h["structures"]), "harmonics": {}}
+    k_of = {m[1]: kk for m, kk in zip(modes, resp_k["meta"].get("modes_k_inv_angstrom", [np.nan] * len(modes)))}
+    epsL = lambda c: float(1.0 / (1.0 - 4.0 * np.pi * c))
+    for n in harmonics:
+        cmn, ctn = np.array(acc[n]["chi_m"]), np.array(acc[n]["chi_t"])
+        dm, dt = np.concatenate([x.ravel() for x in acc[n]["d_m"]]), np.concatenate([x.ravel() for x in acc[n]["d_t"]])
+        out["harmonics"][str(n)] = {
+            "k_inv_angstrom": float(k_of.get(n, np.nan)),
+            "chi_model": float(cmn.mean()), "chi_truth": float(ctn.mean()),
+            "eps_L_model": epsL(cmn.mean()), "eps_L_truth": epsL(ctn.mean()),
+            "chi_rel_diff": float(np.mean(cmn / ctn - 1.0)), "chi_rel_diff_frames": (cmn / ctn - 1.0).tolist(),
+            "molecular_rel_rmse": float(np.sqrt(np.mean((dm - dt) ** 2) / np.mean(dt ** 2))),
+            "molecular_corr": float(np.corrcoef(dm, dt)[0, 1]),
+            "molecular_norm_ratio": float(np.sqrt(np.mean(dm ** 2) / np.mean(dt ** 2)))}
+    if eps0 is not None:
+        out["chi_screened_k0"] = {"model": float((1 - 1 / eps0[0]) / (4 * np.pi)), "truth": float((1 - 1 / eps0[1]) / (4 * np.pi))}
+    return out
+
+
+def k_line(v):
+    return "; ".join(
+        f"k = {h['k_inv_angstrom']:.3f}/A: eps_L {h['eps_L_model']:.4f} against MB-pol's {h['eps_L_truth']:.4f} (chi "
+        f"{100 * h['chi_rel_diff']:+.2f} %), molecules {100 * h['molecular_rel_rmse']:.1f} % (r {h['molecular_corr']:.3f}, "
+        f"size {h['molecular_norm_ratio']:.3f})" for h in v["harmonics"].values())
+
+
+def match_liquid_alone(name, rung_cell, rung_open, response, probes, scale, lc, out_dir=None):
+    """job 3's locality test (eft-of-lss-workflow.md section 5): the read-out's order-0 columns and node term solved on
+    MB-pol's liquid response alone -- every calibration molecule's induced dipole and field response (liquid_block,
+    rows "molecules") -- from a read-out at zero, with no probe in the objective (LIN.solve_readout with w_energy =
+    w_force = 0, the ridge relative to these rows).  The far probes and T5 read on it are then out-of-state predictions.
+    lc: kread.locality (weight, ridge, iterations, alpha_ref_angstrom3, mu_ref_eangstrom, jac_chunk).  Cached in out_dir
+    by the rows' settings and the response file."""
+    lq = {"weight": float(lc.get("weight", 1.0)), "rows": "molecules",
+          "alpha_ref_angstrom3": float(lc.get("alpha_ref_angstrom3", 1.4075)),
+          "mu_ref_eangstrom": float(lc.get("mu_ref_eangstrom", 0.15)), "jac_chunk": int(lc.get("jac_chunk", 32))}
+    block = liquid_block(rung_cell, response, lq)
+    key = {"rung": repr(rung_open), "liquid": block["hash"], "ridge": float(lc["ridge"]),
+           "iterations": int(lc["iterations"]), "scale": scale}
+    tag = hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:8]
+    path = os.path.join(out_dir, f"liquid_alone_{name}_{tag}.pkl") if out_dir else None
+    if path and os.path.exists(path):
+        with open(path, "rb") as fh:
+            got = pickle.load(fh)
+        print(f"  the read-out calibrated on the liquid alone before ({path}): the liquid rows "
+              + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in got["match"]["liquid_objective"]), flush=True)
+        return got["readout"], got["match"]
+    params0 = M.init_params(jax.random.PRNGKey(0), rung_open, energy_scale=scale)
+    data = S.pad_batch([probes["train"][0]], n_freq=rung_open.K)             # sizes the solve only: no probe row
+    t0 = time.time()
+    params, report = LIN.solve_readout(params0, rung_open, data, scale, w_force=0.0, w_energy=0.0,
+                                       ridge=float(lc["ridge"]), orders="zero", iterations=int(lc["iterations"]),
+                                       extra=block["block"])
+    hist = [(float(b), float(c)) for b, c in report.extra_history]
+    print(f"  {name}: the read-out's order-0 columns calibrated on the liquid alone, every molecule of "
+          f"{len(block['block']['batches'])} cells (no probe): the liquid rows "
+          + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in hist) + f" (ridge {float(lc['ridge']):.0e})  "
+          f"[{time.time() - t0:.0f} s]", flush=True)
+    readout = jax.tree_util.tree_map(np.asarray, params["readout"])
+    match = {"liquid_objective": hist, "ridge": float(lc["ridge"]), "liquid_cells": len(block["block"]["batches"]),
+             "liquid_hash": block["hash"], "time": time.time() - t0}
+    if path:
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "wb") as fh:
+            pickle.dump({"key": key, "readout": readout, "match": match}, fh)
+        os.replace(tmp, path)
+    return readout, match
+
+
+def run_kread(a):
+    """job 3: the read-outs of kread.arms (their configs and output directories, where their matched read-outs are
+    cached), read on MB-pol's finite-k response and the uniform one, with the far probes and T5; the orders >= 1
+    switched off for the arms in kread.order_zero_of; and the locality test (kread.locality).  No training."""
+    cfg = load_config(a.config)
+    kc, dcfg = cfg["kread"], cfg["data"]
+    os.makedirs(a.out_dir, exist_ok=True)
+    out_path = os.path.join(a.out_dir, "kread.json")
+    K, om = int(cfg["model"]["K"]), float(cfg["model"]["omega0"])
+    train = W.e4_structures(os.path.join(dcfg["dir"], f"train_n{dcfg['train_size']}.npz"), pins=True, K=K, omega0=om)
+    scale = T.energy_scale(train)
+    probes = load_probes(dcfg["probes"], K, om)
+    response = load_response(dcfg["response"], cfg)
+    resp_k = load_response_k(dcfg["response_k"], cfg, response)
+    name = kc["rung"]
+    print(f"sseft {sseft.__version__}, JAX {jax.__version__}, devices {jax.devices()}; probes {probes['hash']}; liquid "
+          f"response {response['hash']}; finite-k response {resp_k['hash']}: modes {resp_k['modes']} at "
+          f"{sorted(set(round(x, 4) for x in resp_k['meta']['modes_k_inv_angstrom']))} /A", flush=True)
+    out = json.load(open(out_path)) if os.path.exists(out_path) else {}
+    out["meta"] = {"sseft": sseft.__version__, "probes": probes["hash"], "response": response["hash"],
+                   "response_k": resp_k["hash"], "rung": name, "modes": resp_k["modes"], "energy_scale": scale}
+    variants = []
+    wanted = (lambda label: True) if not a.only else (lambda label: label in a.only.split(","))
+    for arm, spec in kc["arms"].items():
+        if not (wanted(arm) or (arm in kc.get("order_zero_of", []) and wanted(f"{arm}0"))):
+            continue
+        cfg_arm = load_config(spec["config"])
+        rung_cell, rung_open = rungs_for(name, cfg_arm, train[0].cell)
+        lq = cfg_arm["training"]["readout"].get("liquid")
+        liquid = liquid_block(rung_cell, response, lq) if lq else None
+        readout, match = matched(name, rung_open, probes, scale, cfg_arm, spec["out_dir"], liquid=liquid)
+        variants.append((arm, rung_cell, rung_open, readout, match))
+        if arm in kc.get("order_zero_of", []):
+            n0 = 2 * int(rung_open.e0.get("n_rbf_readout", rung_open.e0["n_rbf"]))
+            variants.append((f"{arm}0", rung_cell, rung_open, order_zero(readout, n0), {}))
+    if kc.get("locality") and wanted("L"):
+        rung_cell, rung_open = rungs_for(name, cfg, train[0].cell)
+        readout, match = match_liquid_alone(name, rung_cell, rung_open, response, probes, scale, kc["locality"], a.out_dir)
+        variants.append(("L", rung_cell, rung_open, readout, match))
+    for label, rung_cell, rung_open, readout, match in variants:
+        if not wanted(label):
+            continue
+        t0 = time.time()
+        params = with_readout(M.init_params(jax.random.PRNGKey(0), rung_open, energy_scale=scale), readout)
+        rec = {"match": {k: v for k, v in (match or {}).items() if k not in ("probes_before_training",
+                                                                              "far_trimers_before_training")}}
+        rec["probes"] = (match or {}).get("probes_before_training") or read_probes(params, rung_open, probes)
+        rec["trimers"] = (match or {}).get("far_trimers_before_training") or read_trimers(params, rung_open, probes)
+        print(f"{label}: far-field probes {E3.probe_summary(rec['probes'])}; T5 slope {rec['trimers']['slope']:.4f} "
+              f"({100 * rec['trimers']['three_body_rmse'] / rec['trimers']['three_body_rms']:.1f} %)", flush=True)
+        for split in kc["splits"]:
+            rec[f"liquid_{split}"] = v = read_liquid(params, rung_cell, response, split)
+            rec[f"k_{split}"] = w = read_response_k(params, rung_cell, resp_k, split,
+                                                    (v["eps_inf_model"], v["eps_inf_truth"]))
+            print(f"  {label} {split}: {liquid_line(v)}\n  {label} {split} finite k: {k_line(w)}", flush=True)
+        rec["time"] = time.time() - t0
+        out[label] = rec
+        with open(out_path + ".tmp", "w") as fh:
+            json.dump(out, fh, indent=1)
+        os.replace(out_path + ".tmp", out_path)
+    print(f"written {out_path}", flush=True)
 
 
 # ---------------------------------------------------------------- the matching --------------------------------------
@@ -838,8 +1181,21 @@ def main():
     r.add_argument("--mbx", required=True)
     r.add_argument("--config", default=None)
     r.add_argument("--out", default=None, help="the response file (default: the config's data.response)")
+    q = sub.add_parser("response_k", help="MB-pol's response of liquid cells to plane-wave fields (job 3), through MBX")
+    q.add_argument("--mbx", default=None, help="the MBX build (not needed with --merge)")
+    q.add_argument("--config", default=None)
+    q.add_argument("--out", default=None, help="the finite-k response file (default: the config's data.response_k)")
+    q.add_argument("--part", default=None, help="i/n: the i-th of n shares of the frames, into a part file")
+    q.add_argument("--merge", type=int, default=0, help="n: join the n part files into the response file")
+    k = sub.add_parser("kread", help="job 3: read-outs on the finite-k and uniform responses, and the locality test")
+    k.add_argument("--config", default=None)
+    k.add_argument("--out_dir", default="results/e4_job3")
+    k.add_argument("--only", default=None, help="comma-separated variants to read (default: all)")
     a = ap.parse_args()
-    {"probes": run_probes, "train": run_train, "summary": run_summary, "response": run_response}[a.cmd](a)
+    if a.cmd == "response_k" and not a.merge and not a.mbx:
+        ap.error("response_k needs --mbx (or --merge n)")
+    {"probes": run_probes, "train": run_train, "summary": run_summary, "response": run_response,
+     "response_k": run_response_k, "kread": run_kread}[a.cmd](a)
 
 
 if __name__ == "__main__":

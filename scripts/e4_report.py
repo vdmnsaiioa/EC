@@ -3,6 +3,7 @@ e4_report.py -- E4's results read against the pre-registration (notes/e4-x3-prer
 jsons of scripts/e4_water.py and the data sets' frames.  NumPy only: seconds on a login node, no GPU, no JAX.
 
     python scripts/e4_report.py --out_dir results/e4_job1 --data data/e4 [--json results/e4_job1/report.json]
+    python scripts/e4_report.py --job3 results/e4_job3/kread.json      # job 3's registered readings (v0.0.27)
 
 It prints, in the pre-registration's order:
   1. the readings the matching fixes (section 4): eps_inf, T5 and the far-field probes of every run, against the values
@@ -742,6 +743,94 @@ def report_job2(job2a, job2b, job1, data_dir, json_path=None, verbose=True, job2
     return result
 
 
+# ---------------------------------------------------------------- job 3 (v0.0.27) -------------------------------------
+# notes/e4-job3-preregistration.md section 4: job 3's readings, from scripts/e4_water.py kread's kread.json, each with its
+# registered band.  Variants: A, B, C (job 2's arms), C0 (C with its orders >= 1 off), L (the locality test).
+JOB3_BANDS = {
+    "K0": [("MB-pol's eps_L(k1), every cell", ("truth_eps", "1"), 1.762, 1.782),
+           ("MB-pol's eps_L(k2), every cell", ("truth_eps", "2"), 2.068, 2.108),
+           ("MB-pol's chi(k1) / chi(0+) - 1", ("truth_rise", "1"), 0.05, 0.09),
+           ("MB-pol's chi(k2) / chi(0+) - 1", ("truth_rise", "2"), 0.24, 0.32)],
+    "K1": [("C: chi(k1) against MB-pol's", ("chi", "C", "1"), -0.035, -0.005),
+           ("C: chi(k2) against MB-pol's", ("chi", "C", "2"), -0.15, -0.08)],
+    "K2": [("C: molecules at k1", ("mol", "C", "1"), 0.02, 0.06), ("C: molecules at k2", ("mol", "C", "2"), 0.03, 0.07),
+           ("C0's molecules at k1 less C's", ("mol_gap", "1"), 0.0, math.inf),
+           ("C0's molecules at k2 less C's", ("mol_gap", "2"), 0.0, math.inf)],
+    "K3": [("C0: chi(k2) against MB-pol's", ("chi", "C0", "2"), 0.015, 0.055),
+           ("|C's chi(k2)| less |C0's|", ("chi_gap", "2"), 0.0, math.inf)],
+    "K4": [("A: chi(k1)", ("chi", "A", "1"), 0.015, 0.045), ("A: chi(k2)", ("chi", "A", "2"), -0.085, -0.02),
+           ("B: chi(k1)", ("chi", "B", "1"), 0.015, 0.045), ("B: chi(k2)", ("chi", "B", "2"), 0.015, 0.075)],
+    "K5": [("L: held-out molecules' dipoles", ("liq", "molecular_dipole_rel_rmse"), 0.0, 0.03),
+           ("L: held-out molecules' response", ("liq", "molecular_response_rel_rmse"), 0.0, 0.02),
+           ("L: held-out iso response r", ("liq", "molecular_response_iso_corr"), 0.9, math.inf),
+           ("L: dipoles, held out less calibration", ("liq_gap", "molecular_dipole_rel_rmse"), -0.01, 0.01),
+           ("L: response, held out less calibration", ("liq_gap", "molecular_response_rel_rmse"), -0.01, 0.01)],
+    "K6": [("L: far probes, non-additive, 10 A", ("probe", "10"), 0.0, 0.105),
+           ("L: far probes, non-additive, 12 A", ("probe", "12"), 0.0, 0.060),
+           ("L: far probes, non-additive, 15 A", ("probe", "15"), 0.0, 0.068),
+           ("L: T5 slope", ("t5",), 0.95, 1.10)],
+}
+
+
+def job3_value(k, key, split="heldout"):
+    """one of job 3's readings from kread.json (k): the bands' keys of JOB3_BANDS."""
+    kind = key[0]
+    h = lambda lab, n, sp=split: k[lab][f"k_{sp}"]["harmonics"][n]
+    if kind in ("truth_eps", "truth_rise"):
+        lab = next(x for x in ("C", "A", "B", "C0", "L") if x in k)
+        recs = [(k[lab][f"k_{sp}"], sp) for sp in ("heldout", "calibration") if f"k_{sp}" in k[lab]]
+        w = [r["frames"] for r, _ in recs]
+        if kind == "truth_eps":
+            vals = [r["harmonics"][key[1]]["eps_L_truth"] for r, _ in recs]
+        else:
+            vals = [r["harmonics"][key[1]]["chi_truth"] / r["chi_screened_k0"]["truth"] - 1 for r, _ in recs]
+        return float(np.dot(w, vals) / np.sum(w))
+    if kind == "chi":
+        return h(key[1], key[2])["chi_rel_diff"]
+    if kind == "mol":
+        return h(key[1], key[2])["molecular_rel_rmse"]
+    if kind == "mol_gap":
+        return h("C0", key[1])["molecular_rel_rmse"] - h("C", key[1])["molecular_rel_rmse"]
+    if kind == "chi_gap":
+        return abs(h("C", key[1])["chi_rel_diff"]) - abs(h("C0", key[1])["chi_rel_diff"])
+    if kind == "liq":
+        return k["L"][f"liquid_{split}"][key[1]]
+    if kind == "liq_gap":
+        return k["L"]["liquid_heldout"][key[1]] - k["L"]["liquid_calibration"][key[1]]
+    if kind == "probe":
+        v = k["L"]["probes"]["by_distance_angstrom"][key[1]]
+        return v["nonadditive_rmse"] / v["nonadditive_rms"]
+    if kind == "t5":
+        return k["L"]["trimers"]["slope"]
+    raise ValueError(f"unknown job 3 reading {key}")
+
+
+def report_job3(path, verbose=True):
+    """job 3's registered readings (K0-K6) from kread.json, each against its band; a K holds when all its parts do."""
+    with open(path) as fh:
+        k = json.load(fh)
+    out = {}
+    if verbose:
+        print(f"E4 job 3 (notes/e4-job3-preregistration.md section 4), from {path}: read-outs "
+              + ", ".join(x for x in k if x != "meta"))
+    for kid, parts in JOB3_BANDS.items():
+        rows = []
+        for what, key, lo, hi in parts:
+            try:
+                v = job3_value(k, key)
+            except KeyError:
+                v = None
+            rows.append({"what": what, "value": v, "band": [lo, hi], "holds": v is not None and lo <= v <= hi})
+        out[kid] = {"holds": all(r["holds"] for r in rows), "parts": rows}
+        if verbose:
+            print(f"  {kid}: {'holds' if out[kid]['holds'] else 'FAILS'}")
+            for r in rows:
+                band = f"[{r['band'][0]:g}, {r['band'][1]:g}]"
+                val = "missing" if r["value"] is None else f"{r['value']:+.4f}"
+                print(f"      {r['what']:44s} {val:>9s}  band {band:18s} {'ok' if r['holds'] else 'outside'}")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description="E4's results read against the pre-registration")
     ap.add_argument("--out_dir", default="results/e4_job1")
@@ -750,8 +839,14 @@ def main():
     ap.add_argument("--job2", default=None, help="job 2: its arms' out_dirs, 'results/e4_job2a,results/e4_job2b"
                                                   "[,results/e4_job2c]'")
     ap.add_argument("--job1", default="results/e4_job1", help="job 2: job 1's out_dir, read beside it")
+    ap.add_argument("--job3", default=None, help="job 3: scripts/e4_water.py kread's kread.json")
     a = ap.parse_args()
-    if a.job2:
+    if a.job3:
+        out = report_job3(a.job3)
+        if a.json:
+            with open(a.json, "w") as fh:
+                json.dump(jsonable(out), fh, indent=1)
+    elif a.job2:
         ja, jb, jc = (a.job2.split(",") + [None, None])[:3]
         report_job2(ja, jb, a.job1, a.data, a.json, job2c=jc)
     else:

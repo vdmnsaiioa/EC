@@ -370,6 +370,36 @@ read with the other arms:
 python scripts/e4_report.py --job2 results/e4_job2a,results/e4_job2b,results/e4_job2c --job1 results/e4_job1
 ```
 
+Arm C's read is `notes/e4-job2c-results.md`. Its frozen form is E4's model: the rigid forces 0.545 kcal/mol/Å at 64
+molecules, ε_∞ 1.6893 against MB-pol's 1.6885.
+
+**Job 3** (v0.0.27; `configs/e4_job3.yaml`; pre-registration `notes/e4-job3-preregistration.md`) needs no training. It
+reads the read-outs job 2 matched against MB-pol's finite-k response.
+
+- `sseft/modes.py`: longitudinal plane waves of a cell, u = k̂ cos(k·x − pπ/2) with k = 2πn b_axis, and their first and
+  second derivatives at any points.
+- `scripts/e4_water.py response_k`: MB-pol's response of job 2's liquid cells to every mode of `liquid_k`, through a
+  field set at every site MBX evaluates (`mbpol.set_site_fields`). It records every molecule's induced dipole per unit
+  amplitude and each mode's susceptibility (`data/e4/response_k_mbpol.npz`). `--part i/n` and `--merge n` split the
+  frames across tasks.
+- `model.mode_response`: the model's response to a mode. The mode's field and its gradients are added to the band field
+  the read-out reads. It returns every molecule's induced dipole and χ_mode = −d²E/da².
+- `scripts/e4_water.py kread` reads each arm's cached read-out on the finite-k and uniform responses, with the far probes
+  and T5. It also reads the arms of `kread.order_zero_of` with their orders ≥ 1 off, and runs the locality test
+  (`kread.locality`).
+  - The locality test solves the order-0 columns on every calibration molecule's induced dipole and field response
+    alone.
+  - It uses `liquid_block`'s rows `molecules` and `linear.solve_readout` with zero probe weights and forward-mode
+    Jacobians.
+  - The far probes are then out-of-state predictions.
+
+```sh
+python scripts/e4_water.py response_k --mbx external/mbx/build/MBX --config configs/e4_job3.yaml --part 0/2   # and 1/2
+python scripts/e4_water.py response_k --config configs/e4_job3.yaml --merge 2
+python scripts/e4_water.py kread --config configs/e4_job3.yaml --out_dir results/e4_job3
+python scratch/e4_job3_decompose.py --config configs/e4_job3.yaml --arm C   # chi: the energy against the dipoles' share
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

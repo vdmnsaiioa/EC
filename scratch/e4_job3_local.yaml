@@ -1,0 +1,39 @@
+# job 3's local reading (notes/e4-job3-preregistration.md section 3), as run in the container: the local frames
+# (13 cells: 10 calibration, 3 held out, from the container's own MB-pol MD, not in the repository) and job 2's local
+# read-outs (arm A matched on the probes at the 2.0 A mutual edge; arm B with liquid {weight: 0.1}; arm C with
+# {weight: 0.1, orders: zero}), each arm's config beside it with only data, liquid, model.mutual_edge_angstrom and
+# training.readout.liquid set.  Readings: scratch/e4_job3_local.json.
+data:
+  dir: e4_job1_local/data
+  probes: e4_job1_local/data/probes_mbpol.npz
+  response: job1/sweep/response_local.npz
+  response_k: job3/local/response_k_local.npz
+kread:
+  arms:
+    A:
+      config: job3/local/armA.yaml
+      out_dir: job3/local/armA
+    B:
+      config: job3/local/armB.yaml
+      out_dir: job3/local/armB
+    C:
+      config: job3/local/armC.yaml
+      out_dir: job3/local/armC
+  locality:
+    alpha_ref_angstrom3: 1.4075
+    iterations: 4
+    jac_chunk: 32
+    mu_ref_eangstrom: 0.15
+    ridge: 1.0e-06
+    weight: 1.0
+  order_zero_of:
+  - C
+  rung: M_16C2pm_us
+  splits:
+  - heldout
+  - calibration
+liquid:
+  calibration_frames: 10
+  heldout_frames: 3
+model:
+  mutual_edge_angstrom: 2.0

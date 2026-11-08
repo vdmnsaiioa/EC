@@ -1230,3 +1230,83 @@ moved, (ii) any change at contact that E₀ cannot absorb, which predicts about 
 
 **Code.** `scripts/e4_report.py --job2 A,B,C` reads arm C against the other arms, job 1 and the pre-registration.
 Tested on made-up runs (`tests/test_e4_report.py`), with arm C's config tested against arm B's.
+
+## v0.0.26, read 7 Nov — job 2's arm C: the order-0 calibration gains on both rungs (`notes/e4-job2c-results.md`)
+
+**Arm C ran** at e000642 as eight tasks of 2.9–3.4 h, one per run: 25.7 GPU hours. Read from the logs against
+`notes/e4-job2c-preregistration.md`. Rigid forces in kcal/mol/Å on the unseen frames, seed means at 64 / 128 / 256
+molecules:
+
+| | arm A (2.0 Å) | arm B (every order) | arm C (order 0) |
+|---|---|---|---|
+| frozen form | 0.551 / 0.563 / 0.563 | 0.555 / 0.564 / 0.566 | **0.545 / 0.554 / 0.557** |
+| ablation | 0.721 / 0.731 / 0.733 | 0.747 / 0.756 / 0.757 | **0.710 / 0.720 / 0.723** |
+| ε_∞ (MB-pol 1.6885); \|μ\| ÷ MB-pol's | 1.7434; 1.060 | 1.6887; 0.979 | 1.6893; 0.991 |
+
+- **C0 holds.** On every registered reading the calibration on 30 cells reads as the local one did, the same in all
+  eight runs before and after training: far probes 2 / 2 / 3 %, T5 1.0405.
+- **C1 and C2 hold: reading (i).**
+  - The ablation is 1.4–1.6 % below arm A's, on every seed at every size. Reading (ii) predicted +1.8 %.
+  - It is 4.5–4.9 % below arm B's. Arm B's cost was what it moved into the orders ≥ 1, as the derivative counting
+    says.
+- **C3 holds.** The ablation is below the dagger on 3 of 4 seeds, by 1.5–2.1 % in the seed means.
+- **C4 fails by an improvement.** The frozen form is 1.2–1.5 % below arm A's, every seed at or below.
+  - The dipoles' scale (6 % too large in arm A) was a bulk error that neither E₀ nor the field term had absorbed.
+  - The field term's gain is unchanged (23 %), and the training losses fall with it.
+- **Arm C's frozen form is E4's model.** It has the infrared exactly, and it is 10 % below job 1's frozen form and 3 %
+  below M_16†ᵐ_us.
+- **Proposed next:** the finite-k response, MB-pol's induced dipoles under a single-mode field on the same liquid
+  cells. It is read on arm C as a prediction of its orders ≥ 1 before it calibrates them.
+
+## v0.0.26 → v0.0.27 — job 3: the finite-k response and the locality test, pre-registered (`notes/e4-job3-preregistration.md`)
+
+**Why.** Arm C's order-0 coefficient is calibrated in the liquid, but its orders ≥ 1 are still the far probes', which
+do not identify them. By the workflow note's derivative counting, the response's k-dependence is what identifies them.
+Job 3 measures it in MB-pol and reads the read-outs job 2 matched against it, without training. Beside it runs the
+locality test: the order-0 coefficient calibrated on the liquid alone, with the far probes read out of state.
+
+**Code.**
+
+- `sseft/modes.py`: the cell's longitudinal plane waves and their derivatives.
+- `mbpol.set_site_fields` and `evaluated_sites`: a field set at every site MBX evaluates, including a replica's sites.
+- `model.mode_response`: every molecule's induced dipole, and χ_mode = −d²E/da².
+- `linear.solve_readout`: extra rows alone, and forward-mode Jacobians for blocks with many rows.
+- `liquid_block`'s rows `molecules`.
+- `scripts/e4_water.py response_k` (with `--part` and `--merge`) and `kread`; `configs/e4_job3.yaml`.
+- `tests/test_finite_k.py`, 8 tests: the modes against differences; the uniform limit; point dipoles at order 0;
+  translation; the extra-row solve; the response file on a fake MBX; the per-molecule rows; MBX's per-site field; the
+  config.
+
+**Local numbers** (13 cells, job 2's local read-outs; held-out cells). MB-pol's ε_L is 1.772 at k₁ = 0.51 Å⁻¹ and 2.090
+at k₂ = 1.01 Å⁻¹, against ε₀ 1.687.
+
+| read-out | χ(k₁) | χ(k₂) | molecules k₁ / k₂ | far probes 10–15 Å |
+|---|---|---|---|---|
+| A (far probes) | +3.1 % | −5.3 % | 7.8 / 8.2 % | 2.1–2.3 % |
+| B (liquid, every order) | +2.8 % | +4.6 % | 3.3 / 4.4 % | 2.1–2.8 % |
+| **C (liquid, order 0: E4's model)** | **−1.9 %** | **−11.5 %** | 3.7 / 4.7 % | 2.2–2.7 % |
+| C0 (C's order-0 sector) | +2.6 % | +3.5 % | 5.9 / 11.4 % | 6.0–7.7 % |
+| L (order 0 on the liquid's molecules alone) | +2.4 % | +3.2 % | 4.9 / 11.1 % | 5.4–6.7 % |
+
+- **Arm C misses MB-pol's response at the cutoff's scale through its far-probe orders ≥ 1.** They take 15 points at
+  k₂: of arm C's −11.7 % there, −7.0 points are the dipoles' share and the rest the higher moments' energy. Per
+  molecule, the same orders ≥ 1 help.
+- **The order-0 coefficient is local at this cutoff.**
+  - Calibrated on every liquid molecule alone, it fits the molecules' response to 1.1 % and their dipoles to 1.9 %, on
+    held-out cells as well as on the calibration cells (spread 0.99, r 0.97; arm C 1.14, 0.04).
+  - It predicts the vacuum cores' far field at 5.4–6.7 %: the order-0 class's own floor, 4.0–7.0 % when matched on the
+    probes themselves.
+- **The seven written expectations.**
+  - Three hold: MB-pol's k-dependence, arm A, and the locality test.
+  - Arm C's holds at k₁ and fails at k₂.
+  - The orders ≥ 1's direction at k₁ fails.
+  - The molecules fail by an improvement, and arm B's margin fails narrowly.
+
+**Registered for Niflheim** (K0–K6): MB-pol's ε_L on the 40 cells; arm C's χ(k₂) between −15 and −8 %; its order-0
+sector closer to MB-pol's; arms A and B; the locality test in state (L's held-out molecules within 2–3 %) and out of
+state (its far probes within 1.5× of the probe-matched order 0's, T5 0.95–1.10).
+
+- `run_e4_response_k.sbatch`: two CPU tasks.
+- `run_e4_job3.sbatch`: one GPU job, about an hour.
+
+**Next, if K1 holds:** arm D, the orders ≥ 1 calibrated on the finite-k response.

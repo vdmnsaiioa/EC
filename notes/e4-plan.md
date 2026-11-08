@@ -348,5 +348,17 @@ code is still open: CP2K, GPAW, VASP or QE.
    exact in the infrared and neutral for the frozen form's bulk, but it moved contact energy into the field-gradient
    orders (the ablation +2–5 %). Proposed: the calibration on the order-0 columns alone (v0.0.25), retrained.*
    *Registered 6 Nov as job 2's arm C (`e4-job2c-preregistration.md`, v0.0.26; Vadic's go of 6 Nov):
-   `run_e4_job2c.sbatch`, about 26 GPU hours.*
+   `run_e4_job2c.sbatch`, about 26 GPU hours.* *Run 7 Nov, eight tasks of 2.9–3.4 h; read in `e4-job2c-results.md`.
+   Arm B's cost was the orders ≥ 1: on the order-0 columns alone the calibration gains on both rungs, on every seed —
+   the ablation 1.4–1.6 % below arm A's (now 1.5–2.1 % below the dagger), the frozen form 1.2–1.5 % (0.545 kcal/mol/Å
+   at 64 molecules) — with ε_∞ 1.6893 against MB-pol's 1.6885. Arm C's frozen form is the model. Proposed next: the
+   finite-k response, read on arm C as a prediction of its orders ≥ 1 before it calibrates them.*
+   *Built 7–8 Nov as job 3 (v0.0.27, `e4-job3-preregistration.md`; Vadic's go of 7 Nov). It needs no training: MB-pol's
+   induced dipoles under longitudinal plane waves of the cell (k = 0.51 and 1.01 Å⁻¹) on job 2's 40 liquid cells, read
+   against arms A, B and C, arm C's order-0 sector, and the locality test. Locally (13 cells): MB-pol's ε_L is 1.772 and
+   2.090 (ε₀ 1.687). Arm C is −1.9 % and −11.5 % on the cells' susceptibility, through its far-probe orders ≥ 1; its
+   order-0 sector alone is +2.6 % and +3.5 %. The order-0 coefficient calibrated on every liquid molecule alone fits them
+   to 1–2 % and predicts the vacuum cores' far field at the order-0 class's floor: local at this cutoff.
+   `run_e4_response_k.sbatch`, then `run_e4_job3.sbatch`. Proposed after it: arm D, the orders ≥ 1 calibrated on the
+   finite-k response.*
 7. **The L₀ sweep** (Form II).

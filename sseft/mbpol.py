@@ -330,6 +330,27 @@ class MBPol:
                                                             ctypes.byref(ctypes.c_int(ns)))
         self._ext = None if field is None else E.copy()
 
+    def evaluated_sites(self, pos_ang, cell_ang=None):
+        """every site MBX evaluates, (4 n_eval, 3) A, in its order O, H, H, M per molecule: the cell's own and, for a
+        cell evaluated on a replica, every copy's after them (v0.0.27).  An energy evaluation places the M-sites."""
+        self.energy_kcal(pos_ang, cell_ang)
+        return self._site_arrays()[0].copy()
+
+    def set_site_fields(self, pos_ang, fields, cell_ang=None):
+        """an external field per site (e/A^2), (4 n_eval, 3) in evaluated_sites' order -- a non-uniform field, e.g. a
+        plane wave of the cell (sseft.modes), the same at every copy of a replica -- which the induced dipoles answer
+        self-consistently (v0.0.27).  The potential on the sites is left at zero, as in set_external_field: use the
+        induced dipoles, not the energy.  fields=None clears it."""
+        self._prep(pos_ang, cell_ang)
+        ns = SITES_PER_WATER * _SYSTEM["key"][0]
+        F = np.zeros((ns, 3)) if fields is None else np.asarray(fields, float)
+        if F.shape != (ns, 3):
+            raise ValueError(f"set_site_fields needs a field at each of the {ns} evaluated sites, got {F.shape}")
+        self.lib.set_potential_and_electric_field_on_sites_(self._dp(np.zeros(ns)),
+                                                            self._dp(np.ascontiguousarray(F.reshape(-1))),
+                                                            ctypes.byref(ctypes.c_int(ns)))
+        self._ext = None if fields is None else F.copy()
+
     def induced_response(self, pos_ang, cell_ang=None, delta=1e-4):
         """dM_ind/dE (3, 3), A^3, per cell: the induced dipoles' response to a uniform external field at clamped nuclei
         (central differences, field steps delta e/A^2; the response is linear, so the step only sets the rounding).

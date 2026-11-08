@@ -235,3 +235,25 @@ def test_job2_report(tmp_path):
     assert verdict("C3", "M_16C2pm [C]")["ok"] and verdict("C4", "M_16C2pm_us [C]")["ok"]
     assert g["C"][64] == pytest.approx(1 - 0.6045 / 0.7135)
     assert res["fixed"]["C"]["M_16C2pm [C]"][0]["kind"] == "response"
+
+
+def test_job3_report(tmp_path):
+    """job 3's registered readings (v0.0.27) on the local reading committed with the pre-registration
+    (scratch/e4_job3_local.json): every K holds there, the bands having been set around it; arm C closer to MB-pol at
+    k2 fails K1 and K3; without the locality test's read-out K5 and K6 fail on missing readings instead of breaking."""
+    import copy
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scratch", "e4_job3_local.json")
+    out = R.report_job3(path, verbose=False)
+    assert set(out) == {f"K{i}" for i in range(7)} and all(v["holds"] for v in out.values())
+    k = json.load(open(path))
+    moved = copy.deepcopy(k)
+    moved["C"]["k_heldout"]["harmonics"]["2"]["chi_rel_diff"] = -0.02
+    no_l = {x: v for x, v in copy.deepcopy(k).items() if x != "L"}
+    for name, d in (("moved.json", moved), ("no_l.json", no_l)):
+        with open(tmp_path / name, "w") as fh:
+            json.dump(d, fh)
+    m = R.report_job3(str(tmp_path / "moved.json"), verbose=False)
+    assert not m["K1"]["holds"] and not m["K3"]["holds"] and m["K0"]["holds"] and m["K6"]["holds"]
+    n = R.report_job3(str(tmp_path / "no_l.json"), verbose=True)
+    assert not n["K5"]["holds"] and not n["K6"]["holds"] and n["K1"]["holds"]
+    assert all(p["value"] is None for p in n["K6"]["parts"])

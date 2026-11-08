@@ -83,13 +83,17 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
     extra (v0.0.24): further rows of the objective, sum_k sum_i w_ki (t_ki - fn(params, b_k)_i)^2, given as {"fn",
     "batches", "targets", "weights"} -- e.g. job 2's liquid cells, fn their induced dipole and field response; always
     fitted (never held out), linearised with the rest, the ridge kept relative to the energy and force rows alone.
-    .extra_history holds that part's (before, after) of each step."""
+    .extra_history holds that part's (before, after) of each step.  v0.0.27: with w_energy = w_force = 0 the extra rows
+    are the whole objective (data then only sizes the problem; the ridge is relative to the extra rows); extra["jac"] =
+    "forward" takes their Jacobian by forward mode in chunks of extra.get("jac_chunk", 32) coefficients -- for blocks with
+    many rows (every molecule's response), whose reverse-mode Jacobian holds one cotangent per row in memory."""
     if not np.isfinite(scale) or scale <= 0:
         raise ValueError("scale must be finite and > 0")
     if any(not np.isfinite(value) or value < 0 for value in (w_energy, w_force, ridge)):
         raise ValueError("w_energy, w_force, and ridge must be finite and >= 0")
-    if w_energy + w_force == 0:
+    if w_energy + w_force == 0 and extra is None:
         raise ValueError("w_energy and w_force cannot both be zero")
+    rows = w_energy + w_force > 0                                    # the energy and force rows take part
     if isinstance(chunk, (bool, np.bool_)) or not isinstance(chunk, (int, np.integer)) or chunk < 1:
         raise ValueError("chunk must be an integer >= 1")
     if isinstance(iterations, (bool, np.bool_)) or not isinstance(iterations, (int, np.integer)) or iterations < 1:
@@ -129,7 +133,23 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
     if extra is not None:
         fx = extra["fn"]
         val_x = jax.jit(lambda cc, bb: fx(_with_last(params, cc, unflat), bb))
-        jac_x = jax.jit(jax.jacrev(lambda cc, bb: fx(_with_last(params, cc, unflat), bb)))
+        if extra.get("jac", "reverse") == "forward":
+            k = int(extra.get("jac_chunk", 32))
+            basis = np.eye(nc)
+            cols = jax.jit(lambda cc, bb, T: jax.vmap(
+                lambda t: jax.jvp(lambda x: fx(_with_last(params, x, unflat), bb), (cc,), (t,))[1])(T))
+
+            def jac_x(cc, bb):
+                parts = []
+                for i0 in range(0, nc, k):
+                    T = basis[i0:i0 + k]
+                    pad = k - len(T)
+                    if pad:                                            # one compiled shape for every chunk
+                        T = np.concatenate([T, np.zeros((pad, nc))])
+                    parts.append(np.asarray(cols(cc, bb, jnp.asarray(T)))[:k - pad])
+                return np.concatenate(parts).T                         # (rows, nc)
+        else:
+            jac_x = jax.jit(jax.jacrev(lambda cc, bb: fx(_with_last(params, cc, unflat), bb)))
         if not len(extra["batches"]) == len(extra["targets"]) == len(extra["weights"]):
             raise ValueError("extra needs one target and one weight vector per batch")
         blocks = [(bb, np.asarray(t, float), np.asarray(w, float))
@@ -140,7 +160,7 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
 
     def objective(cc):
         out = 0.0
-        for i0 in range(0, n, chunk):
+        for i0 in (range(0, n, chunk) if rows else ()):
             idx = np.arange(i0, min(i0 + chunk, n)); b = {k: v[idx] for k, v in data.items()}
             E1, F1 = val(jnp.asarray(cc), b); E1 = np.array(E1); F1 = np.array(F1)
             we = (w_energy * has_e[idx] / natoms[idx] ** 2 / cnt_e / scale ** 2)
@@ -153,7 +173,7 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
         held-out structures' constant term (their objective is c'A c - 2 c'b + k)."""
         A = {False: np.zeros((nc, nc)), True: np.zeros((nc, nc))}; r = {False: np.zeros(nc), True: np.zeros(nc)}
         k_held = 0.0
-        for i0 in range(0, n, chunk):
+        for i0 in (range(0, n, chunk) if rows else ()):
             idx = np.arange(i0, min(i0 + chunk, n))
             b = {k: v[idx] for k, v in data.items()}
             E0, F0 = val(c0, b); E0 = np.array(E0); F0 = np.array(F0)
@@ -175,6 +195,8 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
             y0 = np.array(val_x(c0, bb)); J = np.array(jac_x(c0, bb))
             A[False] += J.T @ (w[:, None] * J)
             r[False] += J.T @ (w * (t - y0 + J @ np.array(c0)))
+        if not rows:                                                # the extra rows alone: the ridge relative to them
+            traces = (float(np.trace(A[False])), float(np.trace(A[False])))
         return A, r, k_held, traces
 
     def solve(A, r, lam):

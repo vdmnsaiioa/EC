@@ -1,0 +1,66 @@
+# E4, job 3 (v0.0.27; pre-registration notes/e4-job3-preregistration.md): the finite-k response, no training.
+#
+# MB-pol's induced dipoles in a longitudinal plane-wave field of the cell (sseft.modes: k = 2 pi n / L along each axis,
+# n = 1, 2, cos and sin) on job 2's liquid frames -- the order-2 coefficients' data, which the far probes and the uniform
+# field do not identify (eft-of-lss-workflow.md section 5) -- read against the read-outs job 2 matched, held in their
+# output directories: arm A (the far probes), arm B (and the liquid's uniform response, every order), arm C (the same
+# at order 0: E4's model), arm C with its orders >= 1 off, and the locality test's read-out (order 0 on the liquid
+# molecules alone, the far probes then out of state).
+#
+#   python scripts/e4_water.py response_k --mbx external/mbx/build/MBX --config configs/e4_job3.yaml --part 0/2  (and 1/2)
+#   python scripts/e4_water.py response_k --config configs/e4_job3.yaml --merge 2
+#   python scripts/e4_water.py kread --config configs/e4_job3.yaml --out_dir results/e4_job3
+#
+# Its data, liquid and model sections are configs/e4_job2c.yaml's (tests/test_finite_k.py).
+experiment:
+  type: e4
+
+data:
+  dir: data/e4
+  train_size: 64
+  eval_sizes: [64, 128, 256]
+  probes: data/e4/probes_mbpol.npz
+  response: data/e4/response_mbpol.npz       # job 2's uniform response (run_e4_response.sbatch)
+  response_k: data/e4/response_k_mbpol.npz   # job 3's finite-k response (run_e4_response_k.sbatch)
+
+liquid:                             # the frames: job 2's (the same 30 calibration and 10 held-out frames)
+  calibration_frames: 30
+  heldout_frames: 10
+  delta: 1.0e-4
+
+liquid_k:                           # the modes of each frame: 3 axes x 2 harmonics x 2 phases = 12, 24 MBX solves
+  axes: [0, 1, 2]
+  harmonics: [1, 2]                 # k = 0.506 and 1.011 / A in the 64-molecule cells (L = 12.43 A)
+  phases: [0, 1]                    # cos, sin
+  delta: 1.0e-4                     # the mode's central-difference amplitude, e/A^2 (the response is linear)
+
+model:                              # job 2's (configs/e4_job2c.yaml): the response regulated at the 2.0 A mutual edge
+  r_cut_angstrom: 6.0
+  features: 32
+  band_edge_angstrom: 0.75
+  response_edge_angstrom: 0.75
+  mutual_edge_angstrom: 2.0
+  analytic_envelope_angstrom: 4.0
+  rs_over_l1: 0.0
+  charge_neutrality: fragment
+  ewald_b_max: 4.0
+  solver: gmres
+  solver_tol: 1.0e-10
+  K: 8
+  omega0: 0.3
+
+kread:
+  rung: M_16C2pm_us                 # the frozen form (its read-out is the C rungs' one, held through training)
+  arms:                             # each arm's matched read-out, from its cache in out_dir (or matched again there)
+    A: {config: configs/e4_job2a.yaml, out_dir: results/e4_job2a}
+    B: {config: configs/e4_job2b.yaml, out_dir: results/e4_job2b}
+    C: {config: configs/e4_job2c.yaml, out_dir: results/e4_job2c}
+  order_zero_of: [C]                # C0: arm C with its orders >= 1 off
+  splits: [heldout, calibration]
+  locality:                         # L: the order-0 columns on every calibration molecule's dipole and response alone
+    weight: 1.0
+    ridge: 1.0e-6                   # relative to these rows; set before the local fit, checked on its held-out cells
+    iterations: 4
+    alpha_ref_angstrom3: 1.4075
+    mu_ref_eangstrom: 0.15
+    jac_chunk: 32                   # the forward Jacobian in chunks of 32 coefficients (as run locally in 7 GB)

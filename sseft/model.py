@@ -381,6 +381,14 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
                                                 src_mask=None if same_frag is None else ~same_frag)
         if "E_ext" in b:
             Ef = Ef + b["E_ext"][None, :] * mask[:, None]                     # a uniform external field (clamped nuclei)
+        if "ext_field" in b:
+            # a non-uniform external field at the atoms with its first and second derivatives (v0.0.27: a mode of the
+            # cell, sseft.modes; mode_response), added to the band field's tensors the read-out reads
+            Ef = Ef + b["ext_field"] * mask[:, None]
+            if gE is not None:
+                gE = gE + b["ext_grad"] * mask[:, None, None]
+            if ggE is not None:
+                ggE = ggE + b["ext_grad2"] * mask[:, None, None, None]
         s_ro, unit = s, hp["e_scale"]
         if rung.bf_species:
             s_ro, unit = params["readout"]["embed"][Z] * mask[:, None], BF.SPECIES_UNIT
@@ -501,3 +509,33 @@ def molecular_response(params, rung: Rung, b):
     mu = lambda ext: fm @ energy_single(params, rung, {**b, "E_ext": ext})[1]["mu_ind"]
     z = jnp.zeros(3, b["positions"].dtype)
     return mu(z), jax.jacfwd(mu)(z)
+
+
+def mode_response(params, rung: Rung, b, u, g, h, per_atom=False):
+    """the response to a non-uniform external field of unit amplitude a, given at the atoms with its derivatives -- the
+    field u (N, 3), its gradient g (N, 3, 3) and second gradient h (N, 3, 3, 3) in atomic units (sseft.modes, positions
+    in bohr) -- at zero external field, clamped nuclei (v0.0.27):
+      per fragment, d mu_f / da (F, 3): the fragment's induced dipole, mu_i = -dE/dE_ext,i at each atom with the field's
+        derivatives held (the order-0 sector's mu_ind and the field-gradient terms of the orders >= 1), summed (per_atom:
+        the atoms' (N, 3) instead);
+      chi = -d^2 E / da^2: the mode's susceptibility, everything the read-out's energy does in the mode.
+    With g = h = 0 and u uniform, d mu_f / da is molecular_response's R_f u and chi = u.R.u (induced_response).  At
+    read-out order 0 the gradients do nothing and chi = sum_i u_i . d mu_i / da: point dipoles in the mode's field."""
+    dt = b["positions"].dtype
+    N = b["positions"].shape[0]
+    zf, zg, zh = jnp.zeros((N, 3), dt), jnp.zeros((N, 3, 3), dt), jnp.zeros((N, 3, 3, 3), dt)
+    u, g, h = (jnp.asarray(x, dt) for x in (u, g, h))
+
+    def energy(f, gg, hh):
+        return energy_single(params, rung, {**b, "ext_field": f, "ext_grad": gg, "ext_grad2": hh})[0]
+
+    def dipoles(f, gg, hh):
+        return -jax.grad(energy, argnums=0)(f, gg, hh)
+
+    _, dmu = jax.jvp(dipoles, (zf, zg, zh), (u, g, h))
+    e_a = lambda a: energy(a * u, a * g, a * h)
+    chi = -jax.jvp(jax.grad(e_a), (jnp.zeros((), dt),), (jnp.ones((), dt),))[1]
+    if per_atom:
+        return dmu, chi
+    fm = b["frag_mask"].astype(dt)
+    return fm @ dmu, chi
