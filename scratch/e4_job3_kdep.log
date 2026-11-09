@@ -1,0 +1,35 @@
+# scratch/e4_job3_kdep.py on the container's local frames (notes/e4-job3-results.md section 6e), 8 Nov 2026, run from
+# the scratch directory that holds the local data (scratch/e4_job3_local.yaml's paths):
+#   python scratch/e4_job3_kdep.py --config scratch/e4_job3_local.yaml --harmonics 1,2,3,4 --frames 1 --mbx mbx_src/MBX \
+#     --variant C2@E:M_16C2pm_us:E:matched_M_16C2pm_us_lEm_<probes>.pkl \
+#     --variant C2-orders0@E:M_16C2pm_us0:E:<the same> --variant C0class@E:M_16C0pm_us:E:matched_M_16C0pm_us_lEm_<probes>.pkl
+#   for the mutual edges E = 1.5, 2, 2.5 A (the sweep's read-outs, notes/e4-response-regulator.md section 2) and E = 0
+#   (job 1's: the mutual tensor at the 0.75 A response edge, the read-outs matched_M_16C{2,0}pm_us_l0.75_<probes>.pkl).
+heldout frames 1 of 3; harmonics [1, 2, 3, 4]: k 0.5055, 1.0110, 1.5165, 2.0220 /A
+  MB-pol frame 0  [201 s]
+  C2@0.75: rung M_16C2pm_us at the mutual edge 0 A, the cached rung the same; eps_inf 1.7994  [54 s]
+  C2-orders0@0.75: rung M_16C2pm_us at the mutual edge 0 A (orders >= 1 off), the cached rung the same; eps_inf 1.7994  [57 s]
+  C0class@0.75: rung M_16C0pm_us at the mutual edge 0 A, the cached rung the same; eps_inf 1.8176  [54 s]
+  C2@1.5: rung M_16C2pm_us at the mutual edge 1.5 A, the cached rung the same; eps_inf 1.7721  [56 s]
+  C2-orders0@1.5: rung M_16C2pm_us at the mutual edge 1.5 A (orders >= 1 off), the cached rung the same; eps_inf 1.7721  [56 s]
+  C0class@1.5: rung M_16C0pm_us at the mutual edge 1.5 A, the cached rung the same; eps_inf 1.7645  [51 s]
+  C2@2: rung M_16C2pm_us at the mutual edge 2 A, the cached rung the same; eps_inf 1.7423  [55 s]
+  C2-orders0@2: rung M_16C2pm_us at the mutual edge 2 A (orders >= 1 off), the cached rung the same; eps_inf 1.7423  [57 s]
+  C0class@2: rung M_16C0pm_us at the mutual edge 2 A, the cached rung the same; eps_inf 1.7196  [52 s]
+  C2@2.5: rung M_16C2pm_us at the mutual edge 2.5 A, the cached rung the same; eps_inf 1.7194  [56 s]
+  C2-orders0@2.5: rung M_16C2pm_us at the mutual edge 2.5 A (orders >= 1 off), the cached rung the same; eps_inf 1.7194  [55 s]
+  C0class@2.5: rung M_16C0pm_us at the mutual edge 2.5 A, the cached rung the same; eps_inf 1.6894  [52 s]
+
+MB-pol                   eps_inf 1.6870  chi(k)/chi(0+) - 1: k1   +6.99 %  k2  +28.33 %  k3  +61.00 %  k4  +94.12 %; from k1, k2: c2 0.2725 A^2, c4 +0.0046 A^4; k3 predicted +65.1 %; k4 predicted +119.1 %; fit c2 c4 c6 over all: 0.2774, +0.0028, -0.00352
+C2@0.75                  eps_inf 1.7994  chi(k)/chi(0+) - 1: k1   -6.26 %  k2  -25.42 %  k3  -59.26 %  k4 -112.61 %; from k1, k2: c2 -0.2438 A^2, c4 -0.0048 A^4; k3 predicted -58.6 %; k4 predicted -107.7 %; fit c2 c4 c6 over all: -0.2439, -0.0038, -0.00096
+C2-orders0@0.75          eps_inf 1.7994  chi(k)/chi(0+) - 1: k1   +3.42 %  k2  +13.28 %  k3  +27.83 %  k4  +42.22 %; from k1, k2: c2 0.1349 A^2, c4 -0.0048 A^4; k3 predicted +28.5 %; k4 predicted +47.1 %; fit c2 c4 c6 over all: 0.1349, -0.0038, -0.00096
+C0class@0.75             eps_inf 1.8176  chi(k)/chi(0+) - 1: k1   +3.35 %  k2  +13.25 %  k3  +28.79 %  k4  +45.43 %; from k1, k2: c2 0.1317 A^2, c4 -0.0020 A^4; k3 predicted +29.2 %; k4 predicted +50.5 %; fit c2 c4 c6 over all: 0.1302, +0.0010, -0.00138
+C2@1.5                   eps_inf 1.7721  chi(k)/chi(0+) - 1: k1   +1.29 %  k2   +3.83 %  k3   +1.61 %  k4  -15.16 %; from k1, k2: c2 0.0546 A^2, c4 -0.0167 A^4; k3 predicted +3.7 %; k4 predicted -5.6 %; fit c2 c4 c6 over all: 0.0600, -0.0221, -0.00041
+C2-orders0@1.5           eps_inf 1.7721  chi(k)/chi(0+) - 1: k1   +5.57 %  k2  +20.97 %  k3  +40.18 %  k4  +53.40 %; from k1, k2: c2 0.2223 A^2, c4 -0.0167 A^4; k3 predicted +42.3 %; k4 predicted +63.0 %; fit c2 c4 c6 over all: 0.2277, -0.0221, -0.00041
+C0class@1.5              eps_inf 1.7645  chi(k)/chi(0+) - 1: k1   +5.32 %  k2  +19.92 %  k3  +38.43 %  k4  +52.21 %; from k1, k2: c2 0.2125 A^2, c4 -0.0172 A^4; k3 predicted +39.8 %; k4 predicted +58.1 %; fit c2 c4 c6 over all: 0.2160, -0.0208, -0.00020
+C2@2                     eps_inf 1.7423  chi(k)/chi(0+) - 1: k1   +5.38 %  k2  +15.91 %  k3  +13.41 %  k4  -12.18 %; from k1, k2: c2 0.2287 A^2, c4 -0.0715 A^4; k3 predicted +14.8 %; k4 predicted -26.0 %; fit c2 c4 c6 over all: 0.2496, -0.1021, +0.00825
+C2-orders0@2             eps_inf 1.7423  chi(k)/chi(0+) - 1: k1   +9.94 %  k2  +34.16 %  k3  +54.49 %  k4  +60.85 %; from k1, k2: c2 0.4073 A^2, c4 -0.0715 A^4; k3 predicted +55.9 %; k4 predicted +47.1 %; fit c2 c4 c6 over all: 0.4283, -0.1021, +0.00825
+C0class@2                eps_inf 1.7196  chi(k)/chi(0+) - 1: k1   +9.69 %  k2  +32.97 %  k3  +52.21 %  k4  +58.41 %; from k1, k2: c2 0.3982 A^2, c4 -0.0740 A^4; k3 predicted +52.4 %; k4 predicted +39.1 %; fit c2 c4 c6 over all: 0.4165, -0.1021, +0.00860
+C2@2.5                   eps_inf 1.7194  chi(k)/chi(0+) - 1: k1  +10.16 %  k2  +25.99 %  k3  +14.24 %  k4  -22.50 %; from k1, k2: c2 0.4452 A^2, c4 -0.1868 A^4; k3 predicted +3.6 %; k4 predicted -130.3 %; fit c2 c4 c6 over all: 0.4694, -0.2399, +0.02729
+C2-orders0@2.5           eps_inf 1.7194  chi(k)/chi(0+) - 1: k1  +15.57 %  k2  +47.63 %  k3  +62.93 %  k4  +64.07 %; from k1, k2: c2 0.6570 A^2, c4 -0.1868 A^4; k3 predicted +52.3 %; k4 predicted -43.7 %; fit c2 c4 c6 over all: 0.6811, -0.2399, +0.02729
+C0class@2.5              eps_inf 1.6894  chi(k)/chi(0+) - 1: k1  +15.15 %  k2  +45.91 %  k3  +60.27 %  k4  +61.26 %; from k1, k2: c2 0.6409 A^2, c4 -0.1876 A^4; k3 predicted +48.2 %; k4 predicted -51.5 %; fit c2 c4 c6 over all: 0.6602, -0.2350, +0.02695

@@ -1,0 +1,32 @@
+# job 4's local reading (notes/e4-job4-preregistration.md section 3), as run in the container: job 3's local frames
+# (13 cells: 10 calibration, 3 held out, from the container's own MB-pol MD, not in the repository) and job 2's local
+# read-outs.  Arm C's is job 3's local one (job3/local/armC); arm D's config is arm C's with training.readout.finite_k
+# {weight: 0.1} (job4/local/armD.yaml).  At 1.5 and 2.5 A the far-probe stage comes from the local mutual-edge sweep
+# (notes/e4-response-regulator.md section 2), copied into each edge's directory; the liquid and finite-k stages are
+# solved here.  Run from the directory that holds the local data, one edge at a time:
+#   python scripts/e4_water.py kread --config scratch/e4_job4_local.yaml --out_dir job4/local --only C,C0,D,Dx \
+#       --out job4/local/kread_edge2.0.json    (and C@1.5,C0@1.5,D@1.5; C@2.5,C0@2.5,D@2.5)
+# Readings: scratch/e4_job4_local.json.
+data:
+  dir: e4_job1_local/data
+  probes: e4_job1_local/data/probes_mbpol.npz
+  response: job1/sweep/response_local.npz
+  response_k: job3/local/response_k_local.npz
+liquid:
+  calibration_frames: 10
+  heldout_frames: 3
+model:
+  mutual_edge_angstrom: 2.0
+kread:
+  rung: M_16C2pm_us
+  arms:
+    C: {config: job3/local/armC.yaml, out_dir: job3/local/armC}
+    D: {config: job4/local/armD.yaml, out_dir: job4/local/edge2.0}
+    Dx: {config: job4/local/armD.yaml, out_dir: job4/local/edge2.0, set: {training: {readout: {finite_k: {weight: 0.0}}}}}
+    C@1.5: {config: job3/local/armC.yaml, out_dir: job4/local/edge1.5, set: {model: {mutual_edge_angstrom: 1.5}}}
+    D@1.5: {config: job4/local/armD.yaml, out_dir: job4/local/edge1.5, set: {model: {mutual_edge_angstrom: 1.5}}}
+    C@2.5: {config: job3/local/armC.yaml, out_dir: job4/local/edge2.5, set: {model: {mutual_edge_angstrom: 2.5}}}
+    D@2.5: {config: job4/local/armD.yaml, out_dir: job4/local/edge2.5, set: {model: {mutual_edge_angstrom: 2.5}}}
+  order_zero_of: {C: C0, C@1.5: C0@1.5, C@2.5: C0@2.5}
+  splits: [heldout, calibration]
+  locality: null

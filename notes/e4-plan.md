@@ -360,5 +360,22 @@ code is still open: CP2K, GPAW, VASP or QE.
    order-0 sector alone is +2.6 % and +3.5 %. The order-0 coefficient calibrated on every liquid molecule alone fits them
    to 1–2 % and predicts the vacuum cores' far field at the order-0 class's floor: local at this cutoff.
    `run_e4_response_k.sbatch`, then `run_e4_job3.sbatch`. Proposed after it: arm D, the orders ≥ 1 calibrated on the
-   finite-k response.*
+   finite-k response.* *Run 8 Nov at a7cf750; the reading took 16 minutes on one GPU. Read in `e4-job3-results.md`: six
+   of the seven bands hold.*
+   - *MB-pol's ε_L is 1.773 and 2.092 on the 40 cells, k² up to k₂ (c₂ = 0.274 Å²).*
+   - *Arm C is −1.8 % and −11.0 %, through its far-probe orders ≥ 1. Its order-0 sector is +2.4 % and +3.3 %.*
+   - *The locality test holds in state and out of state.*
+   - *K4 fails on arm B. Its orders ≥ 1, moved by k = 0 data, do not reproduce from 10 to 30 calibration cells (+12.6 %
+     at k₂ against +4.6 %).*
+   - *Not registered: in the cells' χ(k) the orders ≥ 1 add exactly γk². The k⁴ term is the order-0 sector's, set by
+     the mutual edge: −8 % of χ(0⁺) at k₂ at 2.0 Å. So arm D's ceiling at that edge is ±1.1 % at k₁ and k₂ together.*
+   - *Proposed: job 4, arm D at matching level, with H3 read at 1.5 and 2.5 Å beside it.*
+   - *Built 8–9 Nov as job 4 (v0.0.28, `e4-job4-preregistration.md`; Vadic's go of 8 Nov). Arm D is arm C's read-out,
+     then its orders ≥ 1 alone on the far probes and the calibration cells' finite-k susceptibilities. Locally it reaches
+     the frozen form's ceiling at every edge: χ +1.4 / −0.5 % at 2.0 Å, with a frame sd of 0.07 points. Its costs are
+     the probes +0.2–0.5 points and the molecules at k₂ 7.1 % against 4.7 %.*
+   - *The control Dx (the orders ≥ 1 re-solved on the probes alone) shows that most of arm C's −11 % came from its
+     orders ≥ 1 being matched beside the uncalibrated order 0. The far probes do not pin them; the finite-k data do.*
+   - *`run_e4_job4.sbatch` (three GPU tasks), then the read; training (`run_e4_job4_train.sbatch`, about 26 GPU hours)
+     only after it.*
 7. **The L₀ sweep** (Form II).

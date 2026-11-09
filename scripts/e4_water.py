@@ -1,14 +1,15 @@
 """
 e4_water.py -- E4's training driver: the ladder on MB-pol's periodic water cells of one size L0 (notes/e4-plan.md
 sections 4 and 9; the pre-registrations are notes/e4-x3-preregistration.md and, for job 2,
-notes/e4-job2-preregistration.md; for job 3, notes/e4-job3-preregistration.md).  Six steps:
+notes/e4-job2-preregistration.md; for job 3, notes/e4-job3-preregistration.md; for job 4,
+notes/e4-job4-preregistration.md).  Six steps:
 
     python scripts/e4_water.py probes --mbx external/mbx/build/MBX [--config configs/e4_water.yaml]
     python scripts/e4_water.py response --mbx external/mbx/build/MBX [--config configs/e4_job2b.yaml]
     python scripts/e4_water.py train --config configs/e4_water.yaml [--rungs M_16C2pm_us] [--seeds 0] [--task 5]
     python scripts/e4_water.py summary --out_dir results/e4_job1
     python scripts/e4_water.py response_k --mbx external/mbx/build/MBX --config configs/e4_job3.yaml [--part 0/2]
-    python scripts/e4_water.py kread --config configs/e4_job3.yaml --out_dir results/e4_job3
+    python scripts/e4_water.py kread --config configs/e4_job3.yaml --out_dir results/e4_job3 [--only C,C0] [--out x.json]
 
 probes   MB-pol's far-field probes through MBX, E3's recipe (sseft.water.probe_configurations): Metropolis-relaxed cores
          of 3-5 molecules and one molecule at 8-15 A from the core's centre, with each core's own energy and forces and,
@@ -26,6 +27,8 @@ train    for every rung and seed (or one, --task i: rung i // n_seeds, seed i % 
               E_0 nor the seed (the species read-out's initialisation is fixed; E_0 sees nothing of a probe beyond r_c),
               so it is solved once per rung; with training.readout.liquid (job 2's arm B) a second stage adds the
               calibration cells' induced dipole and field response as rows, the probes' ridge kept (match_readout);
+              with training.readout.finite_k (job 4's arm D, v0.0.28) a third stage moves the orders >= 1 alone on the
+              probes and the calibration cells' finite-k susceptibilities (k_stage);
            2. the rung is trained on the cells of one size (Adam, then an L-BFGS polish; the read-out held), on the
               energies and on the forces' rigid-body part (sseft.train.rigid_force_sums: each molecule's net force and
               torque; the internal components carry the flux of MB-pol's geometry-dependent charges, which rigid pinned
@@ -42,7 +45,9 @@ response_k (job 3, v0.0.27) MB-pol's response of the same liquid cells to longit
 kread    (job 3) no training: the read-outs of kread.arms, held in their output directories, read on the finite-k and
          uniform responses with the far probes and T5 (model.mode_response); with the orders >= 1 off for
          kread.order_zero_of; and the locality test (kread.locality): the order-0 columns solved on every calibration
-         molecule's dipole and response alone, no probe in the objective, the far probes then out of state.
+         molecule's dipole and response alone, no probe in the objective, the far probes then out of state.  v0.0.28
+         (job 4): an arm's "set" overrides its config (another mutual edge, another stage), and --out names the json,
+         so that tasks reading different arms write different files.
 
 Energies are interaction energies (MBX's 1-body term off, every molecule's own energy zero), in hartree inside and in
 kcal/mol in the readings; forces in kcal/mol/A.
@@ -91,7 +96,8 @@ DEFAULTS = {
     # job 3 (v0.0.27): the plane-wave modes of the liquid cells (sseft.modes), on the frames of "liquid"
     "liquid_k": {"axes": [0, 1, 2], "harmonics": [1, 2], "phases": [0, 1], "delta": 1.0e-4},
     # job 3's reading (run_kread): the rung, the read-outs read (each arm's config and output directory, where its
-    # matched read-out is cached), which of them also with the orders >= 1 off, and the locality test (None: off)
+    # matched read-out is cached, and v0.0.28 "set": overrides of that config), which of them also with the orders
+    # >= 1 off (a list: label arm + "0"; a mapping: arm -> label), and the locality test (None: off)
     "kread": {"rung": "M_16C2pm_us", "arms": {}, "order_zero_of": [], "splits": ["heldout", "calibration"],
               "locality": None},
     "model": {"r_cut_angstrom": 6.0, "features": 32, "band_edge_angstrom": 0.75, "response_edge_angstrom": 0.75,
@@ -106,7 +112,7 @@ DEFAULTS = {
         "lbfgs": {"steps": 50, "chunk_size": 12, "memory_size": 10, "max_linesearch_steps": 20},
         "loss": {"energy_weight": 100.0, "force_weight": 1.0, "forces": "rigid"},
         "readout": {"orders": "all", "solve_iterations": 4, "ridge": 1.0e-8, "ridge_selection": "groups",
-                    "solve_chunk": 64, "liquid": None},
+                    "solve_chunk": 64, "liquid": None, "finite_k": None},
     },
     "probes": {"distances_angstrom": [8.0, 10.0, 12.0, 15.0], "train_per_distance": 2, "train_cores": 16,
                "train_core_sizes": [3, 4, 5], "test_per_distance": 10, "test_cores": 2, "seed": 400, "mc_steps": 300,
@@ -654,6 +660,44 @@ def order_zero(readout, n0):
     return {**readout, "theta": theta}
 
 
+def k_stage(rung_cell, resp_k, kq):
+    """job 4's arm D (v0.0.28; notes/e4-job4-preregistration.md): the read-out's third matching stage, its orders >= 1
+    moved on the far probes and on every calibration cell's susceptibility in every mode of the finite-k response,
+    chi_mode = -d^2E/da^2 (model.mode_chi), against MB-pol's -- the derivative counting's second step: the k = 0 data set
+    the order-0 coefficient (job 2's arm C), the k-dependence the orders >= 1 (notes/e4-job3-results.md section 6).
+    kq: training.readout.finite_k -- weight (0: no finite-k rows, the orders >= 1 re-solved on the probes alone, a
+    control).  The rows' unit is MB-pol's mean chi_mode at the mode's harmonic, over the calibration cells and modes, and
+    their weight kq["weight"] / (cells x modes): weight 0.1 makes a 1 % error of the cells' finite-k susceptibility cost
+    about the far probes' matched objective (~1e-5), as job 2's liquid weight does for the uniform response.  12 rows a
+    cell, their Jacobian by reverse mode.  Returns {"block" (LIN.solve_readout's extra, or None), "hash", "scale"}."""
+    tag = hashlib.sha256(json.dumps({**kq, "response_k": resp_k["hash"]}, sort_keys=True).encode()).hexdigest()[:8]
+    if float(kq["weight"]) <= 0:
+        return {"block": None, "hash": tag, "scale": {}}
+    cal = resp_k["calibration"]
+    modes = resp_k["modes"]
+    r = in_cell(replace(rung_cell, bf_solver="direct"), cal["structures"][0].cell)
+    nf, nm = len(cal["structures"]), len(modes)
+    chi_t = np.asarray(cal["chi"], float)                                 # (frames, modes), bohr^3
+    harm = np.array([m[1] for m in modes])
+    scale = {int(n): float(np.mean(chi_t[:, harm == n])) for n in sorted(set(harm.tolist()))}
+    w = float(kq["weight"]) / (nf * nm) / np.array([scale[int(n)] ** 2 for n in harm])
+    batches = []
+    for st in cal["structures"]:
+        b = {k: v[0] for k, v in S.pad_batch([st], n_freq=r.K).items()}
+        pos, cell = np.asarray(b["positions"]), np.asarray(st.cell)
+        mask = np.asarray(b["mask"], float)[:, None]
+        fields = [MD.mode_field(pos, cell, axis, n, phase) for axis, n, phase in modes]
+        batches.append({**b, "k_u": np.array([u * mask for u, _, _ in fields]),
+                        "k_g": np.array([g * mask[..., None] for _, g, _ in fields]),
+                        "k_h": np.array([h * mask[..., None, None] for _, _, h in fields])})
+
+    def fn(params, b):
+        bb = {k: v for k, v in b.items() if k not in ("k_u", "k_g", "k_h")}
+        return jax.lax.map(lambda x: M.mode_chi(params, r, bb, *x), (b["k_u"], b["k_g"], b["k_h"]))
+    block = {"fn": fn, "batches": batches, "targets": [chi_t[i] for i in range(nf)], "weights": [w] * nf}
+    return {"block": block, "hash": tag, "scale": scale}
+
+
 def read_response_k(params, rung_cell, resp_k, split="heldout", eps0=None):
     """on liquid cells, the model's response to the plane-wave modes (model.mode_response) against MB-pol's, harmonic by
     harmonic: the cells' longitudinal susceptibility chi(k) = (chi_cos + chi_sin) / V averaged over the axes and
@@ -749,14 +793,33 @@ def match_liquid_alone(name, rung_cell, rung_open, response, probes, scale, lc, 
     return readout, match
 
 
+def kread_arms(kc):
+    """kread's arms (jobs 3-4): [(arm, its config -- the arm's config file with its "set" overrides merged (v0.0.28) --,
+    its output directory)], and {arm: label} for the arms read with their orders >= 1 off (kread.order_zero_of: a list,
+    labelled arm + "0", or a mapping arm -> label)."""
+    oz = kc.get("order_zero_of") or []
+    oz = {arm: f"{arm}0" for arm in oz} if isinstance(oz, (list, tuple)) else dict(oz)
+    unknown = set(oz) - set(kc["arms"])
+    if unknown:
+        raise ValueError(f"kread.order_zero_of names arms not in kread.arms: {sorted(unknown)}")
+    arms = [(arm, merge(load_config(spec["config"]), spec.get("set") or {}), spec["out_dir"])
+            for arm, spec in kc["arms"].items()]
+    return arms, oz
+
+
 def run_kread(a):
     """job 3: the read-outs of kread.arms (their configs and output directories, where their matched read-outs are
     cached), read on MB-pol's finite-k response and the uniform one, with the far probes and T5; the orders >= 1
-    switched off for the arms in kread.order_zero_of; and the locality test (kread.locality).  No training."""
+    switched off for the arms in kread.order_zero_of; and the locality test (kread.locality).  No training.  Job 4
+    (v0.0.28): an arm's "set" overrides its config (merge), e.g. {model: {mutual_edge_angstrom: 1.5}}; an arm whose
+    config has training.readout.finite_k is matched through arm D's third stage (k_stage) and its record printed;
+    --out names the json (default out_dir/kread.json)."""
     cfg = load_config(a.config)
     kc, dcfg = cfg["kread"], cfg["data"]
     os.makedirs(a.out_dir, exist_ok=True)
-    out_path = os.path.join(a.out_dir, "kread.json")
+    out_path = getattr(a, "out", None) or os.path.join(a.out_dir, "kread.json")
+    if os.path.dirname(out_path):
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
     K, om = int(cfg["model"]["K"]), float(cfg["model"]["omega0"])
     train = W.e4_structures(os.path.join(dcfg["dir"], f"train_n{dcfg['train_size']}.npz"), pins=True, K=K, omega0=om)
     scale = T.energy_scale(train)
@@ -772,18 +835,29 @@ def run_kread(a):
                    "response_k": resp_k["hash"], "rung": name, "modes": resp_k["modes"], "energy_scale": scale}
     variants = []
     wanted = (lambda label: True) if not a.only else (lambda label: label in a.only.split(","))
-    for arm, spec in kc["arms"].items():
-        if not (wanted(arm) or (arm in kc.get("order_zero_of", []) and wanted(f"{arm}0"))):
+    arms, oz = kread_arms(kc)
+    for arm, cfg_arm, out_dir_arm in arms:
+        if not (wanted(arm) or (arm in oz and wanted(oz[arm]))):
             continue
-        cfg_arm = load_config(spec["config"])
         rung_cell, rung_open = rungs_for(name, cfg_arm, train[0].cell)
         lq = cfg_arm["training"]["readout"].get("liquid")
+        kq = cfg_arm["training"]["readout"].get("finite_k")
         liquid = liquid_block(rung_cell, response, lq) if lq else None
-        readout, match = matched(name, rung_open, probes, scale, cfg_arm, spec["out_dir"], liquid=liquid)
+        fk = k_stage(rung_cell, resp_k, kq) if kq else None
+        readout, match = matched(name, rung_open, probes, scale, cfg_arm, out_dir_arm, liquid=liquid, finite_k=fk)
+        if fk is not None:
+            steps = match["objective"][-int(match.get("finite_k_stage_steps") or 1):]
+            print(f"  {arm}: " + (f"the orders >= 1 on the finite-k response ({json.dumps(kq)}; MB-pol's mean chi_mode "
+                                  + ", ".join(f"{v:.4g} bohr^3 at harmonic {n}" for n, v in fk["scale"].items()) + ")"
+                                  if fk["block"] is not None else "the orders >= 1 re-solved on the probes alone (the "
+                                  "control: no finite-k rows)")
+                  + ": the stage's objective " + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in steps)
+                  + ("; the finite-k rows " + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in match["finite_k_objective"])
+                     if match.get("finite_k_objective") else ""), flush=True)
         variants.append((arm, rung_cell, rung_open, readout, match))
-        if arm in kc.get("order_zero_of", []):
+        if arm in oz:
             n0 = 2 * int(rung_open.e0.get("n_rbf_readout", rung_open.e0["n_rbf"]))
-            variants.append((f"{arm}0", rung_cell, rung_open, order_zero(readout, n0), {}))
+            variants.append((oz[arm], rung_cell, rung_open, order_zero(readout, n0), {}))
     if kc.get("locality") and wanted("L"):
         rung_cell, rung_open = rungs_for(name, cfg, train[0].cell)
         readout, match = match_liquid_alone(name, rung_cell, rung_open, response, probes, scale, kc["locality"], a.out_dir)
@@ -818,12 +892,15 @@ def with_readout(params, readout):
     return {**params, "readout": jax.tree_util.tree_map(jnp.asarray, readout)}
 
 
-def match_readout(rung_open, probes, scale, cfg, verbose=True, liquid=None, start=None):
+def match_readout(rung_open, probes, scale, cfg, verbose=True, liquid=None, start=None, finite_k=None):
     """the read-out's parameters matched on the training probes beyond r_c of their cores (E3-QP2's far_first stage,
     E3.far_field_blind): energies only, every order, Gauss-Newton steps, the ridge chosen on held-out cores.  With
     liquid (job 2's arm B, liquid_block) a second stage from that solution -- start, (read-out, record) as matched()
     keeps it, or solved first -- with MB-pol's induced dipole and field response of liquid cells as further rows
-    (LIN.solve_readout's extra), the probes' ridge kept."""
+    (LIN.solve_readout's extra), the probes' ridge kept.  With finite_k (job 4's arm D, k_stage; v0.0.28) a third stage
+    from start: the orders >= 1 alone on the probes and the calibration cells' finite-k susceptibilities, the probes'
+    ridge kept; the liquid's k = 0 rows are not in it (they constrain the orders >= 1 only through the cells' dipole at
+    zero field, which is what moved arm B's)."""
     ro = cfg["training"]["readout"]
     blind = E3.far_field_blind(probes["train"], cfg["model"]["r_cut_angstrom"])
     idx = np.flatnonzero(blind)
@@ -847,7 +924,7 @@ def match_readout(rung_open, probes, scale, cfg, verbose=True, liquid=None, star
         params = with_readout(params0, start[0])
         hist, ridges = [tuple(h) for h in start[1]["objective"]], list(start[1]["ridge"])
         t0 -= start[1]["time"]
-    hist_x = []
+    hist_x, hist_k = [], []
     if liquid is not None:
         # job 2's calibration, a second stage from the far-field solution: the probes and the liquid cells' response
         # together, Gauss-Newton steps (halved where they overshoot), the probes' ridge kept
@@ -859,25 +936,47 @@ def match_readout(rung_open, probes, scale, cfg, verbose=True, liquid=None, star
                                            iterations=int(ro["solve_iterations"]), extra=liquid["block"])
         hist += [(float(b), float(c)) for b, c in report.history]
         hist_x = [(float(b), float(c)) for b, c in report.extra_history]
+    n_k = 0
+    if finite_k is not None:
+        # job 4's arm D: a third stage from start (arm C's read-out), the orders >= 1 alone on the probes and the
+        # calibration cells' finite-k susceptibilities (none with weight 0: the control), the probes' ridge kept
+        rel = ridges[0] if ridges else float(ro["ridge"])
+        kw = {} if finite_k["block"] is None else {"extra": finite_k["block"]}
+        n_k = 0 if finite_k["block"] is None else len(finite_k["block"]["batches"])
+        params, report = LIN.solve_readout(params, rung_open, data, scale, w_force=0.0, ridge=rel,
+                                           chunk=int(ro["solve_chunk"]),
+                                           w_energy=float(cfg["training"]["loss"]["energy_weight"]),
+                                           orders="higher", iterations=int(ro["solve_iterations"]), **kw)
+        hist += [(float(b), float(c)) for b, c in report.history]
+        hist_k = [(float(b), float(c)) for b, c in report.extra_history] if kw else []
     if verbose:
         print(f"  read-out matched on {len(idx)} of {len(probes['train'])} training probes (beyond r_c of their cores)"
               + (f" and {len(liquid['block']['batches'])} liquid cells' response" if liquid is not None else "")
+              + (f", then its orders >= 1 on {n_k} cells' finite-k response" if finite_k is not None and n_k else "")
+              + (", then its orders >= 1 on the probes alone" if finite_k is not None and not n_k else "")
               + ": objective " + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in hist)
               + (" (the liquid rows: " + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in hist_x) + ")" if hist_x else "")
+              + (" (the finite-k rows: " + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in hist_k) + ")" if hist_k else "")
               + (f" (ridge {ridges[0]:.0e})" if ridges else "") + f"  [{time.time() - t0:.0f} s]", flush=True)
     out = {"probes": int(len(idx)), "objective": hist, "ridge": ridges, "time": time.time() - t0}
     if liquid is not None:
         out.update(liquid_objective=hist_x, liquid_cells=len(liquid["block"]["batches"]), liquid_hash=liquid["hash"])
+    elif start is not None:                                          # arm D: arm C's liquid record, kept
+        out.update({k: v for k, v in start[1].items() if k.startswith("liquid_")})
+    if finite_k is not None:
+        out.update(finite_k_objective=hist_k, finite_k_cells=n_k, finite_k_hash=finite_k["hash"],
+                   finite_k_stage_steps=len(report.history))
     return params, out
 
 
-def matched(name, rung_open, probes, scale, cfg, out_dir, liquid=None):
+def matched(name, rung_open, probes, scale, cfg, out_dir, liquid=None, finite_k=None):
     """the rung's matched read-out, from out_dir's cache (written once per rung and probe set, atomically, so that the
     tasks of an array job share it) or solved now; with the far-field test probes read on it before any training
     (E_0 at its initialisation: the probes at 10-15 A lie beyond r_c of every core atom, those at 8 A not all).
     liquid (job 2's calibration, liquid_block): MB-pol's response of liquid cells as further matching rows, from the
-    far-field read-out (itself from the cache, or matched and cached first)."""
-    tag = "" if liquid is None else "_liq" + liquid["hash"]
+    far-field read-out (itself from the cache, or matched and cached first).  finite_k (job 4's arm D, k_stage): the
+    orders >= 1 then moved on the finite-k response, from the read-out matched with liquid (cached the same way)."""
+    tag = ("" if liquid is None else "_liq" + liquid["hash"]) + ("" if finite_k is None else "_k" + finite_k["hash"])
     path = os.path.join(out_dir, f"matched_{name}_{probes['hash']}{tag}.pkl")
     key = repr(rung_open) + tag
     if os.path.exists(path):
@@ -888,8 +987,12 @@ def matched(name, rung_open, probes, scale, cfg, out_dir, liquid=None):
                   + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in got["match"]["objective"]), flush=True)
             return got["readout"], got["match"]
         print(f"  {path} was matched for another rung or scale: matched again", flush=True)
-    start = None if liquid is None else matched(name, rung_open, probes, scale, cfg, out_dir)   # arm B: from arm A's
-    params, match = match_readout(rung_open, probes, scale, cfg, liquid=liquid, start=start)
+    if finite_k is not None:                                       # arm D: from arm C's (or, without liquid, arm A's)
+        start = matched(name, rung_open, probes, scale, cfg, out_dir, liquid=liquid)
+        params, match = match_readout(rung_open, probes, scale, cfg, start=start, finite_k=finite_k)
+    else:
+        start = None if liquid is None else matched(name, rung_open, probes, scale, cfg, out_dir)   # arm B: from arm A's
+        params, match = match_readout(rung_open, probes, scale, cfg, liquid=liquid, start=start)
     t0 = time.time()
     match["probes_before_training"] = read_probes(params, rung_open, probes)
     print(f"  {name}: far-field probes on the matched read-out, before training: "
@@ -1048,18 +1151,34 @@ def run_train(a):
     elif lq:
         raise FileNotFoundError(f"training.readout.liquid needs MB-pol's liquid response {dcfg.get('response')}: "
                                 "scripts/e4_water.py response --mbx ...")
+    kq, resp_k = tr["readout"].get("finite_k"), None
+    if kq:                                                           # job 4's arm D (v0.0.28)
+        if not (dcfg.get("response_k") and os.path.exists(dcfg["response_k"])):
+            raise FileNotFoundError(f"training.readout.finite_k needs MB-pol's finite-k response {dcfg.get('response_k')}:"
+                                    " scripts/e4_water.py response_k --mbx ...")
+        resp_k = load_response_k(dcfg["response_k"], cfg, response)
+        print(f"finite-k response {dcfg['response_k']} (hash {resp_k['hash']}): modes {resp_k['modes']}; the read-out's "
+              f"orders >= 1 then calibrated on its calibration cells, {json.dumps(kq)}", flush=True)
     for name in rungs:
         rung, rung_open = rungs_for(name, cfg, train[0].cell)
         readout, match = None, None
         if rung.band_fields >= 0:
             liquid = liquid_block(rung, response, lq) if lq else None
-            readout, match = matched(name, rung_open, probes, scale, cfg, out_dir, liquid=liquid)
+            fk = k_stage(rung, resp_k, kq) if kq else None
+            readout, match = matched(name, rung_open, probes, scale, cfg, out_dir, liquid=liquid, finite_k=fk)
             if response is not None and len(response.get("heldout", {}).get("structures", [])):
                 t1 = time.time()
                 p0 = with_readout(M.init_params(jax.random.PRNGKey(0), rung_open, energy_scale=scale), readout)
                 match = {**match, "liquid_before_training": read_liquid(p0, rung, response)}
                 print(f"  {name}: {liquid_line(match['liquid_before_training'])} on the matched read-out, before training"
                       f"  [{time.time() - t1:.0f} s]", flush=True)
+                if resp_k is not None:
+                    t1 = time.time()
+                    v = match["liquid_before_training"]
+                    match["k_before_training"] = read_response_k(p0, rung, resp_k, "heldout",
+                                                                 (v["eps_inf_model"], v["eps_inf_truth"]))
+                    print(f"  {name}: finite k (held out) {k_line(match['k_before_training'])} on the matched read-out, "
+                          f"before training  [{time.time() - t1:.0f} s]", flush=True)
         for seed in seeds:
             t0 = time.time()
             print(f"{name} seed {seed}: training on {len(train)} cells (n_max {rung.ewald_n_max}, solver "
@@ -1187,10 +1306,11 @@ def main():
     q.add_argument("--out", default=None, help="the finite-k response file (default: the config's data.response_k)")
     q.add_argument("--part", default=None, help="i/n: the i-th of n shares of the frames, into a part file")
     q.add_argument("--merge", type=int, default=0, help="n: join the n part files into the response file")
-    k = sub.add_parser("kread", help="job 3: read-outs on the finite-k and uniform responses, and the locality test")
+    k = sub.add_parser("kread", help="jobs 3-4: read-outs on the finite-k and uniform responses, the locality test")
     k.add_argument("--config", default=None)
     k.add_argument("--out_dir", default="results/e4_job3")
     k.add_argument("--only", default=None, help="comma-separated variants to read (default: all)")
+    k.add_argument("--out", default=None, help="the json (default: out_dir/kread.json); v0.0.28")
     a = ap.parse_args()
     if a.cmd == "response_k" and not a.merge and not a.mbx:
         ap.error("response_k needs --mbx (or --merge n)")

@@ -398,6 +398,37 @@ python scripts/e4_water.py response_k --mbx external/mbx/build/MBX --config conf
 python scripts/e4_water.py response_k --config configs/e4_job3.yaml --merge 2
 python scripts/e4_water.py kread --config configs/e4_job3.yaml --out_dir results/e4_job3
 python scratch/e4_job3_decompose.py --config configs/e4_job3.yaml --arm C   # chi: the energy against the dipoles' share
+python scripts/e4_report.py --job3 results/e4_job3/kread.json                 # the bands K0-K6
+```
+
+Job 3's read is `notes/e4-job3-results.md`. Arm C's far-probe orders ≥ 1 miss MB-pol's finite-k response at
+k₂ = 1.01 Å⁻¹ (−11.0 %), and its order-0 sector does not (+3.3 %). The order-0 coefficient calibrated on the liquid
+alone predicts the vacuum cores' far field, so it is local at this cutoff. `scratch/e4_job3_kdep.py` reads q(k) =
+χ(k)/χ(0⁺) − 1 by read-out and mutual edge, at any harmonics of the cell, with MB-pol's beside it (`--mbx`).
+
+- MB-pol's q is k² up to k₂.
+- The read-out's orders ≥ 1 add exactly γk².
+- The order-0 sector's k⁴ term is set by the mutual edge.
+
+**Job 4** (v0.0.28; `configs/e4_job4.yaml`; pre-registration `notes/e4-job4-preregistration.md`) is arm D: arm C's
+read-out, then its orders ≥ 1 calibrated on MB-pol's finite-k response. It is read at matching level first, with H3 at
+the 1.5 and 2.5 Å mutual edges beside it, and trained only after that read.
+
+- `model.mode_chi`: one mode's χ = −d²E/da² alone.
+- `linear.solve_readout(orders="higher")`: the orders ≥ 1 columns alone. The order-0 columns and the node term are held.
+- `scripts/e4_water.py`:
+  - `k_stage` builds the third matching stage's rows: every calibration cell's χ_mode in each of job 3's 12 modes,
+    relative to MB-pol's mean at the harmonic (`training.readout.finite_k: {weight: 0.1}`), beside the far probes'
+    rows. With weight 0 there are no such rows (the control Dx).
+  - `matched` caches the stage after arm C's, as `..._liq<h>_k<h>.pkl`.
+  - `train` reads the finite-k response before training.
+  - `kread` takes `set` overrides per arm, `order_zero_of` as a mapping to labels, and `--out`.
+- `scripts/e4_report.py --job4` reads the bands from every `kread*.json` in a directory.
+
+```sh
+sbatch run_e4_job4.sbatch                  # three GPU tasks, one per mutual edge: results/e4_job4/kread_edge*.json
+python scripts/e4_report.py --job4 results/e4_job4
+sbatch run_e4_job4_train.sbatch            # only after that read: eight runs, about 26 GPU hours
 ```
 
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching

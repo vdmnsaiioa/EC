@@ -30,28 +30,35 @@ class SolveReport(tuple):
         return obj
 
 
-def _flat_last(readout, n0):
-    """the output-layer parameters of the read-out as one vector -- the first n0 output columns of the pair
-    coefficients (order 0: the two order-0 invariants' radial columns; all columns: every order) and the node term --
-    and the inverse.  At order 0 alone the orders >= 1 stay at zero and switch on in the L-BFGS polish: with ~2000
-    output coefficients at order 2 against ~1700 equations (E3-R's 36 clusters) the plain solve is under-determined and
-    over-fits the training set (126 % of the non-additive energy against 44-51 % at order 0)."""
+def _flat_last(readout, n0, start=0, node=True):
+    """the output-layer parameters of the read-out as one vector -- the output columns start..n0 of the pair
+    coefficients (order 0: the two order-0 invariants' radial columns; all columns: every order; v0.0.28, from
+    the order-0 columns' end: the orders >= 1 alone) and, with node, the node term -- and the inverse.  At order 0 alone
+    the orders >= 1 stay at zero and switch on in the L-BFGS polish: with ~2000 output coefficients at order 2 against
+    ~1700 equations (E3-R's 36 clusters) the plain solve is under-determined and over-fits the training set (126 % of
+    the non-additive energy against 44-51 % at order 0)."""
     th = readout["theta"][-1]
-    leaves = [th["w"][:, :n0], th["b"][:n0], readout["iso"][-1]["w"], readout["iso"][-1]["b"]]
+    leaves = [th["w"][:, start:n0], th["b"][start:n0]]
+    if node:
+        leaves += [readout["iso"][-1]["w"], readout["iso"][-1]["b"]]
     shapes = [l.shape for l in leaves]; sizes = [int(np.prod(s)) for s in shapes]
     def unflat(c):
         out = []; i = 0
         for sh, n in zip(shapes, sizes):
             out.append(c[i:i + n].reshape(sh)); i += n
         return out
+    unflat.columns, unflat.node = (start, n0), node
     return jnp.concatenate([l.reshape(-1) for l in leaves]), unflat
 
 
 def _with_last(params, c, unflat):
-    w1, b1, w2, b2 = unflat(c)
-    ro = dict(params["readout"]); th = ro["theta"][-1]; n0 = w1.shape[1]
-    ro["theta"] = list(ro["theta"]); ro["theta"][-1] = {"w": th["w"].at[:, :n0].set(w1), "b": th["b"].at[:n0].set(b1)}
-    ro["iso"] = list(ro["iso"]); ro["iso"][-1] = {"w": w2, "b": b2}
+    parts = unflat(c)
+    a, z = unflat.columns
+    ro = dict(params["readout"]); th = ro["theta"][-1]
+    ro["theta"] = list(ro["theta"])
+    ro["theta"][-1] = {"w": th["w"].at[:, a:z].set(parts[0]), "b": th["b"].at[a:z].set(parts[1])}
+    if unflat.node:
+        ro["iso"] = list(ro["iso"]); ro["iso"][-1] = {"w": parts[2], "b": parts[3]}
     return {**params, "readout": ro}
 
 
@@ -74,7 +81,8 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
     """set the read-out's output layers to the weighted least-squares optimum of the training objective (energies per
     atom and forces, scaled as in train.make_loss_sums, per-structure weights included), the rest of the model fixed.
     w_energy and w_force match train.make_loss; ridge is relative to the average diagonal of the normal matrix.
-    orders: "zero" (the order-0 columns) or "all" (every order's).  iterations > 1: Gauss-Newton steps, each the
+    orders: "zero" (the order-0 columns), "all" (every order's) or "higher" (v0.0.28: the orders >= 1 columns alone,
+    the order-0 columns and the node term held -- arm D's third stage).  iterations > 1: Gauss-Newton steps, each the
     regularised least-squares problem of the model linearised at the current coefficients (one step is exact for the
     first-order read-out), stopped when a step does not lower the objective.  ridge_grid with groups: the ridge is the
     grid value whose solution, fitted without every fifth group, has the lowest objective on those groups (chosen at
@@ -98,13 +106,16 @@ def solve_readout(params, rung, data, scale, w_force=10.0, ridge=1e-8, chunk=12,
         raise ValueError("chunk must be an integer >= 1")
     if isinstance(iterations, (bool, np.bool_)) or not isinstance(iterations, (int, np.integer)) or iterations < 1:
         raise ValueError("iterations must be an integer >= 1")
-    if orders not in ("zero", "all"):
-        raise ValueError("orders must be 'zero' or 'all'")
+    if orders not in ("zero", "all", "higher"):
+        raise ValueError("orders must be 'zero', 'all' or 'higher'")
     n = int(data["mask"].shape[0])
     held = _validation_split(groups, n) if ridge_grid is not None else np.zeros(n, dtype=bool)
     nr = rung.e0.get("n_rbf_readout", rung.e0["n_rbf"])
-    n0 = 2 * nr if orders == "zero" else int(params["readout"]["theta"][-1]["w"].shape[1])
-    c, unflat = _flat_last(params["readout"], n0)
+    n_all = int(params["readout"]["theta"][-1]["w"].shape[1])
+    if orders == "higher" and n_all <= 2 * nr:
+        raise ValueError("orders='higher' needs a read-out with orders >= 1")
+    c, unflat = {"zero": lambda ro: _flat_last(ro, 2 * nr), "all": lambda ro: _flat_last(ro, n_all),
+                 "higher": lambda ro: _flat_last(ro, n_all, start=2 * nr, node=False)}[orders](params["readout"])
     nc = len(c)
     # counts for the objective's normalisation (as in make_loss_sums over the whole set)
     wgt = np.array(data["weight"]); has_e = np.array(data["has_energy"]) * wgt * np.array(data.get("energy_weight", 1.0))

@@ -1310,3 +1310,85 @@ state (its far probes within 1.5× of the probe-matched order 0's, T5 0.95–1.1
 - `run_e4_job3.sbatch`: one GPU job, about an hour.
 
 **Next, if K1 holds:** arm D, the orders ≥ 1 calibrated on the finite-k response.
+
+## v0.0.27, read 8 Nov — job 3: arm C's orders ≥ 1 miss the finite-k response, and the order-0 coefficient is local (`notes/e4-job3-results.md`)
+
+**Job 3 ran** at a7cf750: MB-pol's finite-k response in two CPU tasks, then the reading on one GPU in 16 minutes. It
+was read with `scripts/e4_report.py --job3` against `notes/e4-job3-preregistration.md` §4. Held-out cells; χ against
+MB-pol's at k₁ = 0.51 and k₂ = 1.01 Å⁻¹:
+
+| read-out | χ(k₁) | χ(k₂) | molecules k₁ / k₂ | the k² coefficient c₂ (MB-pol 0.275 Å²) |
+|---|---|---|---|---|
+| A (far probes) | +3.2 % | −4.7 % | 7.8 / 8.4 % | 0.241 |
+| B (liquid, every order) | +5.2 % | **+12.6 %** | 4.3 / 8.2 % | 0.510 |
+| **C (E4's model)** | **−1.8 %** | **−11.0 %** | 3.8 / 5.5 % | 0.215 |
+| C0 (C's order-0 sector) | +2.4 % | +3.3 % | 5.8 / 11.3 % | 0.394 |
+| L (order 0 on the liquid alone) | +2.4 % | +3.2 % | 4.8 / 11.1 % | 0.394 |
+
+- **Six of the seven bands hold.**
+  - K0: MB-pol's ε_L is 1.7734 and 2.0916 on the 40 cells.
+  - K1–K3, the main prediction: arm C's far-probe orders ≥ 1 mispredict the response at k₂, and its order-0 sector does
+    not.
+  - K5–K6, the locality test. L fits the held-out molecules to 2.0 % (dipoles) and 1.1 % (response), r 0.97. Its far
+    probes are 6.7 / 5.4 / 5.2 % at 10 / 12 / 15 Å and T5 1.025, at the order-0 class's floor.
+- **K4 fails on arm B.** Its orders ≥ 1 were moved by k = 0 data. From 10 calibration cells to 30 they moved by 8 points
+  at k₂, with the same k = 0 fit, while arms A and C reproduce the local reading to 0.7 points. The k = 0 data do not
+  identify them.
+- **Not registered: the k-dependence order by order.**
+  - MB-pol's χ(k) is k² up to k₂: q(k₂)/q(k₁) = 4.001.
+  - The read-out's orders ≥ 1 add exactly γk² to the cells' χ: arm C less C0 is 4.0000 times larger at k₂ than at k₁.
+  - Every read-out's k⁴ term is the order-0 sector's: −8 % of χ(0⁺) at k₂.
+- **The mutual edge sets that k⁴ term** (`scratch/e4_job3_kdep.py`, one local frame).
+  - c₄ is −0.005, −0.017, −0.072 and −0.187 Å⁴ at 0.75, 1.5, 2.0 and 2.5 Å.
+  - The far probes' orders ≥ 1 shift c₂ by −0.17 to −0.38 Å² at every edge.
+  - At 2.0 Å, γ alone can bring χ to ±1.1 % at k₁ and k₂ together. Arm C's γ is three times the γ that does it.
+- **Proposed: job 4, arm D at matching level.** Arm C's orders ≥ 1 calibrated on the calibration cells' χ_mode, with the
+  probes kept. H3 is read at 1.5 and 2.5 Å beside it. Then training.
+
+## v0.0.27 → v0.0.28 — job 4: arm D, the orders ≥ 1 calibrated on the finite-k response, pre-registered (`notes/e4-job4-preregistration.md`)
+
+**Why.** Job 3 read arm C's orders ≥ 1 as wrong at the cutoff's scale: χ(k₂) is −11.0 %, its order-0 sector's +3.3 %.
+In the cells' χ(k) they are one number, γk². Arm D takes the derivative counting's second step: arm C's read-out, then
+its orders ≥ 1 alone on the far probes and the calibration cells' finite-k susceptibilities. It is read at matching
+level, with H3 at the 1.5 and 2.5 Å mutual edges and a control (Dx: the orders ≥ 1 re-solved on the probes alone).
+
+**Code.**
+
+- `model.mode_chi`.
+- `linear.solve_readout(orders="higher")`: the orders ≥ 1 columns alone.
+- `scripts/e4_water.py k_stage` and the third stage of `match_readout` and `matched` (`training.readout.finite_k`).
+- `train` reads the finite-k response before training.
+- `kread` takes `set` overrides per arm, `order_zero_of` as a mapping, and `--out`.
+- `scripts/e4_report.py --job4`; `configs/e4_job4.yaml`.
+- `tests/test_arm_d.py`, 6 tests: `mode_chi` and its linearity in the orders ≥ 1; the higher-order solve holding order 0;
+  the finite-k rows; the third stage; the cache chain; the config. Also `test_job4_report`.
+
+**Local numbers** (13 cells; held-out cells). At 2.0 Å:
+
+| read-out | χ(k₁) | χ(k₂) | χ(k₂)'s frame sd | molecules k₁ / k₂ | far probes 10–15 Å |
+|---|---|---|---|---|---|
+| C (E4's model) | −1.9 % | −11.5 % | 0.29 | 3.7 / 4.7 % | 2.2–2.7 % |
+| C0 (its order-0 sector) | +2.6 % | +3.5 % | 0.27 | 5.9 / 11.4 % | 6.0–7.7 % |
+| Dx (the orders ≥ 1 re-solved on the probes) | +1.7 % | +0.7 % | 0.83 | 4.8 / 8.8 % | 2.8–3.0 % |
+| **D (and on the finite-k response)** | **+1.4 %** | **−0.5 %** | **0.07** | 4.6 / 7.1 % | 2.6–2.9 % |
+
+- **Arm D reaches the frozen form's ceiling at every edge, to 0.06 points, and pins it cell by cell.** The ceiling is the
+  γ-only least-squares point of job 3's §6: +0.5 / −0.2 % at 1.5 Å, +1.4 / −0.5 % at 2.0 Å, +3.3 / −1.0 % at 2.5 Å.
+  Held-out cells read as the calibration cells. ε₀ is arm C's by construction.
+- **Dx: most of arm C's −11 % came from its sequence.** Its orders ≥ 1 were matched beside arm A's uncalibrated order-0
+  sector. Re-solved on the probes beside the calibrated sector, they bring χ(k₂) near MB-pol's on average, but with a
+  frame sd twelve to twenty times arm D's. The far probes do not pin them; the finite-k data do.
+- **The costs.** The far probes +0.2–0.5 points (the matched objective falls); the cells' dipole at zero field +1 point;
+  the molecules at finite k 4.6 / 7.1 % against arm C's 3.7 / 4.7 %.
+- **H3 on the finite-k response.**
+  - The edge dependence of χ falls 3.3-fold (k₁) and 24-fold (k₂), by construction.
+  - Out of sample, the molecules' falls 1.8-fold (k₁) and 2.6-fold (k₂).
+  - The 1.5 Å edge reads best on everything finite-k. The edge stays 2.0 Å by the a-priori rule.
+- **The seven expectations.** Four hold, including arm D's χ at the predicted point and H3. The molecules fail narrowly at
+  k₂, and the probes' objective fails by an improvement. Dx fails: it moved 12 points, not under 3.
+
+**Registered for Niflheim** (D1–D7): arm D's χ at +0.8 to +1.9 % and −1.0 to +0.2 %; held out as calibration; the costs
+relative to arm C; Dx not pinned; H3 at both edges.
+
+- `run_e4_job4.sbatch`: three GPU tasks, one per edge.
+- `run_e4_job4_train.sbatch`: eight tasks, run only after that read.

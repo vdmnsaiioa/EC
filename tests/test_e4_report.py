@@ -257,3 +257,31 @@ def test_job3_report(tmp_path):
     n = R.report_job3(str(tmp_path / "no_l.json"), verbose=True)
     assert not n["K5"]["holds"] and not n["K6"]["holds"] and n["K1"]["holds"]
     assert all(p["value"] is None for p in n["K6"]["parts"])
+
+
+def test_job4_report(tmp_path):
+    """job 4's registered readings (v0.0.28) on the local reading committed with the pre-registration
+    (scratch/e4_job4_local.json): every D holds there; split by edge into three files in a directory, as the tasks write
+    them, it reads the same; arm D at C's chi fails D1 and D6; a variant read twice is refused; without the H3 arms D7
+    fails on missing readings instead of breaking."""
+    import copy
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scratch", "e4_job4_local.json")
+    out = R.report_job4(path, verbose=False)
+    assert set(out) == {f"D{i}" for i in range(1, 8)} and all(v["holds"] for v in out.values())
+    k = json.load(open(path))
+    for edge, labels in (("2.0", ["C", "C0", "D", "Dx"]), ("1.5", ["C@1.5", "C0@1.5", "D@1.5"]),
+                         ("2.5", ["C@2.5", "C0@2.5", "D@2.5"])):
+        with open(tmp_path / f"kread_edge{edge}.json", "w") as fh:
+            json.dump({"meta": k["meta"], **{x: k[x] for x in labels}}, fh)
+    split = R.report_job4(str(tmp_path), verbose=False)
+    assert all(split[d]["parts"][i]["value"] == out[d]["parts"][i]["value"] for d in out for i in range(len(out[d]["parts"])))
+    moved = copy.deepcopy(k)
+    moved["D"]["k_heldout"] = copy.deepcopy(k["C"]["k_heldout"])
+    with open(tmp_path / "moved.json", "w") as fh:
+        json.dump(moved, fh)
+    m = R.report_job4(str(tmp_path / "moved.json"), verbose=False)
+    assert not m["D1"]["holds"] and not m["D6"]["holds"] and m["D5"]["holds"]
+    with pytest.raises(ValueError):
+        R.report_job4(f"{tmp_path / 'kread_edge2.0.json'},{tmp_path / 'moved.json'}", verbose=False)
+    n = R.report_job4(str(tmp_path / "kread_edge2.0.json"), verbose=True)
+    assert not n["D7"]["holds"] and n["D1"]["holds"] and all(p["value"] is None for p in n["D7"]["parts"])

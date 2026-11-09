@@ -533,9 +533,19 @@ def mode_response(params, rung: Rung, b, u, g, h, per_atom=False):
         return -jax.grad(energy, argnums=0)(f, gg, hh)
 
     _, dmu = jax.jvp(dipoles, (zf, zg, zh), (u, g, h))
-    e_a = lambda a: energy(a * u, a * g, a * h)
-    chi = -jax.jvp(jax.grad(e_a), (jnp.zeros((), dt),), (jnp.ones((), dt),))[1]
+    chi = mode_chi(params, rung, b, u, g, h)
     if per_atom:
         return dmu, chi
     fm = b["frag_mask"].astype(dt)
     return fm @ dmu, chi
+
+
+def mode_chi(params, rung: Rung, b, u, g, h):
+    """mode_response's chi = -d^2 E / da^2 alone, without the dipoles: one mode's susceptibility, everything the
+    read-out's energy does in it (v0.0.28: the rows of arm D's calibration, e4_water.k_stage).  The read-out's orders
+    >= 1 sit outside the mutual solve and read the mode's field with its first and second derivatives, so chi is the
+    order-0 sector's plus a term linear in their coefficients (notes/e4-job3-results.md section 6b)."""
+    dt = b["positions"].dtype
+    u, g, h = (jnp.asarray(x, dt) for x in (u, g, h))
+    e_a = lambda a: energy_single(params, rung, {**b, "ext_field": a * u, "ext_grad": a * g, "ext_grad2": a * h})[0]
+    return -jax.jvp(jax.grad(e_a), (jnp.zeros((), dt),), (jnp.ones((), dt),))[1]
