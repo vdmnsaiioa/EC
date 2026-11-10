@@ -5,6 +5,7 @@ jsons of scripts/e4_water.py and the data sets' frames.  NumPy only: seconds on 
     python scripts/e4_report.py --out_dir results/e4_job1 --data data/e4 [--json results/e4_job1/report.json]
     python scripts/e4_report.py --job3 results/e4_job3/kread.json      # job 3's registered readings (v0.0.27)
     python scripts/e4_report.py --job4 results/e4_job4                 # job 4's, from its kread_*.json (v0.0.28)
+    python scripts/e4_report.py --job5 results/e4_job5                 # job 5's, arm D' (v0.0.29)
 
 It prints, in the pre-registration's order:
   1. the readings the matching fixes (section 4): eps_inf, T5 and the far-field probes of every run, against the values
@@ -904,6 +905,34 @@ JOB4_BANDS = {
 }
 
 
+# arm D' (notes/e4-job5-preregistration.md section 4): job 5's matching level, read from its kread json with the change at
+# contact (kread.contact, against arm C). Da is arm D' -- arm D's third stage anchored at arm C --; D and Dx are job 4's
+# arm and control from their caches, read again beside it.
+JOB5_BANDS = {
+    "P1": [("Da: chi(k1) against MB-pol's", ("chi", "Da", "1"), 0.008, 0.020),
+           ("Da: chi(k2) against MB-pol's", ("chi", "Da", "2"), -0.010, 0.003)],
+    "P2": [("Da: chi(k1), held out less calibration", ("chi_gap", "Da", "1"), -0.005, 0.005),
+           ("Da: chi(k2), held out less calibration", ("chi_gap", "Da", "2"), -0.005, 0.005)],
+    "P3": [("Da's eps_inf less C's (the same by construction)", ("eps_same", "Da", "C"), 0.0, 1e-6),
+           ("Da's cells' dipole at k = 0 less C's", ("shift", "cell", "Da", "C"), -math.inf, 0.010)],
+    "P4": [("Da's molecules at k1 less C's", ("shift", "mol1", "Da", "C"), -math.inf, 0.015),
+           ("Da's molecules at k2 less C's", ("shift", "mol2", "Da", "C"), -math.inf, 0.025),
+           ("Da's molecules at k2 less D's", ("shift", "mol2", "Da", "D"), -math.inf, 0.0)],
+    "P5": [("Da's far probes at 10 A less C's", ("shift", "probe10", "Da", "C"), -math.inf, 0.003),
+           ("Da's far probes at 12 A less C's", ("shift", "probe12", "Da", "C"), -math.inf, 0.003),
+           ("Da's far probes at 15 A less C's", ("shift", "probe15", "Da", "C"), -math.inf, 0.003),
+           ("Da: T5 slope less C's", ("t5_shift", "Da", "C"), -0.005, 0.005),
+           ("Da: the probes' objective, stage 3 over stage 2", ("stage_ratio", "Da", 3, 2), 0.95, 1.15)],
+    "P6": [("Da: rigid forces at contact against C's (rms)", ("contact", "Da"), 0.0, 0.30),
+           ("Da's change at contact over D's", ("contact_ratio", "Da", "D"), 0.0, 0.70),
+           ("Da's orders >= 1 change over D's", ("coef_ratio", "Da", "D"), 0.0, 0.70)],
+    "P7": [("D: chi(k1) as job 4's (+1.33 %)", ("chi", "D", "1"), 0.01325, 0.01335),
+           ("D: chi(k2) as job 4's (-0.37 %)", ("chi", "D", "2"), -0.00375, -0.00365),
+           ("D: rigid forces at contact against C's (rms)", ("contact", "D"), 0.30, 0.60),
+           ("Dx: rigid forces at contact against C's (rms)", ("contact", "Dx"), 0.30, 0.70)],
+}
+
+
 def stage_objectives(match):
     """the far probes' part of the matching objective after each stage (1: the probes; 2: and the liquid rows; 3: the
     orders >= 1 on the probes and the finite-k rows), from a matching record: {stage: value}."""
@@ -959,6 +988,16 @@ def job4_value(k, key, split="heldout"):
         return abs(k[key[1]][f"liquid_{split}"]["eps_inf_model"] - k[key[2]][f"liquid_{split}"]["eps_inf_model"])
     if kind == "t5":
         return k[key[1]]["trimers"]["slope"]
+    if kind == "t5_shift":                                        # v0.0.29: T5's slope, key[1] less key[2]
+        return k[key[1]]["trimers"]["slope"] - k[key[2]]["trimers"]["slope"]
+    if kind == "contact":                                         # v0.0.29: the change at contact against the reference
+        return k[key[1]]["contact"]["against_reference"]["rigid_rms"]
+    if kind == "contact_ratio":
+        c = lambda lab: k[lab]["contact"]["against_reference"]["rigid_rms"]
+        return c(key[1]) / c(key[2])
+    if kind == "coef_ratio":                                      # the orders >= 1 change, key[1]'s over key[2]'s
+        c = lambda lab: k[lab]["contact"]["coefficients"]["orders_above_zero"]
+        return c(key[1]) / c(key[2])
     if kind == "stage_ratio":                                     # the probes' objective, stage key[2] over key[3]
         o = stage_objectives(k[key[1]]["match"])
         return o[key[2]] / o[key[3]]
@@ -990,13 +1029,14 @@ def load_kread(paths):
     return k, files
 
 
-def report_job4(paths, verbose=True, bands=None):
-    """job 4's registered readings (D1-D7) from kread's jsons, each against its band; a D holds when all its parts do."""
+def report_job4(paths, verbose=True, bands=None, job=4):
+    """job 4's registered readings (D1-D7) from kread's jsons, each against its band; a D holds when all its parts do.
+    job=5 (v0.0.29): job 5's (P1-P7, JOB5_BANDS)."""
     k, files = load_kread(paths)
-    bands = JOB4_BANDS if bands is None else bands
+    bands = (JOB4_BANDS if job == 4 else JOB5_BANDS) if bands is None else bands
     out = {}
     if verbose:
-        print(f"E4 job 4 (notes/e4-job4-preregistration.md section 4), from {', '.join(files)}: read-outs "
+        print(f"E4 job {job} (notes/e4-job{job}-preregistration.md section 4), from {', '.join(files)}: read-outs "
               + ", ".join(x for x in k if x != "meta"))
     for kid, parts in bands.items():
         rows = []
@@ -1027,9 +1067,10 @@ def main():
     ap.add_argument("--job1", default="results/e4_job1", help="job 2: job 1's out_dir, read beside it")
     ap.add_argument("--job3", default=None, help="job 3: scripts/e4_water.py kread's kread.json")
     ap.add_argument("--job4", default=None, help="job 4: kread's jsons -- a directory (its kread*.json) or a list")
+    ap.add_argument("--job5", default=None, help="job 5: kread's jsons, as --job4 (v0.0.29)")
     a = ap.parse_args()
-    if a.job3 or a.job4:
-        out = report_job3(a.job3) if a.job3 else report_job4(a.job4)
+    if a.job3 or a.job4 or a.job5:
+        out = (report_job3(a.job3) if a.job3 else report_job4(a.job4) if a.job4 else report_job4(a.job5, job=5))
         if a.json:
             with open(a.json, "w") as fh:
                 json.dump(jsonable(out), fh, indent=1)

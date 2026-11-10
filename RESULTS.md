@@ -1442,3 +1442,34 @@ runs are paired by seed with arm C's; rigid-body forces on the unseen frames:
 - **Not separated.** Arm D's third stage both re-fitted the orders ≥ 1 on the probes beside the calibrated order 0 (what
   Dx does) and added the finite-k rows. Proposed: D′, the finite-k rows with the orders ≥ 1 anchored at arm C's, read at
   matching level first.
+
+## v0.0.28 → v0.0.29 — job 5: arm D′, arm D's third stage anchored at arm C, pre-registered (`notes/e4-job5-preregistration.md`)
+
+**Why.** Arm D's third stage did two things at once: it re-solved the orders ≥ 1 on the far probes, with the ridge
+toward zero, and it added the finite-k rows. Its training cost of 6–7 % did not say which of the two it came from.
+
+**Arm D′ (Da)** keeps arm D's rows and ridge, anchored at arm C. The ridge pulls toward arm C's orders ≥ 1, and the
+training probes are held at arm C's own predictions (`training.readout.finite_k.anchor`). It is read at matching level
+beside arms C, D and Dx from job 4's caches. A new reading is each read-out's change at contact against arm C's
+(`kread.contact`).
+
+**The expectations** were committed before any D′ number (`scratch/e4_job5_expectations.md`, 14:06 CET). Six of the
+seven hold on the local frames. The seventh, on the far probes, fails by an improvement:
+
+| local (3 held-out cells; 3 test frames at contact) | arm C | arm D | Dx | **D′** |
+|---|---|---|---|---|
+| χ(k₁); χ(k₂) | −1.90; −11.49 % | +1.40; −0.46 % | +1.74; +0.66 % | **+1.44; −0.32 %** |
+| far probes 10 / 12 / 15 Å | 2.27 / 2.21 / 2.73 % | 2.59 / 2.71 / 2.89 % | 2.76 / 2.77 / 2.96 % | 2.23 / 2.05 / 2.63 % |
+| the probes' objective, stage 3 ÷ stage 2 | — | 0.53 | 0.50 | 1.016 |
+| change at contact against C: energy; rigid forces | — | −0.218; 0.422 | −0.237; 0.485 | **−0.019; 0.216** |
+| orders ≥ 1 moved ÷ C's norm | 0 | 1.42 | 1.30 | 0.58 |
+
+- **D′ reaches the same ceiling.** On the calibration cells it reads arm D's +1.36 / −0.41 % to the digit, so holding
+  the probes costs the fit nothing.
+- **It changes the read-out half as much at contact**, and its energy a tenth as much.
+- **Its far test probes improve on arm C's**, where arm D's and Dx's re-fit made them worse.
+- **The bands P1–P7** for Niflheim are registered in §4.
+  - P1: D′'s χ +0.8 to +2.0 % and −1.0 to +0.3 %.
+  - P6: its change at contact at most 0.30 rms, and at most 0.70 of arm D's.
+  - P7: arm D reproduces job 4.
+- `run_e4_job5.sbatch` is one GPU task. Training waits for the read.

@@ -441,6 +441,26 @@ The training's read is §2 there: T0 holds, and T1 and T2 fail high. On every se
 above arm C's, and the field term's gain is arm C's 23 %, so it absorbs none of the change. Arm C stays the model. Arm
 D's change at contact was smaller than arm B's, so the size of such a change does not price its cost in training.
 
+**Job 5** (v0.0.29; `configs/e4_job5.yaml`; pre-registration `notes/e4-job5-preregistration.md`) is arm D′ (the label
+Da): arm D's third stage anchored at arm C. Arm D's stage both re-fitted the orders ≥ 1 on the far probes and added the
+finite-k rows. D′ keeps the rows, but the ridge pulls toward arm C's orders ≥ 1 and the training probes are held at arm
+C's own predictions, so the orders ≥ 1 move only where the finite-k rows need it. It is read at matching level first,
+beside arms C, D and Dx, with every read-out's change at contact against arm C's; it is trained only after that read.
+
+- `linear.solve_readout(anchor=, hold=)`: the ridge toward the start, the step formed from the residuals; the energy and
+  force rows held at the starting model's own values; `.data_history` on data's own targets.
+- `scripts/e4_water.py`: `training.readout.finite_k.anchor` (settings without it hash as before), the anchored stage
+  in `match_readout`, and `read_contact` with `kread.contact: {reference, frames}`.
+- `scripts/e4_report.py --job5` reads the bands P1–P7.
+
+```sh
+sbatch run_e4_job5.sbatch                  # one GPU task, about an hour: results/e4_job5/kread_edge2.0.json
+python scripts/e4_report.py --job5 results/e4_job5
+```
+
+Locally (`scratch/e4_job5_local.json`), D′ reaches arm D's ceiling: χ +1.44 / −0.32 % at k₁ / k₂. Its change at
+contact is half of arm D's (0.22 against 0.42 kcal/mol/Å rms), and its far probes are better than arm C's.
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

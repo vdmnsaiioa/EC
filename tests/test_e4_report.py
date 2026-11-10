@@ -287,6 +287,38 @@ def test_job4_report(tmp_path):
     assert not n["D7"]["holds"] and n["D1"]["holds"] and all(p["value"] is None for p in n["D7"]["parts"])
 
 
+def test_job5_report(tmp_path):
+    """job 5's registered readings (v0.0.29; scripts/e4_report.py --job5) on the local reading committed with the
+    pre-registration (scratch/e4_job5_local.json): P1-P6 hold there; P7's chi parts are job 4's Niflheim values, which
+    the local frames do not give (job 4's local +1.40 / -0.46 % they reproduce, read with those values); Da at C's
+    chi fails P1; Da with D's change at contact fails P6; without the contact reading P6 fails on missing readings."""
+    import copy
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scratch", "e4_job5_local.json")
+    out = R.report_job4(path, verbose=True, job=5)
+    assert set(out) == {f"P{i}" for i in range(1, 8)} and all(out[f"P{i}"]["holds"] for i in range(1, 7))
+    p7 = out["P7"]["parts"]
+    assert [x["holds"] for x in p7] == [False, False, True, True]
+    local = {**R.JOB5_BANDS, "P7": [(w, key, lo, hi) for (w, key, lo, hi) in R.JOB5_BANDS["P7"][2:]]
+             + [("D: chi(k1) as job 4's local (+1.40 %)", ("chi", "D", "1"), 0.01395, 0.01405),
+                ("D: chi(k2) as job 4's local (-0.46 %)", ("chi", "D", "2"), -0.00465, -0.00455)]}
+    assert R.report_job4(path, verbose=False, bands=local)["P7"]["holds"]
+    k = json.load(open(path))
+    moved = copy.deepcopy(k)
+    moved["Da"]["k_heldout"] = copy.deepcopy(k["C"]["k_heldout"])
+    moved["Da"]["contact"] = copy.deepcopy(k["D"]["contact"])
+    with open(tmp_path / "moved.json", "w") as fh:
+        json.dump(moved, fh)
+    m = R.report_job4(str(tmp_path / "moved.json"), verbose=False, job=5)
+    assert not m["P1"]["holds"] and not m["P6"]["holds"] and m["P3"]["holds"] and m["P5"]["holds"]
+    bare = copy.deepcopy(k)
+    for lab in ("C", "D", "Dx", "Da"):
+        bare[lab].pop("contact")
+    with open(tmp_path / "bare.json", "w") as fh:
+        json.dump(bare, fh)
+    n = R.report_job4(str(tmp_path / "bare.json"), verbose=False, job=5)
+    assert not n["P6"]["holds"] and all(x["value"] is None for x in n["P6"]["parts"]) and n["P1"]["holds"]
+
+
 def test_job4_training_report(tmp_path):
     """scripts/e4_report.py --job2 with job 4's arm D as a fourth directory (v0.0.28): T1 (the frozen form within 1.5 %
     of arm C's) and T2 (the ablation +0.5 to +4.5 % above, on >= 3 of 4 seeds) with their rules, arm D's field-term gain,

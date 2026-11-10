@@ -387,4 +387,8 @@ code is still open: CP2K, GPAW, VASP or QE.
    - *Proposed, not registered: D′, the same finite-k rows with the orders ≥ 1 anchored at arm C's (the ridge toward
      them, and the probes held at arm C's predictions), to separate arm D's re-fit on the probes from the finite-k fix.
      Then the molecules' finite-k rows, the registered next step for this branch.*
+   - *Built 10 Nov as job 5 (v0.0.29, `e4-job5-preregistration.md`; Vadic's go of 10 Nov). Locally D′ reaches arm D's
+     ceiling (χ +1.44 / −0.32 %). Its change at contact is half of arm D's (0.22 against 0.42 rms) and its energy a
+     tenth, and its far test probes improve on arm C's. `run_e4_job5.sbatch` (one GPU task) runs the matching level;
+     training only after its read.*
 7. **The L₀ sweep** (Form II).

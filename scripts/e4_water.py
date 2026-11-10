@@ -47,7 +47,9 @@ kread    (job 3) no training: the read-outs of kread.arms, held in their output 
          kread.order_zero_of; and the locality test (kread.locality): the order-0 columns solved on every calibration
          molecule's dipole and response alone, no probe in the objective, the far probes then out of state.  v0.0.28
          (job 4): an arm's "set" overrides its config (another mutual edge, another stage), and --out names the json,
-         so that tasks reading different arms write different files.
+         so that tasks reading different arms write different files.  v0.0.29 (job 5): kread.contact adds every
+         read-out's change at contact against a reference arm's (read_contact), and an arm whose finite_k has
+         anchor true is matched through the anchored third stage (arm D').
 
 Energies are interaction energies (MBX's 1-body term off, every molecule's own energy zero), in hartree inside and in
 kcal/mol in the readings; forces in kcal/mol/A.
@@ -97,9 +99,10 @@ DEFAULTS = {
     "liquid_k": {"axes": [0, 1, 2], "harmonics": [1, 2], "phases": [0, 1], "delta": 1.0e-4},
     # job 3's reading (run_kread): the rung, the read-outs read (each arm's config and output directory, where its
     # matched read-out is cached, and v0.0.28 "set": overrides of that config), which of them also with the orders
-    # >= 1 off (a list: label arm + "0"; a mapping: arm -> label), and the locality test (None: off)
+    # >= 1 off (a list: label arm + "0"; a mapping: arm -> label), the locality test (None: off), and v0.0.29 the
+    # contact reading (None: off; {reference, frames, max_frames}: every variant's change at contact, read_contact)
     "kread": {"rung": "M_16C2pm_us", "arms": {}, "order_zero_of": [], "splits": ["heldout", "calibration"],
-              "locality": None},
+              "locality": None, "contact": None},
     "model": {"r_cut_angstrom": 6.0, "features": 32, "band_edge_angstrom": 0.75, "response_edge_angstrom": 0.75,
               "mutual_edge_angstrom": None, "analytic_envelope_angstrom": 4.0, "rs_over_l1": 0.0,
               "charge_neutrality": "fragment", "ewald_b_max": 4.0, "solver": "gmres", "solver_tol": 1.0e-10, "K": 8,
@@ -669,10 +672,15 @@ def k_stage(rung_cell, resp_k, kq):
     control).  The rows' unit is MB-pol's mean chi_mode at the mode's harmonic, over the calibration cells and modes, and
     their weight kq["weight"] / (cells x modes): weight 0.1 makes a 1 % error of the cells' finite-k susceptibility cost
     about the far probes' matched objective (~1e-5), as job 2's liquid weight does for the uniform response.  12 rows a
-    cell, their Jacobian by reverse mode.  Returns {"block" (LIN.solve_readout's extra, or None), "hash", "scale"}."""
+    cell, their Jacobian by reverse mode.  Returns {"block" (LIN.solve_readout's extra, or None), "hash", "scale",
+    "anchor"}.  v0.0.29 (job 5's arm D'): kq["anchor"] true anchors the stage at its start -- the ridge toward the
+    starting orders >= 1 and the far probes' rows held at the starting read-out's own predictions (LIN.solve_readout's
+    anchor and hold) -- so that the orders >= 1 move from arm C's only where the finite-k rows need it.  Settings
+    without "anchor" hash as before (arm D's cache is unchanged)."""
     tag = hashlib.sha256(json.dumps({**kq, "response_k": resp_k["hash"]}, sort_keys=True).encode()).hexdigest()[:8]
+    anchor = bool(kq.get("anchor", False))
     if float(kq["weight"]) <= 0:
-        return {"block": None, "hash": tag, "scale": {}}
+        return {"block": None, "hash": tag, "scale": {}, "anchor": anchor}
     cal = resp_k["calibration"]
     modes = resp_k["modes"]
     r = in_cell(replace(rung_cell, bf_solver="direct"), cal["structures"][0].cell)
@@ -695,7 +703,7 @@ def k_stage(rung_cell, resp_k, kq):
         bb = {k: v for k, v in b.items() if k not in ("k_u", "k_g", "k_h")}
         return jax.lax.map(lambda x: M.mode_chi(params, r, bb, *x), (b["k_u"], b["k_g"], b["k_h"]))
     block = {"fn": fn, "batches": batches, "targets": [chi_t[i] for i in range(nf)], "weights": [w] * nf}
-    return {"block": block, "hash": tag, "scale": scale}
+    return {"block": block, "hash": tag, "scale": scale, "anchor": anchor}
 
 
 def read_response_k(params, rung_cell, resp_k, split="heldout", eps0=None):
@@ -793,6 +801,69 @@ def match_liquid_alone(name, rung_cell, rung_open, response, probes, scale, lc, 
     return readout, match
 
 
+def switched_off(readout):
+    """the read-out with its output layers (pair coefficients and node term) at zero: the model without the read-out's
+    energy, against which a read-out's own energy and forces are read (job 5's contact reading)."""
+    theta, iso = list(readout["theta"]), list(readout["iso"])
+    theta[-1] = {k: np.zeros_like(np.asarray(v)) for k, v in readout["theta"][-1].items()}
+    iso[-1] = {k: np.zeros_like(np.asarray(v)) for k, v in readout["iso"][-1].items()}
+    return {**readout, "theta": theta, "iso": iso}
+
+
+def read_contact(variants, ref, scale, frames, n0):
+    """job 5 (v0.0.29; notes/e4-job5-preregistration.md): what each read-out changes at contact before training, read
+    as scratch/e4_job2_calibration_orders.py reads it -- on liquid frames of the training size, the model's energy per
+    molecule and rigid forces with the read-out, against the reference variant's (ref) and against the read-out switched
+    off (its own), E_0 and the field term at their initialisation cancelling in the differences -- and the read-out's
+    output columns' change from the reference's, the orders >= 1 and the order 0 (with the node term) apart, relative
+    to the reference's norms.  variants: kread's (label, rung_cell, rung_open, readout, match); those of another rung
+    than ref's are skipped.  n0: the order-0 columns (2 n_rbf_readout).  Returns {label: record}."""
+    by = {v[0]: v for v in variants}
+    _, rc, ro, ref_readout, _ = by[ref]
+    p0 = M.init_params(jax.random.PRNGKey(0), ro, energy_scale=scale)
+    r = in_cell(replace(rc, bf_solver="direct"), frames[0].cell)
+    f = jax.jit(lambda p, b: M.energy_forces_single(p, r, b))
+    n_mol = frames[0].n_atoms // 3
+    batches = [{k: v[0] for k, v in S.pad_batch([st], n_freq=r.K).items()} for st in frames]
+
+    def ef(readout):
+        p = with_readout(p0, readout)
+        out = []
+        for st, b in zip(frames, batches):
+            E, F = f(p, b)
+            out.append((float(E), np.asarray(F)[:st.n_atoms]))
+        return out
+
+    def change(a, b):
+        dE, ss, cc = [], 0.0, 0.0
+        for (Ea, Fa), (Eb, Fb), st in zip(a, b, frames):
+            dE.append((Ea - Eb) / n_mol * KCAL)
+            *_, s_, c_ = rigid_errors((Fa - Fb) * FORCE_UNIT, bohr_to_ang(np.asarray(st.positions)),
+                                      bohr_to_ang(np.asarray(st.cell)), n_mol)
+            ss += s_; cc += c_
+        return {"energy_per_molecule": float(np.mean(dE)), "rigid_rms": float(np.sqrt(ss / cc))}
+
+    def cols(readout):
+        th, iso = readout["theta"][-1], readout["iso"][-1]
+        w, b = np.asarray(th["w"]), np.asarray(th["b"])
+        lo = [w[:, :n0].ravel(), b[:n0]] + [np.asarray(iso[k]).ravel() for k in sorted(iso)]
+        return np.concatenate([w[:, n0:].ravel(), b[n0:]]), np.concatenate(lo)
+
+    off, base = ef(switched_off(ref_readout)), ef(ref_readout)
+    hi_ref, lo_ref = cols(ref_readout)
+    rel = lambda x, y: float(np.linalg.norm(x - y) / np.linalg.norm(y)) if np.linalg.norm(y) > 0 else float("nan")
+    out = {}
+    for label, _, ro_v, readout, _ in variants:
+        if repr(ro_v) != repr(ro):
+            continue
+        mine = base if label == ref else ef(readout)
+        hi, lo = cols(readout)
+        out[label] = {"reference": ref, "frames": len(frames), "molecules": n_mol,
+                      "own": change(mine, off), "against_reference": change(mine, base),
+                      "coefficients": {"orders_above_zero": rel(hi, hi_ref), "order_zero": rel(lo, lo_ref)}}
+    return out
+
+
 def kread_arms(kc):
     """kread's arms (jobs 3-4): [(arm, its config -- the arm's config file with its "set" overrides merged (v0.0.28) --,
     its output directory)], and {arm: label} for the arms read with their orders >= 1 off (kread.order_zero_of: a list,
@@ -813,7 +884,8 @@ def run_kread(a):
     switched off for the arms in kread.order_zero_of; and the locality test (kread.locality).  No training.  Job 4
     (v0.0.28): an arm's "set" overrides its config (merge), e.g. {model: {mutual_edge_angstrom: 1.5}}; an arm whose
     config has training.readout.finite_k is matched through arm D's third stage (k_stage) and its record printed;
-    --out names the json (default out_dir/kread.json)."""
+    --out names the json (default out_dir/kread.json).  Job 5 (v0.0.29): kread.contact ({reference, frames,
+    max_frames}) adds every variant's change at contact against the reference's (read_contact), before training."""
     cfg = load_config(a.config)
     kc, dcfg = cfg["kread"], cfg["data"]
     os.makedirs(a.out_dir, exist_ok=True)
@@ -844,6 +916,7 @@ def run_kread(a):
         kq = cfg_arm["training"]["readout"].get("finite_k")
         liquid = liquid_block(rung_cell, response, lq) if lq else None
         fk = k_stage(rung_cell, resp_k, kq) if kq else None
+        os.makedirs(out_dir_arm, exist_ok=True)                    # v0.0.29: the arm's cache directory, if new
         readout, match = matched(name, rung_open, probes, scale, cfg_arm, out_dir_arm, liquid=liquid, finite_k=fk)
         if fk is not None:
             steps = match["objective"][-int(match.get("finite_k_stage_steps") or 1):]
@@ -883,6 +956,37 @@ def run_kread(a):
         with open(out_path + ".tmp", "w") as fh:
             json.dump(out, fh, indent=1)
         os.replace(out_path + ".tmp", out_path)
+    ct = kc.get("contact")
+    if ct:
+        # job 5 (v0.0.29): each read-out's change at contact against the reference arm's, before training
+        ref = ct["reference"]
+        read = [v for v in variants if wanted(v[0])]
+        if ref not in {v[0] for v in read}:
+            print(f"  the contact reading needs its reference {ref} among the variants read: not read", flush=True)
+        else:
+            t0 = time.time()
+            fset = ct.get("frames", "test")
+            frames = W.e4_structures(os.path.join(dcfg["dir"], f"{fset}_n{dcfg['train_size']}.npz"), pins=True, K=K,
+                                     omega0=om)
+            if ct.get("max_frames"):
+                frames = frames[:int(ct["max_frames"])]
+            ro_ref = {v[0]: v for v in read}[ref][2]
+            n0 = 2 * int(ro_ref.e0.get("n_rbf_readout", ro_ref.e0["n_rbf"]))
+            got = read_contact(read, ref, scale, frames, n0)
+            for label, c in got.items():
+                out[label]["contact"] = c
+                print(f"  {label} at contact ({c['frames']} {fset} frames of {c['molecules']} molecules): its own energy "
+                      f"{c['own']['energy_per_molecule']:+.3f} kcal/mol per molecule, rigid forces "
+                      f"{c['own']['rigid_rms']:.3f} kcal/mol/A rms; against {ref}'s: energy "
+                      f"{c['against_reference']['energy_per_molecule']:+.3f}, rigid forces changed by "
+                      f"{c['against_reference']['rigid_rms']:.3f} rms; its orders >= 1 moved by "
+                      f"{c['coefficients']['orders_above_zero']:.3f} of {ref}'s norm, its order 0 by "
+                      f"{c['coefficients']['order_zero']:.2e}", flush=True)
+            out["meta"]["contact"] = {"reference": ref, "frames": fset, "n_frames": len(frames),
+                                      "time": time.time() - t0}
+            with open(out_path + ".tmp", "w") as fh:
+                json.dump(out, fh, indent=1)
+            os.replace(out_path + ".tmp", out_path)
     print(f"written {out_path}", flush=True)
 
 
@@ -900,7 +1004,9 @@ def match_readout(rung_open, probes, scale, cfg, verbose=True, liquid=None, star
     (LIN.solve_readout's extra), the probes' ridge kept.  With finite_k (job 4's arm D, k_stage; v0.0.28) a third stage
     from start: the orders >= 1 alone on the probes and the calibration cells' finite-k susceptibilities, the probes'
     ridge kept; the liquid's k = 0 rows are not in it (they constrain the orders >= 1 only through the cells' dipole at
-    zero field, which is what moved arm B's)."""
+    zero field, which is what moved arm B's).  finite_k["anchor"] (job 5's arm D'; v0.0.29): the third stage anchored
+    at start, the ridge toward its orders >= 1 and the probes held at its predictions (LIN.solve_readout's anchor and
+    hold)."""
     ro = cfg["training"]["readout"]
     blind = E3.far_field_blind(probes["train"], cfg["model"]["r_cut_angstrom"])
     idx = np.flatnonzero(blind)
@@ -937,22 +1043,28 @@ def match_readout(rung_open, probes, scale, cfg, verbose=True, liquid=None, star
         hist += [(float(b), float(c)) for b, c in report.history]
         hist_x = [(float(b), float(c)) for b, c in report.extra_history]
     n_k = 0
+    anchored = finite_k is not None and bool(finite_k.get("anchor"))
     if finite_k is not None:
         # job 4's arm D: a third stage from start (arm C's read-out), the orders >= 1 alone on the probes and the
-        # calibration cells' finite-k susceptibilities (none with weight 0: the control), the probes' ridge kept
+        # calibration cells' finite-k susceptibilities (none with weight 0: the control), the probes' ridge kept.
+        # Job 5's arm D' (v0.0.29, anchored): the same rows and ridge, the ridge toward the start's orders >= 1 and the
+        # probes' rows held at the start's own predictions; the record's objective is then the probes' against MB-pol
+        # (with the finite-k rows), as arm D's is, and the held one is kept beside it
         rel = ridges[0] if ridges else float(ro["ridge"])
         kw = {} if finite_k["block"] is None else {"extra": finite_k["block"]}
         n_k = 0 if finite_k["block"] is None else len(finite_k["block"]["batches"])
         params, report = LIN.solve_readout(params, rung_open, data, scale, w_force=0.0, ridge=rel,
                                            chunk=int(ro["solve_chunk"]),
                                            w_energy=float(cfg["training"]["loss"]["energy_weight"]),
-                                           orders="higher", iterations=int(ro["solve_iterations"]), **kw)
-        hist += [(float(b), float(c)) for b, c in report.history]
+                                           orders="higher", iterations=int(ro["solve_iterations"]),
+                                           anchor=anchored, hold=anchored, **kw)
+        hist += [(float(b), float(c)) for b, c in (report.data_history if anchored else report.history)]
         hist_k = [(float(b), float(c)) for b, c in report.extra_history] if kw else []
     if verbose:
         print(f"  read-out matched on {len(idx)} of {len(probes['train'])} training probes (beyond r_c of their cores)"
               + (f" and {len(liquid['block']['batches'])} liquid cells' response" if liquid is not None else "")
               + (f", then its orders >= 1 on {n_k} cells' finite-k response" if finite_k is not None and n_k else "")
+              + (" (anchored at the start: the ridge toward it, the probes held at its predictions)" if anchored else "")
               + (", then its orders >= 1 on the probes alone" if finite_k is not None and not n_k else "")
               + ": objective " + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in hist)
               + (" (the liquid rows: " + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in hist_x) + ")" if hist_x else "")
@@ -966,6 +1078,9 @@ def match_readout(rung_open, probes, scale, cfg, verbose=True, liquid=None, star
     if finite_k is not None:
         out.update(finite_k_objective=hist_k, finite_k_cells=n_k, finite_k_hash=finite_k["hash"],
                    finite_k_stage_steps=len(report.history))
+        if anchored:
+            out.update(finite_k_anchor=True,
+                       finite_k_held_objective=[(float(b), float(c)) for b, c in report.history])
     return params, out
 
 
@@ -1306,7 +1421,8 @@ def main():
     q.add_argument("--out", default=None, help="the finite-k response file (default: the config's data.response_k)")
     q.add_argument("--part", default=None, help="i/n: the i-th of n shares of the frames, into a part file")
     q.add_argument("--merge", type=int, default=0, help="n: join the n part files into the response file")
-    k = sub.add_parser("kread", help="jobs 3-4: read-outs on the finite-k and uniform responses, the locality test")
+    k = sub.add_parser("kread", help="jobs 3-5: read-outs on the finite-k and uniform responses, the locality test, the "
+                                         "change at contact")
     k.add_argument("--config", default=None)
     k.add_argument("--out_dir", default="results/e4_job3")
     k.add_argument("--only", default=None, help="comma-separated variants to read (default: all)")
