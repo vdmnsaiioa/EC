@@ -378,4 +378,7 @@ code is still open: CP2K, GPAW, VASP or QE.
      orders ≥ 1 being matched beside the uncalibrated order 0. The far probes do not pin them; the finite-k data do.*
    - *`run_e4_job4.sbatch` (three GPU tasks), then the read; training (`run_e4_job4_train.sbatch`, about 26 GPU hours)
      only after it.*
+   - *Matching level run 9 Nov at 71831ca; read in `e4-job4-results.md` §1. All seven bands hold: arm D +1.33 / −0.37 %
+     (predicted +1.32 / −0.39 %). Dx swings to +6.3 % (+0.7 % locally), so the far probes alone do not pin the orders
+     ≥ 1. Training predictions T0–T2 were registered at 14:40 CET (pre-registration §8), then training started.*
 7. **The L₀ sweep** (Form II).

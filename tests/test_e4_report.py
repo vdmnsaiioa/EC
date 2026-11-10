@@ -285,3 +285,49 @@ def test_job4_report(tmp_path):
         R.report_job4(f"{tmp_path / 'kread_edge2.0.json'},{tmp_path / 'moved.json'}", verbose=False)
     n = R.report_job4(str(tmp_path / "kread_edge2.0.json"), verbose=True)
     assert not n["D7"]["holds"] and n["D1"]["holds"] and all(p["value"] is None for p in n["D7"]["parts"])
+
+
+def test_job4_training_report(tmp_path):
+    """scripts/e4_report.py --job2 with job 4's arm D as a fourth directory (v0.0.28): T1 (the frozen form within 1.5 %
+    of arm C's) and T2 (the ablation +0.5 to +4.5 % above, on >= 3 of 4 seeds) with their rules, arm D's field-term gain,
+    and the finite-k response before training in the liquid rows; a frozen form 2 % worse fails T1."""
+    rng = np.random.default_rng(5)
+    frames = truth_frames(rng)
+    data = tmp_path / "data"; data.mkdir()
+    write_data(str(data), frames)
+    dirs = {}
+    for tag in ("job1", "a", "b", "c", "d"):
+        dirs[tag] = tmp_path / tag; dirs[tag].mkdir()
+        write_runs(str(dirs[tag]), frames, rng)
+        if tag != "job1":
+            for name in ("M_inf", "M_G", "M_16pm"):
+                for seed in SEEDS:
+                    os.remove(os.path.join(dirs[tag], f"{name}_seed{seed}.json"))
+    liq = {"frames": 10, "eps_inf_model": 1.6893, "eps_inf_truth": 1.6885, "cell_dipole_rel_rmse": 0.015,
+           "molecular_dipole_rel_rmse": 0.051, "molecular_response_rel_rmse": 0.029, "molecular_response_iso_rel_rmse": 0.015}
+    for tag, f_us, f_ab in (("a", 0.60, 0.72), ("b", 0.61, 0.74), ("c", 0.59, 0.71), ("d", 0.595, 0.725)):
+        _rewrite(str(dirs[tag]), "M_16C2pm_us", "M_16C2pm_us", f_us, liq)
+        _rewrite(str(dirs[tag]), "M_16C2pm", "M_16C2pm", f_ab, liq)
+    kb = {"frames": 10, "harmonics": {"1": {"chi_rel_diff": 0.0133, "molecular_rel_rmse": 0.046},
+                                      "2": {"chi_rel_diff": -0.0037, "molecular_rel_rmse": 0.073}}}
+    for name in ("M_16C2pm_us", "M_16C2pm"):
+        for seed in SEEDS:
+            path = os.path.join(dirs["d"], f"{name}_seed{seed}.json")
+            r = json.load(open(path))
+            r["matching"]["k_before_training"] = kb
+            json.dump(r, open(path, "w"))
+    args = [str(dirs[t]) for t in "abc"]
+    res = R.report_job2(*args[:2], str(dirs["job1"]), str(data), verbose=True, job2c=args[2], job2d=str(dirs["d"]))
+    pick = lambda pid, rule, n=256: next(r for r in res["predictions"] if r["prediction"] == pid and str(r["rule"]) == rule
+                                         and r["n"] == n and r["reading"] == "unseen")
+    t1 = pick("T1", str(("abs_change_le", 0.015)))
+    assert t1["ok"] and t1["change"] == pytest.approx(0.5965 / 0.5915 - 1)
+    t2 = pick("T2", str(("change_in", 0.005, 0.045)))
+    assert t2["ok"] and t2["change"] == pytest.approx(0.7265 / 0.7115 - 1) and pick("T2", "ge")["ok"]
+    assert res["field_term_gains"]["D"][64] == pytest.approx(1 - 0.5965 / 0.7265)
+    assert res["liquid"]["M_16C2pm_us [D]"][0]["k_before"]["harmonics"]["2"]["chi_rel_diff"] == -0.0037
+    assert "M_16C2pm [D]" in res["runs"] and res["fixed"]["D"]["M_16C2pm_us [D]"][0]["kind"] == "response"
+    _rewrite(str(dirs["d"]), "M_16C2pm_us", "M_16C2pm_us", 0.6035, liq)                  # +2 % on arm C's frozen form
+    res2 = R.report_job2(*args[:2], str(dirs["job1"]), str(data), verbose=False, job2c=args[2], job2d=str(dirs["d"]))
+    assert not next(r for r in res2["predictions"] if r["prediction"] == "T1" and r["n"] == 256
+                    and r["reading"] == "unseen")["ok"]

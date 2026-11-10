@@ -1,0 +1,19 @@
+# What arm D's third stage changes at contact, without training (notes/e4-job4-preregistration.md section 8): the
+# read-out's own energy and rigid forces in the liquid, arm C's read-out against arm D's and against the control Dx's,
+# on the 3 local test frames at 2.0 A (scratch/e4_job2_calibration_orders.py, E_0 and the field term at initialisation
+# cancelling; "A" is the --far read-out, "calibrated" the other). Run 9 Nov from the local data directory:
+#   python scratch/e4_job2_calibration_orders.py --config scratch/e4_job4_local.yaml \
+#       --far job3/local/armC/matched_M_16C2pm_us_72b73e3aa6c7b53f_liqc5df0a6e.pkl \
+#       --calibrated job4/local/edge2.0/matched_M_16C2pm_us_72b73e3aa6c7b53f_liqc5df0a6e_k1f761447.pkl     (arm D)
+#   (and --calibrated ..._k7e014c3d.pkl, Dx; and Dx as --far against arm D)
+# arm C (--far) against arm D:
+M_16C2pm_us at 2 A, 3 test frames of 64 molecules
+  the read-out A: its own energy -3.749 kcal/mol per molecule, rigid forces 2.465 kcal/mol/A rms
+  the read-out calibrated: its own energy -3.967 kcal/mol per molecule, rigid forces 2.699 kcal/mol/A rms
+  calibrated against A: energy -0.218 kcal/mol per molecule, rigid forces changed by 0.422 kcal/mol/A rms
+  its order 0 alone against A: energy +0.000 kcal/mol per molecule, rigid forces changed by 0.000 kcal/mol/A rms
+  its orders >= 1 alone against A: energy -0.218 kcal/mol per molecule, rigid forces changed by 0.422 kcal/mol/A rms
+# arm C against Dx:
+  calibrated against A: energy -0.237 kcal/mol per molecule, rigid forces changed by 0.485 kcal/mol/A rms
+# Dx against arm D:
+  its orders >= 1 alone against A: energy +0.018 kcal/mol per molecule, rigid forces changed by 0.289 kcal/mol/A rms

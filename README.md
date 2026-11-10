@@ -429,7 +429,13 @@ the 1.5 and 2.5 Å mutual edges beside it, and trained only after that read.
 sbatch run_e4_job4.sbatch                  # three GPU tasks, one per mutual edge: results/e4_job4/kread_edge*.json
 python scripts/e4_report.py --job4 results/e4_job4
 sbatch run_e4_job4_train.sbatch            # only after that read: eight runs, about 26 GPU hours
+python scripts/e4_report.py --job2 results/e4_job2a,results/e4_job2b,results/e4_job2c,results/e4_job4/edge2.0 \
+    --job1 results/e4_job1                 # arm D's training against arm C: T0-T2 (pre-registration section 8)
 ```
+
+The matching level's read is `notes/e4-job4-results.md` §1: all seven bands hold on Niflheim. Arm D reads +1.33 / −0.37 %
+at k₁ / k₂ against the predicted +1.32 / −0.39 %. The control Dx swings from +0.7 % locally to +6.3 % there: the far
+probes alone do not pin the orders ≥ 1.
 
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame

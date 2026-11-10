@@ -1392,3 +1392,27 @@ relative to arm C; Dx not pinned; H3 at both edges.
 
 - `run_e4_job4.sbatch`: three GPU tasks, one per edge.
 - `run_e4_job4_train.sbatch`: eight tasks, run only after that read.
+
+## v0.0.28, read 9 Nov — job 4's matching level: arm D at the frozen form's ceiling on Niflheim (`notes/e4-job4-results.md` §1)
+
+**Job 4's matching level ran** at 71831ca: three GPU tasks, one per mutual edge. It was read with `scripts/e4_report.py
+--job4` against `notes/e4-job4-preregistration.md` §4. **All seven bands hold.** Held-out cells:
+
+| | Niflheim | registered | local |
+|---|---|---|---|
+| arm D's χ(k₁); χ(k₂) | **+1.33 %; −0.37 %** | +0.8 to +1.9; −1.0 to +0.2 (point +1.32; −0.39) | +1.40; −0.46 |
+| its costs over arm C: the molecules k₁ / k₂; the far probes 10 / 12 / 15 Å; the zero-field dipole | +0.8 / +1.8; +0.2 / +0.3 / +0.2; +0.8 points | ≤ 2.0 / 3.5; ≤ 1.0 each; ≤ 2.0 | +0.9 / +2.3; +0.3 / +0.5 / +0.2; +1.0 |
+| Dx's χ(k₂) less arm C's; its frame sd ÷ arm D's | +17.3 points; 8.2 | ≥ 6; ≥ 3 | +12.2; 11.6 |
+| D@1.5; D@2.5 | +0.44 / −0.07 %; +3.20 / −0.96 % | as registered | +0.49 / −0.16; +3.30 / −1.05 |
+| H3 on the molecules (out of sample), k₁; k₂ | 1.7; 2.7 | 1.2–2.5; 1.8–4.0 | 1.8; 2.6 |
+
+- **Arm D reproduces from 10 to 30 calibration cells to 0.1 point. Dx does not:** +0.7 % locally, +6.3 % on Niflheim.
+  The far probes leave the orders ≥ 1 to the rest of the solve; the finite-k data pin them.
+- **Training registered before it started** (pre-registration §8, committed 14:40 CET on 9 Nov):
+  - T0: every run's read-out readings are the matching job's;
+  - T1: the frozen form within ±1.5 % of arm C's;
+  - T2: the ablation +0.5 to +4.5 % above arm C's, on at least 3 of 4 seeds.
+- **The basis for T2.** Arm D's orders ≥ 1 change the read-out's energy in the liquid by −0.22 kcal/mol per molecule
+  and its rigid forces by 0.42 rms against arm C's. Arm B's moved −0.79 and 0.70, which cost the ablation 2–5 %.
+- **The report.** `scripts/e4_report.py --job2` takes job 4's arm D as a fourth directory: T1–T2, its field-term gain, and
+  the finite-k response before training (`tests/test_e4_report.py::test_job4_training_report`).

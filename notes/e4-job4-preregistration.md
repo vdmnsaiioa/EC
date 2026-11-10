@@ -263,3 +263,57 @@ cached read-out at 2.0 Å.
 - the stages' objectives at every edge;
 - the molecules' dipole size at finite k;
 - the matching's cost on the GPU (the third stage, a Jacobian of 12 rows a cell).
+
+## 8. Training: registered 9 Nov, 14:40 CET (this commit's time), after the matching level and before any training
+
+*Written after Niflheim's matching level was read (all seven bands hold; `e4-job4-results.md` §1) and before
+`run_e4_job4_train.sbatch` started. Arm C's trained readings are `e4-job2c-results.md`'s.*
+
+**What arm D changes at contact.** This was computed locally before this section, without training
+(`scratch/e4_job4_contact.log`: `scratch/e4_job2_calibration_orders.py` on the 3 local test frames at 2.0 Å, E₀ and
+the field term at initialisation cancelling).
+
+- **Arm D against arm C.** Arm D's orders ≥ 1 change the read-out's own energy in the liquid by −0.22 kcal/mol per
+  molecule and its rigid forces by 0.42 kcal/mol/Å rms. Its own energy is −3.97 against −3.75; its rigid forces 2.70
+  against 2.47 rms.
+- **Most of it is the re-solve, not the finite-k rows.** Dx against arm C is −0.24 kcal/mol and 0.49 rms. Arm D against
+  Dx is +0.02 kcal/mol and 0.29 rms.
+- **Arm B for scale** (`e4-job2-results.md` §4b). Its orders ≥ 1 moved −0.79 kcal/mol and 0.70 rms against arm A's.
+  - That cost the ablation 2–5 % on every seed.
+  - The frozen form was unchanged: its field term absorbed it.
+  - Arm D's change is about a quarter of that in energy and 60 % in the forces.
+
+**The predictions** (paired by seed; the unseen frames pooled, as job 2's; `scripts/e4_report.py --job2` with arm D's
+directory as a fourth):
+
+| | reading | registered |
+|---|---|---|
+| **T0** | before training, every run of both rungs: the held-out liquid's ε_∞ and the finite-k χ on the matched read-out | as the matching job's arm D: ε_∞ 1.6893, χ +1.33 / −0.37 %, to the printed digit |
+| | ε_∞, T5 and the far probes after training | as before it |
+| **T1** | the frozen form, arm D against arm C: rigid forces, seed means, at 64, 128 and 256 molecules | within ±1.5 % at every size |
+| **T2** | the ablation, arm D against arm C: the same | +0.5 to +4.5 % at every size, and above on at least 3 of 4 seeds |
+
+T3 follows from T1 and T2 and is read beside them, not registered: the field term's gain, 1 − F(frozen form) ÷
+F(ablation), at least arm C's (23 %).
+
+**Why these.**
+
+- **T1.** The field term absorbed arm B's larger change at contact, and arm D's is smaller. Fixing the cells'
+  response at the cutoff's scale (−11 % → −0.4 % at k₂) is a long-wavelength gain, and the bulk forces at 64–256
+  molecules are mostly contact. The molecules' finite-k pattern also gets worse (+1.8 points at k₂). Neither
+  direction is favoured.
+- **T2.** E₀ alone did not absorb arm B's change. Scaled by the rigid forces, arm D's change predicts about +1–3 %.
+
+**What would change the reading.**
+
+- **T1 holds, T2 holds.** The finite-k calibration is neutral for the frozen form's bulk, and its orders ≥ 1 carry
+  contact energy that only the field term absorbs, as arm B's did.
+  - Arm D's frozen form is then the model: the same bulk as arm C's, with the response right at k₁ and k₂.
+  - The ablation's cost says the orders ≥ 1 should next be calibrated with the molecules' finite-k rows beside the
+    cells', so that they move less at contact.
+- **T1 fails low** (the frozen form gains more than 1.5 %). The finite-k response matters for the bulk, and arm D's
+  frozen form is the model.
+- **T1 fails high** (it loses more than 1.5 %). The finite-k fix costs the bulk; arm C stays the model, and the
+  molecules' finite-k rows come next.
+- **T2 fails low** (the ablation pays less than 0.5 %). E₀ absorbs arm D's change at contact, unlike arm B's. The cost of
+  moving the orders ≥ 1 was arm B's k = 0 rows, not the moving itself.

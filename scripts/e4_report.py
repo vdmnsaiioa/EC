@@ -61,9 +61,14 @@ _ARM_B = {"eps_inf": 1.688, "t5_pct": 4.2, "t5_slope": 1.040, "nonadditive_pct":
 _ARM_C = {"eps_inf": 1.689, "t5_pct": 4.1, "t5_slope": 1.040, "nonadditive_pct": {"10": 2.3, "12": 2.2, "15": 2.7},
           "eps_inf_model": 1.6895, "cell_dipole_rel_rmse": 0.031, "molecular_dipole_rel_rmse": 0.050,
           "molecular_response_rel_rmse": 0.031, "molecular_response_iso_rel_rmse": 0.023}
+# arm D (notes/e4-job4-preregistration.md section 8): job 4's matching level on Niflheim (e4_report --job4), arm C's
+# Niflheim readings (job 3's kread.json) moved by the shifts D3-D5 report; chi: the finite-k response before training
+_ARM_D = {"eps_inf": 1.689, "t5_slope": 1.040, "nonadditive_pct": {"10": 2.39, "12": 2.46, "15": 2.95},
+          "eps_inf_model": 1.6893, "cell_dipole_rel_rmse": 0.023, "molecular_dipole_rel_rmse": 0.051,
+          "molecular_response_rel_rmse": 0.029, "molecular_response_iso_rel_rmse": 0.015, "chi": {"1": 0.0133, "2": -0.0037}}
 JOB2_PREREG = {"probes_hash": "72b73e3aa6c7b53f", "M_16C2pm_us [A]": _ARM_A, "M_16C2pm [A]": _ARM_A,
                "M_16C2pm_us [B]": _ARM_B, "M_16C2pm [B]": _ARM_B, "M_16C2pm_us [C]": _ARM_C, "M_16C2pm [C]": _ARM_C,
-               "pinned": PREREG["pinned"]}
+               "M_16C2pm_us [D]": _ARM_D, "M_16C2pm [D]": _ARM_D, "pinned": PREREG["pinned"]}
 JOB2_PREDICTIONS = [
     ("J1", "M_16C2pm [B]", "M_16pm [job 1]", "force_rigid", "le"),
     ("J1a", "M_16C2pm [A]", "M_16pm [job 1]", "force_rigid", ("change_le", 0.02)),
@@ -83,6 +88,18 @@ JOB2C_READINGS = [
     ("reading", "M_16C2pm_us [C]", "M_16pm_us [A]", "force_rigid", "le"),
     ("reading", "M_16C2pm [C]", "M_16C2pm [A]", "net", "le"),
 ] + [("energy", a, b, "energy_rmse", rule) for _, a, b, _, rule in JOB2C_PREDICTIONS]
+# arm D's bulk predictions (notes/e4-job4-preregistration.md section 8, T1-T2): ('change_in', lo, hi) -- the seed
+# means' change a / b - 1 within [lo, hi]; 'ge' -- a at or above b on >= 3 of 4 seeds, paired
+JOB4_PREDICTIONS = [
+    ("T1", "M_16C2pm_us [D]", "M_16C2pm_us [C]", "force_rigid", ("abs_change_le", 0.015)),
+    ("T2", "M_16C2pm [D]", "M_16C2pm [C]", "force_rigid", ("change_in", 0.005, 0.045)),
+    ("T2", "M_16C2pm [D]", "M_16C2pm [C]", "force_rigid", "ge"),
+]
+JOB4_READINGS = [
+    ("reading", "M_16C2pm_us [D]", "M_16pm_us [A]", "force_rigid", "le"),
+    ("reading", "M_16C2pm [D]", "M_16pm [job 1]", "force_rigid", "le"),
+    ("reading", "M_16C2pm [D]", "M_16C2pm [C]", "net", "le"),
+] + [("energy", a, b, "energy_rmse", rule) for _, a, b, _, rule in JOB4_PREDICTIONS[:2]]
 JOB2_READINGS = [
     ("reading", "M_16pm_us [A]", "M_16C2pm_us [job 1]", "force_rigid", "le"),
     ("reading", "M_16C2pm_us [A]", "M_16pm_us [A]", "force_rigid", "le"),
@@ -591,12 +608,13 @@ def report(out_dir, data_dir, json_path=None, verbose=True):
 
 
 # ---------------------------------------------------------------- job 2 (notes/e4-job2-preregistration.md) ----------
-def job2_runs(job2a, job2b, job1=None, job2c=None):
+def job2_runs(job2a, job2b, job1=None, job2c=None, job2d=None):
     """job 2's runs and the job-1 runs they are read against, {label: {seed: json}}: '<rung> [A]' (arm A, the mutual
     edge at 2.0 A), '<rung> [B]' (arm B, calibrated on the liquid), '<rung> [C]' (arm C, calibrated on the order-0
-    columns alone) and '<rung> [job 1]'."""
+    columns alone), '<rung> [D]' (job 4's arm D, v0.0.28: arm C with its orders >= 1 on the finite-k response) and
+    '<rung> [job 1]'."""
     out = {}
-    for d, tag in ((job2a, "A"), (job2b, "B"), (job2c, "C"), (job1, "job 1")):
+    for d, tag in ((job2a, "A"), (job2b, "B"), (job2c, "C"), (job2d, "D"), (job1, "job 1")):
         if d and os.path.isdir(d):
             for name, by in load_runs(d).items():
                 out[f"{name} [{tag}]"] = by
@@ -612,7 +630,8 @@ def liquid_rows(runs):
             before = (r.get("matching") or {}).get("liquid_before_training")
             if after or before:
                 out.setdefault(label, {})[seed] = {"before": before, "after": after,
-                                                   "liquid_objective": (r.get("matching") or {}).get("liquid_objective")}
+                                                   "liquid_objective": (r.get("matching") or {}).get("liquid_objective"),
+                                                   "k_before": (r.get("matching") or {}).get("k_before_training")}
     return out
 
 
@@ -636,6 +655,13 @@ def print_liquid(rows):
         print("      " + "; ".join(f"{name} {ms([scale * v[key] for v in after if key in v], d)}"
                                     + (f" ({pre[key] * scale:.{d}f})" if key in pre else "")
                                     for key, name, d, scale in keys))
+        kb = [v["k_before"] for v in by.values() if v.get("k_before")]
+        if kb:                                                   # job 4 (v0.0.28): the finite-k response before training
+            print("      finite k, held out, before training: " + "; ".join(
+                f"chi(k{n}) {ms([100 * x['harmonics'][n]['chi_rel_diff'] for x in kb], 2)} %"
+                + (f" ({100 * pre['chi'][n]:+.2f})" if n in pre.get("chi", {}) else "")
+                + f", molecules {ms([100 * x['harmonics'][n]['molecular_rel_rmse'] for x in kb], 1)} %"
+                for n in sorted(kb[0]["harmonics"])))
     print()
 
 
@@ -653,7 +679,16 @@ def job2_predictions(table, runs, entries=None):
                 p = paired(table, a, b, n, reading, key)
                 if p is None:
                     continue
-                ok = p["pass"] if rule == "le" else (p["change"] if rule[0] == "change_le" else abs(p["change"])) <= rule[1]
+                if rule == "le":
+                    ok = p["pass"]
+                elif rule == "ge":                                # a at or above b on >= 3 of 4 seeds (v0.0.28)
+                    va, vb = (table[x][n][reading] for x in (a, b))
+                    seeds = sorted(set(va) & set(vb))
+                    ok = sum(va[s_][key] >= vb[s_][key] for s_ in seeds) >= math.ceil(0.75 * len(seeds))
+                elif rule[0] == "change_in":
+                    ok = rule[1] <= p["change"] <= rule[2]
+                else:
+                    ok = (p["change"] if rule[0] == "change_le" else abs(p["change"])) <= rule[1]
                 out.append(dict(p, prediction=pid, a=a, b=b, n=n, reading=reading, metric=key, rule=rule, ok=bool(ok)))
     return out
 
@@ -662,7 +697,7 @@ def field_term_gains(table, runs, reading="unseen", key="force_rigid"):
     """J4: the field term's gain on the C rungs, 1 - F(frozen form) / F(ablation), seed means, for job 1, arm A and arm
     B at every size; and on the dagger, 1 - F(M_16pm_us) / F(M_16pm), a reading."""
     out = {}
-    pairs = [(f"{FIELD} [{t}]", f"{ABLATION} [{t}]", t) for t in ("job 1", "A", "B", "C")]
+    pairs = [(f"{FIELD} [{t}]", f"{ABLATION} [{t}]", t) for t in ("job 1", "A", "B", "C", "D")]
     pairs.append(("M_16pm_us [A]", f"{DAGGER} [job 1]", "dagger"))
     for a, b, tag in pairs:
         for n in sizes_of(runs):
@@ -674,9 +709,9 @@ def field_term_gains(table, runs, reading="unseen", key="force_rigid"):
 
 
 def print_job2_predictions(rows, title=None, registered=True):
-    print(title or "J1-J3 (and arm C's C1-C4). The bulk predictions (notes/e4-job2-preregistration.md section 5; "
-          "notes/e4-job2c-preregistration.md section 4), paired by seed; the registered reading is the unseen frames "
-          "pooled at every size")
+    print(title or "J1-J3 (arm C's C1-C4, arm D's T1-T2). The bulk predictions (notes/e4-job2-preregistration.md "
+          "section 5; notes/e4-job2c-preregistration.md section 4; notes/e4-job4-preregistration.md section 8), paired "
+          "by seed; the registered reading is the unseen frames pooled at every size")
     groups = {}
     for r in rows:
         groups.setdefault((r["prediction"], r["a"], r["b"], r["metric"], str(r["rule"])), []).append(r)
@@ -685,8 +720,10 @@ def print_job2_predictions(rows, title=None, registered=True):
             print(f"   {pid}: {a} vs {b} ({key}): not run")
             continue
         r0 = rs[0]["rule"]
-        what = (f"{a} <= {b}" if rule == "le" else f"{a} at most {100 * r0[1]:+.0f} % from {b}" if r0[0] == "change_le"
-                else f"{a} within {100 * r0[1]:.0f} % of {b}")
+        what = (f"{a} <= {b}" if rule == "le" else f"{a} >= {b}" if rule == "ge"
+                else f"{a} at most {100 * r0[1]:+.0f} % from {b}" if r0[0] == "change_le"
+                else f"{a} {100 * r0[1]:+.1f} to {100 * r0[2]:+.1f} % from {b}" if r0[0] == "change_in"
+                else f"{a} within {100 * r0[1]:.1f} % of {b}")
         line = "; ".join(f"n{r['n']} {r['reading']} {r['wins']}/{r['seeds']} ({100 * r['change']:+.1f} %)"
                          + ("" if r["ok"] or not registered else " FAIL") for r in rs)
         verdict = all(r["ok"] for r in rs if r["reading"] == "unseen")
@@ -695,23 +732,27 @@ def print_job2_predictions(rows, title=None, registered=True):
     print()
 
 
-def report_job2(job2a, job2b, job1, data_dir, json_path=None, verbose=True, job2c=None):
-    runs = job2_runs(job2a, job2b, job1, job2c)
+def report_job2(job2a, job2b, job1, data_dir, json_path=None, verbose=True, job2c=None, job2d=None):
+    runs = job2_runs(job2a, job2b, job1, job2c, job2d)
     if not runs:
         raise SystemExit(f"no results in {job2a}, {job2b}")
     L0 = train_size(runs)
     table = bulk_table(runs, L0)
-    fixed = {arm: fixed_readings({k: v for k, v in runs.items() if k.endswith(f"[{arm}]")}) for arm in ("A", "B", "C")}
+    fixed = {arm: fixed_readings({k: v for k, v in runs.items() if k.endswith(f"[{arm}]")})
+             for arm in ("A", "B", "C", "D")}
     liq = liquid_rows(runs)
-    arm_c = any(k.endswith("[C]") for k in runs)
-    pred = job2_predictions(table, runs, JOB2_PREDICTIONS + (JOB2C_PREDICTIONS if arm_c else []))
-    readings = job2_predictions(table, runs, JOB2_READINGS + (JOB2C_READINGS if arm_c else []))
+    arm_c, arm_d = (any(k.endswith(f"[{x}]") for k in runs) for x in "CD")
+    pred = job2_predictions(table, runs, JOB2_PREDICTIONS + (JOB2C_PREDICTIONS if arm_c else [])
+                            + (JOB4_PREDICTIONS if arm_d else []))
+    readings = job2_predictions(table, runs, JOB2_READINGS + (JOB2C_READINGS if arm_c else [])
+                                + (JOB4_READINGS if arm_d else []))
     gains = field_term_gains(table, runs)
     frames_meta = load_frames(data_dir, sizes_of(runs)) if data_dir and os.path.isdir(data_dir) else {}
     job2_only = {k: v for k, v in table.items() if not k.endswith("[job 1]")}
     p3 = prediction_3(job2_only, frames_meta, runs, L0) if frames_meta else {}
     if verbose:
-        print(f"job 2: {job2a}, {job2b}" + (f", {job2c}" if job2c else "") + f", against {job1}: "
+        print(f"job 2: {job2a}, {job2b}" + (f", {job2c}" if job2c else "") + (f", job 4's arm D {job2d}" if job2d else "")
+              + f", against {job1}: "
               f"{sum(len(b) for b in runs.values())} runs; labels {sorted(runs)}\n")
         for arm, (rows, agree) in fixed.items():
             if rows:
@@ -981,7 +1022,8 @@ def main():
     ap.add_argument("--data", default="data/e4", help="the data sets (for the truth's energies and the trajectories)")
     ap.add_argument("--json", default=None, help="also write every number to this json")
     ap.add_argument("--job2", default=None, help="job 2: its arms' out_dirs, 'results/e4_job2a,results/e4_job2b"
-                                                  "[,results/e4_job2c]'")
+                                                  "[,results/e4_job2c[,results/e4_job4/edge2.0]]' (the fourth: job 4's "
+                                                  "arm D, v0.0.28)")
     ap.add_argument("--job1", default="results/e4_job1", help="job 2: job 1's out_dir, read beside it")
     ap.add_argument("--job3", default=None, help="job 3: scripts/e4_water.py kread's kread.json")
     ap.add_argument("--job4", default=None, help="job 4: kread's jsons -- a directory (its kread*.json) or a list")
@@ -992,8 +1034,8 @@ def main():
             with open(a.json, "w") as fh:
                 json.dump(jsonable(out), fh, indent=1)
     elif a.job2:
-        ja, jb, jc = (a.job2.split(",") + [None, None])[:3]
-        report_job2(ja, jb, a.job1, a.data, a.json, job2c=jc)
+        ja, jb, jc, jd = (a.job2.split(",") + [None, None, None])[:4]
+        report_job2(ja, jb, a.job1, a.data, a.json, job2c=jc, job2d=jd)
     else:
         report(a.out_dir, a.data, a.json)
 
