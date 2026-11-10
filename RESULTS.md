@@ -1416,3 +1416,29 @@ relative to arm C; Dx not pinned; H3 at both edges.
   and its rigid forces by 0.42 rms against arm C's. Arm B's moved −0.79 and 0.70, which cost the ablation 2–5 %.
 - **The report.** `scripts/e4_report.py --job2` takes job 4's arm D as a fourth directory: T1–T2, its field-term gain, and
   the finite-k response before training (`tests/test_e4_report.py::test_job4_training_report`).
+
+## v0.0.28, read 10 Nov — job 4's training: arm D costs the bulk 6–7 %, and arm C stays the model (`notes/e4-job4-results.md` §2)
+
+**Arm D trained** at 71831ca: the frozen form and its ablation, four seeds each, as two GPU tasks. It was read with
+`scripts/e4_report.py --job2`, with arm D's directory as a fourth, against `notes/e4-job4-preregistration.md` §8. The
+runs are paired by seed with arm C's; rigid-body forces on the unseen frames:
+
+| | 64 | 128 | 256 | registered | |
+|---|---|---|---|---|---|
+| T1: the frozen form, D against C | **+7.5 %** | **+6.6 %** | **+6.4 %** | within ±1.5 % | fails high |
+| T2: the ablation, D against C | **+7.3 %** | **+6.6 %** | **+6.4 %** | +0.5 to +4.5 % | fails above its band |
+| the field term's gain, D (C) | 23.2 (23.3) % | 22.9 (22.9) % | 23.0 (23.0) % | not registered | level |
+
+- **T0 holds.** Every run's read-out readings are the matching job's (ε_∞ 1.6893, χ +1.33 / −0.37 %), before and after
+  training.
+- **Every seed of both rungs is above arm C's**, at every size and split. The energies are worse too (+6 to +15 %),
+  with no bias moving with size (J5 holds).
+- **The field term takes none of it.** It took arm B's change, whose frozen form held at arm A's.
+- **The size of the change at contact does not price it.** Arm D's change (0.42 kcal/mol/Å rms) was smaller than arm
+  B's (0.47) and cost the ablation 2–7 times what T2's basis priced. Arm C's (0.33) had gained.
+- **The response no longer pays in the bulk.** Both rungs are 2.6–5.7 % above the runs without it; arm C's were 1.5–3.6 %
+  below.
+- **Arm C stays the model**, by the registered branch for T1 failing high.
+- **Not separated.** Arm D's third stage both re-fitted the orders ≥ 1 on the probes beside the calibrated order 0 (what
+  Dx does) and added the finite-k rows. Proposed: D′, the finite-k rows with the orders ≥ 1 anchored at arm C's, read at
+  matching level first.

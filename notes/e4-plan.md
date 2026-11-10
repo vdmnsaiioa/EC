@@ -381,4 +381,10 @@ code is still open: CP2K, GPAW, VASP or QE.
    - *Matching level run 9 Nov at 71831ca; read in `e4-job4-results.md` §1. All seven bands hold: arm D +1.33 / −0.37 %
      (predicted +1.32 / −0.39 %). Dx swings to +6.3 % (+0.7 % locally), so the far probes alone do not pin the orders
      ≥ 1. Training predictions T0–T2 were registered at 14:40 CET (pre-registration §8), then training started.*
+   - *Trained 9–10 Nov (two GPU tasks of four seeds); read in `e4-job4-results.md` §2. T0 holds; T1 and T2 fail high.
+     Both rungs are 6.4–7.5 % above arm C's on every seed, and the field term's gain is unchanged at 23 %. Arm C stays
+     the model. Arm D's change at contact was smaller than arm B's, so its size does not price the training cost.*
+   - *Proposed, not registered: D′, the same finite-k rows with the orders ≥ 1 anchored at arm C's (the ridge toward
+     them, and the probes held at arm C's predictions), to separate arm D's re-fit on the probes from the finite-k fix.
+     Then the molecules' finite-k rows, the registered next step for this branch.*
 7. **The L₀ sweep** (Form II).
