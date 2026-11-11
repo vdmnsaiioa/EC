@@ -1118,6 +1118,8 @@ def matched(name, rung_open, probes, scale, cfg, out_dir, liquid=None, finite_k=
               f"rms {v['three_body_rms'] * KCAL:.5f} kcal/mol, slope {v['slope']:.4f}", flush=True)
     readout = jax.tree_util.tree_map(np.asarray, params["readout"])
     tmp = f"{path}.{os.getpid()}.tmp"
+    if os.path.dirname(path):                                 # the cache directory, if new (Vadic's fix on Niflheim,
+        os.makedirs(os.path.dirname(path), exist_ok=True)     # job 4's 1.5 and 2.5 A tasks; in the repository since 11 Nov)
     with open(tmp, "wb") as fh:
         pickle.dump({"rung": key, "scale": scale, "readout": readout, "match": match}, fh)
     os.replace(tmp, path)

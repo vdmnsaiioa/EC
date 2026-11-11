@@ -287,6 +287,61 @@ def test_job4_report(tmp_path):
     assert not n["D7"]["holds"] and n["D1"]["holds"] and all(p["value"] is None for p in n["D7"]["parts"])
 
 
+def test_job5_training_report(tmp_path):
+    """scripts/e4_report.py --job2 with job 5's arm D' as a fifth directory (job 5's read, v0.0.29): T1' and T2' (the
+    frozen form and the ablation +0.5 to +4.0 % above arm C's), T3' (both at or below arm D's on >= 3 of 4 seeds) and the
+    model rule M' (the frozen form within +1.0 % of arm C's), with their rules; D''s field-term gain, its J0 readings and
+    its finite-k response before training. A frozen form 2 % above arm C's holds T1' and fails M'; one above arm D's
+    fails T3'."""
+    rng = np.random.default_rng(6)
+    frames = truth_frames(rng)
+    data = tmp_path / "data"; data.mkdir()
+    write_data(str(data), frames)
+    dirs = {}
+    for tag in ("job1", "a", "b", "c", "d", "dp"):
+        dirs[tag] = tmp_path / tag; dirs[tag].mkdir()
+        write_runs(str(dirs[tag]), frames, rng)
+        if tag != "job1":
+            for name in ("M_inf", "M_G", "M_16pm"):
+                for seed in SEEDS:
+                    os.remove(os.path.join(dirs[tag], f"{name}_seed{seed}.json"))
+    liq = {"frames": 10, "eps_inf_model": 1.6893, "eps_inf_truth": 1.6885, "cell_dipole_rel_rmse": 0.016,
+           "molecular_dipole_rel_rmse": 0.051, "molecular_response_rel_rmse": 0.029, "molecular_response_iso_rel_rmse": 0.015}
+    for tag, f_us, f_ab in (("a", 0.60, 0.72), ("b", 0.61, 0.74), ("c", 0.59, 0.71), ("d", 0.635, 0.76),
+                            ("dp", 0.594, 0.725)):
+        _rewrite(str(dirs[tag]), "M_16C2pm_us", "M_16C2pm_us", f_us, liq)
+        _rewrite(str(dirs[tag]), "M_16C2pm", "M_16C2pm", f_ab, liq)
+    kb = {"frames": 10, "harmonics": {"1": {"chi_rel_diff": 0.0132, "molecular_rel_rmse": 0.043},
+                                      "2": {"chi_rel_diff": -0.0038, "molecular_rel_rmse": 0.066}}}
+    for name in ("M_16C2pm_us", "M_16C2pm"):
+        for seed in SEEDS:
+            path = os.path.join(dirs["dp"], f"{name}_seed{seed}.json")
+            r = json.load(open(path))
+            r["matching"]["k_before_training"] = kb
+            json.dump(r, open(path, "w"))
+    args = [str(dirs[t]) for t in "abc"]
+    run = lambda verbose: R.report_job2(*args[:2], str(dirs["job1"]), str(data), verbose=verbose, job2c=args[2],
+                                        job2d=str(dirs["d"]), job5=str(dirs["dp"]))
+    res = run(True)
+    pick = lambda res, pid, a, n=256: next(r for r in res["predictions"] if r["prediction"] == pid and r["a"] == a
+                                           and r["n"] == n and r["reading"] == "unseen")
+    us, ab = "M_16C2pm_us [D']", "M_16C2pm [D']"
+    t1, t2 = pick(res, "T1'", us), pick(res, "T2'", ab)
+    assert t1["ok"] and t1["change"] == pytest.approx(0.5955 / 0.5915 - 1)
+    assert t2["ok"] and t2["change"] == pytest.approx(0.7265 / 0.7115 - 1)
+    assert pick(res, "T3'", us)["ok"] and pick(res, "T3'", ab)["ok"] and pick(res, "M'", us)["ok"]
+    assert res["field_term_gains"]["D'"][64] == pytest.approx(1 - 0.5955 / 0.7265)
+    assert res["liquid"][us][0]["k_before"]["harmonics"]["2"]["chi_rel_diff"] == -0.0038
+    assert ab in res["runs"] and res["fixed"]["D'"][us][0]["kind"] == "response"
+    assert "M_16C2pm_us [D]" in res["runs"] and pick(res, "T1", "M_16C2pm_us [D]")["change"] > 0.07
+    _rewrite(str(dirs["dp"]), "M_16C2pm_us", "M_16C2pm_us", 0.6018, liq)                 # +2 % on arm C's frozen form
+    res2 = run(False)
+    assert pick(res2, "T1'", us)["ok"] and not pick(res2, "M'", us)["ok"] and pick(res2, "T3'", us)["ok"]
+    _rewrite(str(dirs["dp"]), "M_16C2pm_us", "M_16C2pm_us", 0.640, liq)                  # above arm D's
+    res3 = run(False)
+    assert not pick(res3, "T3'", us)["ok"] and not pick(res3, "T1'", us)["ok"]
+
+
 def test_job5_report(tmp_path):
     """job 5's registered readings (v0.0.29; scripts/e4_report.py --job5) on the local reading committed with the
     pre-registration (scratch/e4_job5_local.json): P1-P6 hold there; P7's chi parts are job 4's Niflheim values, which

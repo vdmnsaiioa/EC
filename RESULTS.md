@@ -1473,3 +1473,34 @@ seven hold on the local frames. The seventh, on the far probes, fails by an impr
   - P6: its change at contact at most 0.30 rms, and at most 0.70 of arm D's.
   - P7: arm D reproduces job 4.
 - `run_e4_job5.sbatch` is one GPU task. Training waits for the read.
+
+## v0.0.29, read 11 Nov — job 5's matching level: D′ at arm D's ceiling, with half its change at contact (`notes/e4-job5-results.md` §1)
+
+**Job 5's matching level ran** at d6c801f: one GPU task of 27 minutes. It was read with `scripts/e4_report.py --job5`
+against `notes/e4-job5-preregistration.md` §4. **All seven bands hold.** Held-out cells, and the 30 test frames of 64
+molecules at contact:
+
+| | arm C | arm D | **D′** |
+|---|---|---|---|
+| χ(k₁); χ(k₂) | −1.84; −10.96 % | +1.33; −0.37 % | **+1.32; −0.38 %** |
+| the molecules at k₁; k₂ | 3.8; 5.5 % | 4.6; 7.3 % | 4.3; 6.6 % |
+| the cells' dipole at k = 0 | 1.5 % | 2.3 % | 1.6 % |
+| the far probes against arm C's, 10 / 12 / 15 Å | — | +0.18 / +0.33 / +0.21 points | +0.02 / −0.15 / −0.08 |
+| the probes' objective, stage 3 ÷ stage 2 | — | 0.56 | 1.02 |
+| the change at contact against arm C: energy; rigid forces | — | −0.187; 0.325 | **−0.054; 0.156** |
+| the orders ≥ 1 moved, ÷ arm C's norm | 0 | 1.35 | 0.62 |
+
+- **D′'s χ is arm D's to 0.01 point.** On the calibration cells both read +1.35 / −0.40 %, so holding the 328 training
+  probes costs the fit nothing.
+- **It moves the read-out at contact 0.48 as much as arm D does**, its energy 0.29 as much, and its coefficients 0.46.
+  Every other reading is closer to arm C's than arm D's is.
+- **Arm D reproduces job 4 to the printed digit**, and Dx reproduces its swing (+6.29 % at k₂).
+- **The training predictions were registered before training** (pre-registration §8, committed 15:19 CET on 11 Nov):
+  - T1′ and T2′: the frozen form and the ablation each +0.5 to +4.0 % above arm C's. This is arm D's cost scaled by
+    D′'s 0.48 share of its change at contact: linearly +3.1 to +3.6 %, in quadrature +1.5 to +1.8 %;
+  - T3′: both at or below arm D's on at least 3 of 4 seeds;
+  - the model rule M′: D′'s frozen form becomes the model if it is within +1.0 % of arm C's at every size.
+- **The report.** `scripts/e4_report.py --job2` takes job 5's directory as a fifth (`tests/test_e4_report.py::
+  test_job5_training_report`). `matched()` now makes its cache directory when it is new; this was Vadic's fix on
+  Niflheim.
+- `run_e4_job5_train.sbatch`: two GPU tasks, about 26 GPU hours.

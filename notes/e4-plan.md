@@ -391,4 +391,8 @@ code is still open: CP2K, GPAW, VASP or QE.
      ceiling (χ +1.44 / −0.32 %). Its change at contact is half of arm D's (0.22 against 0.42 rms) and its energy a
      tenth, and its far test probes improve on arm C's. `run_e4_job5.sbatch` (one GPU task) runs the matching level;
      training only after its read.*
+   - *Matching level run 10 Nov at d6c801f; read in `e4-job5-results.md` §1. All seven bands hold. D′ reads +1.32 /
+     −0.38 %, arm D's χ to 0.01 point. At contact it moves 0.156 rms against arm D's 0.325, and every other reading is
+     closer to arm C's. Training predictions T0′–T3′ and the model rule (D′ is the model if within +1.0 % of arm C's)
+     were registered at 15:19 CET on 11 Nov (pre-registration §8); `run_e4_job5_train.sbatch` follows.*
 7. **The L₀ sweep** (Form II).

@@ -461,6 +461,18 @@ python scripts/e4_report.py --job5 results/e4_job5
 Locally (`scratch/e4_job5_local.json`), D′ reaches arm D's ceiling: χ +1.44 / −0.32 % at k₁ / k₂. Its change at
 contact is half of arm D's (0.22 against 0.42 kcal/mol/Å rms), and its far probes are better than arm C's.
 
+The matching level's read is `notes/e4-job5-results.md` §1: all seven bands hold on Niflheim. D′ reads +1.32 / −0.38 %,
+arm D's χ to 0.01 point, and moves the read-out at contact 0.156 rms against arm D's 0.325. Every other reading is
+closer to arm C's than arm D's is. Its training predictions (T0′–T3′, and the rule that makes D′'s frozen form the model
+if it is within +1.0 % of arm C's) were registered before training (pre-registration §8):
+
+```sh
+sbatch run_e4_job5_train.sbatch            # two GPU tasks, one per rung, four seeds each: about 26 GPU hours
+python scripts/e4_water.py summary --out_dir results/e4_job5
+python scripts/e4_report.py --job2 results/e4_job2a,results/e4_job2b,results/e4_job2c,results/e4_job4/edge2.0,results/e4_job5 \
+    --job1 results/e4_job1                 # D''s training against arms C and D: T1'-T3' and M'
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

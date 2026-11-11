@@ -116,6 +116,21 @@ def test_k_stage_anchor_flag_and_hash():
     assert z["block"] is None and z["anchor"] is True
 
 
+def test_matched_makes_its_cache_directory(tmp_path, monkeypatch):
+    """matched writes its cache into the directory it is given, making it if new (Vadic's fix of job 4's 1.5 and 2.5 A
+    tasks on Niflheim, which wrote to directories no one had made)."""
+    import e4_water as E4
+    monkeypatch.setattr(E4, "match_readout", lambda rung_open, probes, scale, cfg, verbose=True, liquid=None, start=None,
+                        finite_k=None: ({"readout": {"x": np.array(1.0)}}, {"objective": [(1.0, 0.5)], "ridge": [0.1],
+                                                                             "time": 1.0}))
+    monkeypatch.setattr(E4, "read_probes", lambda params, rung, probes: {"fake": True})
+    monkeypatch.setattr(E4.E3, "probe_summary", lambda m: "fake")
+    out = tmp_path / "new" / "edge9.9"
+    ro, rec = E4.matched("R", frozen(), {"hash": "p0"}, 1.0, {}, str(out))
+    assert os.listdir(out) == ["matched_R_p0.pkl"] and float(ro["x"]) == 1.0
+    assert float(E4.matched("R", frozen(), {"hash": "p0"}, 1.0, {}, str(out))[0]["x"]) == 1.0
+
+
 def test_job5_config_is_arm_ds_anchored(monkeypatch):
     """configs/e4_job5.yaml: job 4's config with training.readout.finite_k.anchor true and nothing else; kread's arms --
     C (job 2c's config), D and Dx (job 4's) and Da (this one) -- all in results/e4_job5 at 2.0 A, with the change at

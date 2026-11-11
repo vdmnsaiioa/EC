@@ -4,6 +4,10 @@
 tree. The matching level ran as `run_e4_job4.sbatch`, three GPU tasks, one per mutual edge. Arm D's training then ran
 as `run_e4_job4_train.sbatch`, two GPU tasks, one per rung, with the four seeds in sequence.*
 
+*Niflheim's tree also carried a two-line local fix in `matched()`. It makes the cache directory when it is new, which the
+sbatch had not done for the 1.5 and 2.5 Å tasks. It was found on 10 Nov, when v0.0.29 was pulled. It changes no number,
+and it has been in the repository since 11 Nov.*
+
 *§1, the matching level, is read from `scripts/e4_report.py --job4 results/e4_job4`. That report prints the band
 readings; the per-frame values and stage records are in the three `kread_edge*.json`. §2, the training, is read from
 `scripts/e4_report.py --job2` with arm D's directory as a fourth. Its predictions were registered after §1's read and
