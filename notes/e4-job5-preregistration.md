@@ -11,6 +11,8 @@ level, then training if it reads. The local master of this note is `notes/` in t
   - *job 4's numbers.*
 - *§3's numbers were computed after that, on job 3's local frames.*
 - *§4's bands for Niflheim were written after §3's numbers, before the job ran.*
+- *§8, the training predictions, was written after Niflheim's matching level was read (`e4-job5-results.md` §1)
+  and before the training sbatch existed.*
 
 ## 1. The question
 
@@ -218,3 +220,73 @@ numbers on Niflheim.
   arm C.
 - The frames' sd of χ(k₂), arm by arm.
 - The held objective of D′'s stage (`finite_k_held_objective`): how far the training probes move.
+
+## 8. Training: registered 11 Nov, 15:19 CET (this commit's time), after the matching level and before any training
+
+*Written after Niflheim's matching level was read (all seven bands hold; `e4-job5-results.md` §1) and before
+`run_e4_job5_train.sbatch` was written. Arm C's trained readings are `e4-job2c-results.md`'s; arm D's are
+`e4-job4-results.md` §2's.*
+
+**What D′ changes before training, against arm D.** These are Niflheim's 30 test frames of 64 molecules.
+
+- The read-out's rigid forces in the liquid move 0.156 kcal/mol/Å rms from arm C's: 0.48 of arm D's 0.325.
+- Its energy moves −0.054 kcal/mol per molecule, 0.29 of arm D's −0.187.
+- Its orders ≥ 1 move 0.46 as far as arm D's.
+- Per unit of coefficient change, D′ and arm D move the contact alike (0.25 and 0.24 rms per arm C's norm). Dx, the
+  re-fit alone, moves it 0.36.
+- Its χ is arm D's to 0.01 point. Every other reading is closer to arm C's than arm D's is.
+
+**The predictions.** They are paired by seed, on the unseen frames pooled, as for jobs 2c and 4.
+`scripts/e4_report.py --job2` reads them with job 5's directory as a fifth.
+
+| | reading | registered |
+|---|---|---|
+| **T0′** | before training, every run of both rungs: the held-out liquid's ε_∞ and χ on the matched read-out | the matching job's D′: ε_∞ 1.6893, χ +1.32 / −0.38 %, to the printed digit |
+| | ε_∞, T5 and the far probes after training | as before it |
+| **T1′** | the frozen form, D′ against arm C: rigid forces, seed means, at 64, 128 and 256 molecules | +0.5 to +4.0 % at every size |
+| **T2′** | the ablation, D′ against arm C: the same | +0.5 to +4.0 % at every size |
+| **T3′** | D′ against arm D, both rungs | at or below it on at least 3 of 4 seeds, at every size |
+
+**The model rule, registered with them.** D′'s frozen form becomes E4's model if it is within +1.0 % of arm C's at every
+size (seed means, unseen frames). Otherwise arm C stays the model, and D′ is kept as the variant with the finite-k
+response right.
+
+Beside them, not registered: the field term's gain (arm C's and arm D's 23 %), the energies, and D′ against the runs
+without the read-out's response.
+
+**Why these.**
+
+- **T1′ and T2′: arm D's cost, scaled by D′'s share of the change.**
+  - Job 4 showed that the size of a change at contact does not price it across kinds of change: arms B, C and D gave
+    three outcomes in no order of their size.
+  - D′ and arm D are one kind. Both move the orders ≥ 1 with the same finite-k rows, and they move the contact alike
+    per unit of coefficient change.
+  - So scale arm D's cost (+6.4 to +7.5 %) by D′'s share of its change at contact, 0.48. Linearly that is +3.1 to
+    +3.6 %. In quadrature, as an added error independent of the rest, it is +1.5 to +1.8 %.
+  - The part D′ leaves out is the re-fit. Per unit of coefficient change it moves the contact most, and it made the far
+    test probes worse while it fitted the training probes. If anything it was the costlier part.
+  - Hence +0.5 to +4.0 %, centred near +2 %.
+- **Both rungs alike.** Arm D cost both rungs the same fraction, and the field term absorbed none of it. Nothing in D′'s
+  change is of the k = 0 kind the field term took from arm B. So T1′ and T2′ share their band.
+- **T3′.** D′ has arm D's finite-k fix without the re-fit, and moves the contact half as much.
+
+**What would change the reading.**
+
+- **T1′ fails low:** the frozen form within +0.5 % of arm C's, or below it. The re-fit carried arm D's cost, and the
+  finite-k fix is free in the bulk. By the model rule D′'s frozen form is then the model: arm C's bulk, with χ right at
+  k₁ and k₂.
+- **T1′–T3′ hold.** The finite-k fix itself costs the bulk, about in its share of the change at contact. Arm C stays the
+  model, unless D′ is within the model rule's +1.0 %. The next question is whether the fix can be made in directions the
+  liquid's forces do not see: D″, with the read-out's forces in the calibration cells held as rows too.
+- **T1′ or T2′ fails high, and T3′ holds.** The fix costs more than its share of the change at contact. Arm C stays,
+  and D″ is next, as above.
+- **T3′ fails.** The re-fit was not where arm D's cost came from, and the finite-k fix costs the bulk however it is
+  anchored. Arm C stays the model. The frozen form's finite-k response at this edge is then recorded as a limit of the
+  read-out.
+
+**The run.** `run_e4_job5_train.sbatch` is two GPU tasks, one per rung, with the four seeds in sequence, as job 4's.
+
+- The frozen form's D′ read-out comes from the matching job's cache.
+- The ablation's third stage is solved once, by its first seed, from arm C's cached stages, then cached for the other
+  three.
+- About 26 GPU hours, as arms C and D.
