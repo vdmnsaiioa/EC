@@ -395,4 +395,12 @@ code is still open: CP2K, GPAW, VASP or QE.
      −0.38 %, arm D's χ to 0.01 point. At contact it moves 0.156 rms against arm D's 0.325, and every other reading is
      closer to arm C's. Training predictions T0′–T3′ and the model rule (D′ is the model if within +1.0 % of arm C's)
      were registered at 15:19 CET on 11 Nov (pre-registration §8); `run_e4_job5_train.sbatch` follows.*
+   - *Training started 11 Nov as eight tasks on the 4-hour GPUs (`run_e4_job5_train_4h.sbatch`).*
+   - *S0 registered 11 Nov (`e4-s0-preregistration.md`; the bands of the project's `path-integral-ir-sector.md` §4.1;
+     Vadic's go of 11 Nov). It reads the polarisation sum rules on MB-pol's own trajectories:
+     - L(k → 0) = 1/ε_∞ − 1/ε_s and T/L ≈ ε_∞ε_s;
+     - the regression ratio r = b_T/b_L, which is ε_∞ for field-blind sources and 1 for a model that carries the
+       response, on the dagger's sources and on arm C.
+     It needs no training: MBX's sites at zero field on every frame (five CPU tasks), arm C's own polarisation (one GPU
+     task), then the read with NumPy (`scripts/e4_sumrules.py`).*
 7. **The L₀ sweep** (Form II).

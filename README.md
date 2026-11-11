@@ -473,6 +473,25 @@ python scripts/e4_report.py --job2 results/e4_job2a,results/e4_job2b,results/e4_
     --job1 results/e4_job1                 # D''s training against arms C and D: T1'-T3' and M'
 ```
 
+On GPUs with a 4-hour limit, `run_e4_job5_train_4h.sbatch` runs the same eight runs as eight tasks
+(`scripts/e4_water.py train --task i`), as job 2c's were. This is how it ran on Niflheim on 11 Nov.
+
+**S0** (`notes/e4-s0-preregistration.md`; the bands of the project's note `path-integral-ir-sector.md` §4.1) reads the
+polarisation sum rules on MB-pol's own trajectories, with no training and no new MD:
+
+- L(k) = (4πβ/V)⟨|P_L|²⟩ → 1/ε_∞ − 1/ε_s, from the charge density with its induced dipoles;
+- T(k) = (4πβ/V)⟨|ê·P_T|²⟩ → ε_s − ε_∞, from the molecules' dipoles at their centres of mass;
+- r = b_T/b_L, the ratio of the regression slopes of MB-pol's P on a candidate's. It is ε_∞(k) for field-blind sources
+  and 1 for a model that carries the response.
+
+`scripts/e4_sumrules.py` has three steps. The read is NumPy only and runs on the login node:
+
+```sh
+sbatch run_e4_s0_mbpol.sbatch              # five CPU tasks, one per size: MBX's sites at zero field on every frame
+sbatch run_e4_s0_model.sbatch              # one GPU task: arm C's own polarisation on the 64-256 sets
+python scripts/e4_sumrules.py read         # S0.1-S0.4 and the readings beside them, into results/e4_s0/s0.json
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

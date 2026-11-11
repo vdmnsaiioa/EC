@@ -1503,4 +1503,45 @@ molecules at contact:
 - **The report.** `scripts/e4_report.py --job2` takes job 5's directory as a fifth (`tests/test_e4_report.py::
   test_job5_training_report`). `matched()` now makes its cache directory when it is new; this was Vadic's fix on
   Niflheim.
-- `run_e4_job5_train.sbatch`: two GPU tasks, about 26 GPU hours.
+- `run_e4_job5_train.sbatch`: two GPU tasks, about 26 GPU hours. It ran on 11 Nov as `run_e4_job5_train_4h.sbatch`:
+  the same eight runs as eight tasks, for GPUs with a 4-hour limit.
+
+## v0.0.29, 11 Nov — S0: the polarisation sum rules on MB-pol's trajectories, pre-registered (`notes/e4-s0-preregistration.md`)
+
+**S0 reads the infrared on the truth's own liquid**, with no training and no new MD. The project's note
+`path-integral-ir-sector.md` (10 Nov) treats the long-range sector as a Gaussian path integral over the polarisation.
+Its nuclear sum rules fix how MB-pol's Born–Oppenheimer polarisation fluctuates at small k:
+
+- **Longitudinal.** L(k) = (4πβ/V)⟨|P_L|²⟩ → 1/ε_∞ − 1/ε_s, about 0.58. It is read from the charge density, with the
+  induced dipoles in it.
+- **Transverse.** T(k) → ε_s − ε_∞, so T/L ≈ ε_∞ε_s, of order 100.
+- **The regression.** Regress MB-pol's P on a candidate polarisation, channel by channel. The ratio of the slopes,
+  r = b_T/b_L, is ε_∞(k) for field-blind sources and 1 for a model that carries the electronic response.
+
+| | reading | band |
+|---|---|---|
+| S0.1 | L(k → 0): the intercept over the nine shells with k ≤ 0.46 Å⁻¹ of the 128–1024 cells | 0.48–0.68 |
+| S0.2 | T/L on each of those shells | ≥ 20 |
+| S0.3 | r for the dagger's sources (MB-pol's site charges alone), on the first shells of 512 and 1024 | 1.45–1.95 |
+| S0.4 | r for arm C's own polarisation, on the first shells of 128 and 256 | 0.90–1.10 |
+
+- **The bands and the reader's choices were committed at 22:31 CET on 11 Nov**, before the reader had run on any
+  MB-pol frame. The bands are the path-integral note's of 10 Nov, 16:58 CET. The choices are §3 of the S0 note:
+  - every frame of `data/e4`, with train, valid and test together;
+  - 300 K, so βe²/Å = 557.0;
+  - the (100), (110) and (111) shells;
+  - the molecules' dipoles at their centres of mass for T;
+  - jackknife errors over blocks of 4 frames (2 ps) within a trajectory.
+- **`scripts/e4_sumrules.py`** has three steps:
+  - `mbpol`: MBX's site charges and induced dipoles at zero field. Each size's first frame is solved again with the
+    dynamics' settings as a check.
+  - `model`: a frozen form's induced dipole −∂E/∂E_ext,i at every atom, with its order-0 μ_ind beside it.
+  - `read`: NumPy only.
+- **`tests/test_sumrules.py`** checks:
+  - the unit factor;
+  - the two channels' normalisation on independent dipoles;
+  - the charge and dipole forms of P_L at small k;
+  - the jackknife;
+  - both steps end to end, on a fake MBX and on fake cells.
+- **The run:** `run_e4_s0_mbpol.sbatch` (five CPU tasks), then `run_e4_s0_model.sbatch` (one GPU task), then the read
+  on the login node.
