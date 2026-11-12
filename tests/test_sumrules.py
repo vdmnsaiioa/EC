@@ -198,7 +198,7 @@ def test_mbpol_step_on_a_fake_mbx_and_the_read_end_to_end(tmp_path, monkeypatch)
 
 def test_model_step_gives_mu_ind_when_the_orders_above_zero_are_off(tmp_path):
     """the model step on fake 16-molecule cells: dipoles at every site (zero at the M-sites), in e A; with the read-out's
-    orders >= 1 off, -dE/dE_ext,i is the order-0 sector's mu_ind exactly; with them on it differs."""
+    orders >= 1 off, -dE/dE_ext,i is the order-0 sector's mu_ind exactly (the dense solve); with them on it differs."""
     import yaml
     import e4_water as E4
     from test_e4_train import _fake_cells
@@ -217,7 +217,7 @@ def test_model_step_gives_mu_ind_when_the_orders_above_zero_are_off(tmp_path):
         with open(tmp_path / f"{label}.pkl", "wb") as fh:
             pickle.dump({"rung": repr(rung_open) + "_liqx", "scale": 1e-3, "readout": ro}, fh)
         SR.run_model(SimpleNamespace(config=str(tmp_path / "c.yaml"), readout=str(tmp_path / f"{label}.pkl"),
-                                     rung="M_16C2pm_us", label=label, sizes=[16], data=str(data),
+                                     rung="M_16C2pm_us", label=label, sizes=[16], data=str(data), solver="direct",
                                      out=str(tmp_path / "out")))
     off = np.load(tmp_path / "out" / "model_off_n16.npz")
     onf = np.load(tmp_path / "out" / "model_on_n16.npz")
@@ -226,3 +226,43 @@ def test_model_step_gives_mu_ind_when_the_orders_above_zero_are_off(tmp_path):
     assert np.allclose(off["mu_full"], off["mu_ind"], rtol=0, atol=1e-10 * np.abs(off["mu_ind"]).max())
     assert not np.allclose(onf["mu_full"], onf["mu_ind"], rtol=0, atol=1e-6 * np.abs(onf["mu_ind"]).max())
     assert np.allclose(off["q"], np.tile(SITE_Q, 16)) or off["q"].shape == (64,)
+
+
+def test_model_step_reads_cells_other_than_the_matching_one_with_the_configured_solve(tmp_path):
+    """a read-out matched in one cell, read in a larger one, whose reciprocal grid (ewald_n_max) differs: the first run
+    on Niflheim (12 Nov) stopped at 128 molecules because the check compared the rung's whole repr, the grid included.
+    With the config's solve (GMRES) the dipoles are the dense solve's to its tolerance."""
+    import yaml
+    import jax
+    import e4_water as E4
+    from sseft.water import e4_structures
+    from test_e4_train import _fake_cells
+    from test_periodic import switched_on
+    cfg = E4.merge(E4.load_config(None), {"model": {"features": 8, "mutual_edge_angstrom": 2.0}})
+    assert cfg["model"]["solver"] == "gmres"
+    data = tmp_path / "data"; data.mkdir()
+    _fake_cells(data / "test_n16.npz", 2, 16, 12.5, seed=5)
+    _fake_cells(data / "test_n24.npz", 1, 24, 14.3, seed=6)
+    with open(tmp_path / "c.yaml", "w") as fh:
+        yaml.safe_dump(cfg, fh)
+    cell16 = e4_structures(str(data / "test_n16.npz"), pins=True)[0].cell
+    cell24 = e4_structures(str(data / "test_n24.npz"), pins=True)[0].cell
+    rung16, open16 = E4.rungs_for("M_16C2pm_us", cfg, cell16)
+    assert repr(open16) != repr(E4.rungs_for("M_16C2pm_us", cfg, cell24)[1])     # as 64 against 128 molecules
+    on = jax.tree_util.tree_map(np.asarray, switched_on(rung16)["readout"])
+    with open(tmp_path / "on.pkl", "wb") as fh:
+        pickle.dump({"rung": repr(open16) + "_liqx", "scale": 1e-3, "readout": on}, fh)
+    common = dict(config=str(tmp_path / "c.yaml"), readout=str(tmp_path / "on.pkl"), rung="M_16C2pm_us", data=str(data))
+    SR.run_model(SimpleNamespace(**common, label="g", sizes=[16, 24], solver=None, out=str(tmp_path / "g")))
+    SR.run_model(SimpleNamespace(**common, label="d", sizes=[16], solver="direct", out=str(tmp_path / "d")))
+    g16, g24 = (np.load(tmp_path / "g" / f"model_g_n{n}.npz") for n in (16, 24))
+    d16 = np.load(tmp_path / "d" / "model_d_n16.npz")
+    assert g24["mu_full"].shape == (1, 96, 3) and np.abs(g24["mu_full"]).max() > 1e-4
+    assert json.loads(str(g16["meta"]))["solver"] == "gmres" and json.loads(str(d16["meta"]))["solver"] == "direct"
+    for key in ("mu_full", "mu_ind"):
+        assert np.allclose(g16[key], d16[key], rtol=0, atol=1e-7 * np.abs(d16[key]).max())
+    with open(tmp_path / "other.pkl", "wb") as fh:                               # another rung is still refused
+        pickle.dump({"rung": repr(E4.rungs_for("M_16C2pm", cfg, cell16)[1]), "scale": 1e-3, "readout": on}, fh)
+    with pytest.raises(ValueError, match="another rung"):
+        SR.run_model(SimpleNamespace(**{**common, "readout": str(tmp_path / "other.pkl")}, label="x", sizes=[16],
+                                     solver=None, out=str(tmp_path / "x")))

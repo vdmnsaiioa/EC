@@ -1543,5 +1543,38 @@ Its nuclear sum rules fix how MB-pol's Born–Oppenheimer polarisation fluctuate
   - the charge and dipole forms of P_L at small k;
   - the jackknife;
   - both steps end to end, on a fake MBX and on fake cells.
-- **The run:** `run_e4_s0_mbpol.sbatch` (five CPU tasks), then `run_e4_s0_model.sbatch` (one GPU task), then the read
-  on the login node.
+- **The run:** `run_e4_s0_mbpol.sbatch` (five CPU tasks) and `run_e4_s0_model.sbatch` (one GPU task), which do not
+  depend on each other, then the read on the login node.
+
+## v0.0.29, read 12 Nov — S0: MB-pol obeys the sum rules, and its own sources regress at r ≈ 2.0, not ε_∞ (`notes/e4-s0-results.md` §1)
+
+**MB-pol's step ran** at f8788ff: five CPU tasks of 1–5 minutes. With the dynamics' settings, the first frames' induced
+dipoles are within 0.001–0.002 % of the truth's.
+
+| | band | prediction | Niflheim |
+|---|---|---|---|
+| S0.1: L(k → 0) | 0.48–0.68 | 0.572–0.582 | **0.610 ± 0.030** ✓ |
+| S0.2: T/L, nine shells | ≥ 20 | ≈ ε_∞ε_s | **86–114** ✓ |
+| S0.3: r for P_perm, 512 and 1024 | 1.45–1.95 | 1.709, 1.701 | **1.979 ± 0.032, 1.992 ± 0.045** ✗ |
+| S0.4: r for arm C, 128 and 256 | 0.90–1.10 | 1 | to come |
+
+- **The sum rules hold.** With ε_s ≈ 60, the intercept gives ε_∞ = 1.60 ± 0.08. The clamped 1.6885 is 1.2σ from it,
+  and 2.0 is 4σ from it.
+- **S0.3 fails in the longitudinal channel.**
+  - b_T is 1.454–1.461 on every shell and size: the liquid's dipole enhancement.
+  - b_L ε_∞(k) is 1.24–1.31 at k ≤ 0.36 Å⁻¹ and rises to 1.65 at 0.88.
+  - So r falls with k, from 2.0 to 1.74, while ε_∞(k) rises from 1.70 to 1.97.
+
+  The lemma's r = ε_∞ assumes the same enhancement in both channels. MB-pol's own sources do not satisfy that. The
+  case the registration would have stopped on, r near 1, did not occur. Two readings are noted, neither tested: the
+  long-range energy screening the induced dipoles' local-field residual in the longitudinal channel only, or a
+  mean-field longitudinal channel (b_L is within about 1 % of Clausius–Mossotti's 0.728).
+- **For the architecture.** Field-blind sources regress at r ≈ 2.0 and a model carrying the response at 1. The test
+  separates them more sharply than registered, but r cannot be read on the lemma's scale between 1 and ε_∞.
+- **Beside it.**
+  - 1/ε_s(k) is near zero at k ≤ 0.25 Å⁻¹ and negative from about 0.3 Å⁻¹ (−0.45 at 0.88): MB-pol overscreens.
+  - Arm C at 64 molecules, written before the model step stopped, reads r = 0.99–1.00, with b_L and b_T at 1.00–1.01.
+- **The model step stopped at 128 molecules.** It checked the read-out's rung against the whole repr, including the
+  reciprocal grid, which follows the cell (22, 27 and 34 at 64, 128 and 256). Fixed, with a test on two cells. It now
+  evaluates both dipole sets in one pass and solves as the config does (GMRES). `run_e4_s0_model.sbatch` runs again
+  unchanged.

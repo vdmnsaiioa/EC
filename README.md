@@ -492,6 +492,15 @@ sbatch run_e4_s0_model.sbatch              # one GPU task: arm C's own polarisat
 python scripts/e4_sumrules.py read         # S0.1-S0.4 and the readings beside them, into results/e4_s0/s0.json
 ```
 
+The read is `notes/e4-s0-results.md`.
+
+- S0.1 and S0.2 hold: L(k → 0) = 0.610 ± 0.030, and T/L = 86–114.
+- S0.3 fails high. MB-pol's own permanent sources regress at r = 1.98–1.99, not at ε_∞(k) = 1.70: b_T is 1.455 at
+  every k, while b_L is about 15 % below b_T/ε_∞ at small k.
+- S0.4 waits for the model step, which stopped at 128 molecules on the first run. Its rung check compared the
+  reciprocal grid, which follows the cell. That is fixed, and the step now solves as the config does (GMRES;
+  `--solver direct` for the dense solve).
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

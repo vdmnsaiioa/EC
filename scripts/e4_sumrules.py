@@ -14,7 +14,10 @@ mbpol: MB-pol's electrostatic sites at zero external field on every frame of dat
   relative rms difference recorded. MBX only; no GPU.
 model: a frozen form's own polarisation on the 64-256 sets: the pinned site charges and, at every atom, the induced
   dipole -dE/dE_ext,i at zero external field -- the order-0 sector's mu_ind with the orders >= 1's field-gradient terms,
-  as model.mode_response's dipoles -- and the order-0 mu_ind alone, into <out>/model_<label>_n<n>.npz.
+  as model.mode_response's dipoles -- and the order-0 mu_ind alone, into <out>/model_<label>_n<n>.npz. Both from one
+  pass, with the mutual response solved as the config's model is (GMRES; --solver direct for the dense solve, whose
+  cost grows as N^3). The read-out must have been matched for the rung with this config's model; the reciprocal grid
+  (ewald_n_max) is the cell's, so it is left out of that check.
 read: on the (100), (110) and (111) shells of every cell,
   L(k) = (4 pi beta / V) <|P_L,k|^2>, P_L from the charge density of the site charges and point dipoles,
   T(k) = (4 pi beta / V) <|e.P_T,k|^2> per transverse direction, P from the molecules' dipoles at their centres of mass,
@@ -28,6 +31,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import sys
 import time
 
@@ -220,6 +224,7 @@ def run_model(a):
     with open(a.readout, "rb") as fh:
         cached = pickle.load(fh)
     K, om = int(cfg["model"]["K"]), float(cfg["model"]["omega0"])
+    grid = lambda s: re.sub(r"ewald_n_max=\d+", "ewald_n_max=*", s)    # the reciprocal grid follows the cell
     for n in a.sizes:
         fr = load_frames(a.data, n)
         if fr is None:
@@ -231,33 +236,37 @@ def run_model(a):
             if os.path.exists(p):
                 structs += W.e4_structures(p, pins=True, K=K, omega0=om)
         rung_cell, rung_open = E4.rungs_for(a.rung, cfg, structs[0].cell)
-        if not str(cached["rung"]).startswith(repr(rung_open)):
+        if not grid(str(cached["rung"])).startswith(grid(repr(rung_open))):
             raise ValueError(f"{a.readout} was matched for another rung than {a.rung} with {a.config}'s model")
         params = E4.with_readout(M.init_params(jax.random.PRNGKey(0), rung_open, energy_scale=cached["scale"]),
                                  cached["readout"])
-        r = E4.in_cell(replace(rung_cell, bf_solver="direct"), structs[0].cell)
+        solver = a.solver or rung_cell.bf_solver
+        r = E4.in_cell(replace(rung_cell, bf_solver=solver), structs[0].cell)
 
-        def full(p, b):                              # -dE/dE_ext,i at every atom, the field's derivatives held at zero
+        def dipoles(p, b):        # (-dE/dE_ext,i, the order-0 mu_ind) at every atom, the field and its derivatives zero
             N = b["positions"].shape[0]
             z = (jnp.zeros((N, 3)), jnp.zeros((N, 3, 3)), jnp.zeros((N, 3, 3, 3)))
-            e = lambda f: M.energy_single(p, r, {**b, "ext_field": f, "ext_grad": z[1], "ext_grad2": z[2]})[0]
-            return -jax.grad(e)(z[0])
-        f_full = jax.jit(full)
-        f_ind = jax.jit(lambda p, b: M.energy_single(p, r, b)[1]["mu_ind"])
+
+            def e(f):
+                en, aux = M.energy_single(p, r, {**b, "ext_field": f, "ext_grad": z[1], "ext_grad2": z[2]})
+                return en, aux["mu_ind"]
+            g, mu0 = jax.grad(e, has_aux=True)(z[0])
+            return -g, mu0
+        f_dip = jax.jit(dipoles)
         mu_full, mu_ind = [], []
         t0 = time.time()
         for j, st in enumerate(structs):
             b = {k: v[0] for k, v in S.pad_batch([st], n_freq=r.K).items()}
             m = st.n_atoms
-            for out, fn in ((mu_full, f_full), (mu_ind, f_ind)):
-                d = bohr_to_ang(np.asarray(fn(params, b))[:m])                 # e bohr -> e A
+            for out, dd in zip((mu_full, mu_ind), f_dip(params, b)):
+                d = bohr_to_ang(np.asarray(dd)[:m])                            # e bohr -> e A
                 out.append(np.concatenate([d.reshape(m // 3, 3, 3), np.zeros((m // 3, 1, 3))], axis=1).reshape(-1, 3))
             if j == 0 or (j + 1) % 20 == 0 or j + 1 == len(structs):
                 print(f"  n {n}: frame {j + 1} of {len(structs)}: rms induced dipole "
                       f"{np.sqrt(np.mean(np.sum(mu_full[-1] ** 2, axis=1)) * 4 / 3):.4f} e A per atom  "
                       f"[{time.time() - t0:.0f} s]", flush=True)
         q4 = np.tile(fr["site_q"], n)
-        meta = {"n": n, "label": a.label, "config": a.config, "readout": a.readout, "rung": a.rung,
+        meta = {"n": n, "label": a.label, "config": a.config, "readout": a.readout, "rung": a.rung, "solver": solver,
                 "time": time.time() - t0}
         path = os.path.join(a.out, f"model_{a.label}_n{n}.npz")
         np.savez(path, q=q4, mu_full=np.array(mu_full), mu_ind=np.array(mu_ind), meta=np.array(json.dumps(meta)))
@@ -439,6 +448,8 @@ def main():
     m.add_argument("--rung", default="M_16C2pm_us")
     m.add_argument("--label", default="C")
     m.add_argument("--sizes", type=int, nargs="*", default=[64, 128, 256])
+    m.add_argument("--solver", default=None, choices=["gmres", "direct"],
+                   help="the mutual response's solve (default: the config's model's)")
     m = sub.choices["read"]
     m.add_argument("--json", default="results/e4_s0/s0.json")
     m.add_argument("--block", type=int, default=BLOCK)

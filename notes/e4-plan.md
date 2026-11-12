@@ -403,4 +403,11 @@ code is still open: CP2K, GPAW, VASP or QE.
        response, on the dagger's sources and on arm C.
      It needs no training: MBX's sites at zero field on every frame (five CPU tasks), arm C's own polarisation (one GPU
      task), then the read with NumPy (`scripts/e4_sumrules.py`).*
+   - *MB-pol's part read 12 Nov at f8788ff (`e4-s0-results.md` §1).*
+     - *S0.1 and S0.2 hold: L(k → 0) = 0.610 ± 0.030 and T/L = 86–114. The sum rule confirms ε_∞ (1.60 ± 0.08).*
+     - *S0.3 fails high. MB-pol's own sources regress at r = 1.98–1.99, not ε_∞ = 1.70: b_T = 1.455 at every k, and
+       b_L sits about 15 % below b_T/ε_∞ at small k. The lemma's scale between 1 and ε_∞ does not hold for MB-pol, but
+       field-blind (≈ 2.0) and response-carrying (1) sources are still told apart.*
+     - *MB-pol overscreens from about 0.3 Å⁻¹. Arm C at 64 molecules reads r = 0.99–1.00, not registered.*
+     - *S0.4 waits for the model step, which stopped at 128 molecules on a reader bug, since fixed.*
 7. **The L₀ sweep** (Form II).
