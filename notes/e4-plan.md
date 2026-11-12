@@ -417,4 +417,12 @@ code is still open: CP2K, GPAW, VASP or QE.
        field-blind (≈ 2.0) and response-carrying (1) sources are still told apart.*
      - *MB-pol overscreens from about 0.3 Å⁻¹. Arm C at 64 molecules reads r = 0.99–1.00, not registered.*
      - *S0.4 waits for the model step, which stopped at 128 molecules on a reader bug, since fixed.*
+   - *Direction chosen 12 Nov (Vadic's go): close S0 first, then the MD driver and S1/S2 (the path-integral note's
+     §4.2–4.3) as the main line. The molecules' finite-k rows, the L₀ sweep and Form I are deferred.*
+     - *S0.5 was registered at 14:48 CET (`e4-s0-preregistration.md` §6). It is the nuclear EFT note's account of
+       S0.3: r = ε_∞ + v_η, with v_η the transverse regression's residual. Its band is 0.7–1.4 on
+       ρ = (r − ε_∞(k))/v_η.*
+     - *S3's normalisation was amended to ε_∞(k) − 1.*
+     - *The EFT's readings were added beside it: 1/A_T and 1/A_L with their fits and the overscreening zero, S_nn and
+       S_nZ. All of it is on the existing frames.*
 7. **The L₀ sweep** (Form II).

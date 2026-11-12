@@ -1607,3 +1607,27 @@ its ablation, four seeds each, on D′'s read-out. It was read with `scripts/e4_
   0.024 / 0.019 / 0.010 kcal/mol per molecule, ε_∞ 1.6893, χ +1.32 / −0.38 % at k₁ / k₂, the far probes 2.2–2.7 %.
 - **Next, proposed:** the molecules' finite-k rows (D′'s molecules at k₁ / k₂ are 0.5–1.1 points worse than arm C's),
   or the rest of the plan on the new model. S0's model step reads D′'s polarisation beside arm C's.
+
+## v0.0.29, 12 Nov — S0.5 pre-registered: the nuclear EFT's account of S0.3 (`notes/e4-s0-preregistration.md` §6)
+
+**The direction** (Vadic's go of 12 Nov): close S0, then the MD driver and S1/S2 as the main line.
+
+**S0.5** was registered at 14:48 CET, before the reader computed any of it.
+
+- **The account.** The lemma's r = ε_∞ is exact for sources proportional to Π, the short-circuit polarisation. MB-pol's
+  permanent sources are only part of Π. The nuclear EFT note's Coulomb term, (2π/ε_∞V)|Π_L|², acts on all of Π_L, so
+  in the longitudinal channel alone it anti-correlates the induced dipoles' local-field residual η with the sources.
+  At Gaussian level, r = ε_∞ + v_η, where v_η is the transverse regression's residual.
+- **The band.** ρ = (r − ε_∞(k))/v_η on S0.3's shells, 0.7–1.4, with prediction 1. Nothing is fitted.
+  `scratch/e4_s05_gaussian_check.py` checks the Gaussian algebra by Monte Carlo.
+- **S3 amended before it runs.** m's denominator is ε_∞(k) − 1, the lemma's limit for a source proportional to Π. It
+  is no longer S0.3's 1.98–1.99.
+- **The reader.** `scripts/e4_sumrules.py read` prints ρ and v_η for every candidate on every shell. Beside them, not
+  registered, it prints:
+  - the proper stiffnesses 1/A_T = 4π/T and 1/A_L = 4πx/(1 − ε_∞(k)x), with x = 1/ε_∞(k) − L;
+  - each channel's a + bk² fit over S0.1's shells, and the overscreening zero (−a_L/b_L)^{1/2};
+  - 4π/(ε_s − ε_∞) from each cell's dipole;
+  - S_nn(k) and S_nZ(k)/k² of the molecules' centres of mass.
+
+  `tests/test_sumrules.py` checks the residual against a direct computation and against the variance of independent
+  noise dipoles, the stiffnesses' algebra, S_nZ's sign and normalisation on one molecule, and S0.5's band and the fits.

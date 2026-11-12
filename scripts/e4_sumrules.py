@@ -26,6 +26,12 @@ read: on the (100), (110) and (111) shells of every cell,
   for the candidates "perm" (MB-pol's site charges without their induced dipoles: the dagger's sources) and every model
   file; errors by jackknife over blocks of consecutive frames within a trajectory. Then S0.1-S0.4 and the readings
   beside them. NumPy only.
+  S0.5 (the pre-registration's section 6, from the nuclear EFT note): the transverse regression's residual
+  v_eta = (4 pi beta / V) <|P_T - b_T Y_T|^2> per transverse direction, and rho = (r - eps_inf(k)) / v_eta, which the
+  EFT's Coulomb term makes 1 for Y = P_perm. Beside it, the proper stiffnesses 1/A_T = 4 pi / T and
+  1/A_L = 4 pi x / (1 - eps_inf(k) x), x = 1/eps_inf(k) - L, with their a + b k^2 fits over S0.1's shells and the
+  overscreening zero; 4 pi / (eps_s - eps_inf) from each cell's own dipole; and the structure factors
+  S_nn(k) = <|n_k|^2> / N and S_nZ(k) = Re<n_k rho_k*> / N of the molecules' centres of mass and the charge density.
 """
 import argparse
 import glob
@@ -55,7 +61,8 @@ SHELLS = {"100": [(1, 0, 0), (0, 1, 0), (0, 0, 1)],
           "111": [(1, 1, 1), (1, 1, -1), (1, -1, 1), (-1, 1, 1)]}     # one of each +-k pair: rho_-k = rho_k*
 BLOCK = 4                                       # frames a block: 2 ps at 0.5 ps a frame, against tau_L ~ 0.5 ps
 K_FIT = 0.46                                    # S0.1: the shells with k <= 0.46 /A of the 128-1024 cells
-BANDS = {"S0.1": (0.48, 0.68), "S0.2": (20.0, np.inf), "S0.3": (1.45, 1.95), "S0.4": (0.90, 1.10)}
+BANDS = {"S0.1": (0.48, 0.68), "S0.2": (20.0, np.inf), "S0.3": (1.45, 1.95), "S0.4": (0.90, 1.10),
+         "S0.5": (0.7, 1.4)}                    # S0.5: registered 12 Nov, 14:48 CET (the pre-registration's section 6)
 S04_MODEL = "C"                                 # S0.4 reads arm C's read-out (model_C_n<n>.npz)
 
 
@@ -291,7 +298,9 @@ def load_mbpol(out, n, F):
 
 
 def read_size(fr, mb, models, block=BLOCK):
-    """every shell's readings for one cell size: L, T, T/L, 1/eps_s(k), and b_L, b_T, r of every candidate."""
+    """every shell's readings for one cell size: L, T, T/L, 1/eps_s(k), the proper stiffnesses 1/A_T and 1/A_L, S_nn
+    and S_nZ / k^2, and b_L, b_T, r, v_eta and rho = (r - eps_inf(k)) / v_eta of every candidate; and the cell's
+    eps_s by the tin-foil formula with a = 4 pi / (eps_s - eps_inf)."""
     ok = ~np.isnan(mb["mu"][:, 0, 0])
     V = abs(np.linalg.det(fr["cell"]))
     C = 4 * np.pi * BETA_E2 / V
@@ -309,47 +318,88 @@ def read_size(fr, mb, models, block=BLOCK):
         kv = kvectors(fr["cell"], shell)
         k = float(np.linalg.norm(kv[0]))
         PL, PT = channels(xyz, q, mu, com, kv)
+        n_k = np.exp(-1j * np.einsum("fmx,kx->fmk", com, kv)).sum(axis=1)          # the centres' density, (F, K)
         sums = {"LL": np.sum(np.abs(PL) ** 2, axis=1), "TT": 0.5 * np.sum(np.abs(PT) ** 2, axis=(1, 2)),
-                "nk": np.full(len(PL), float(len(kv)))}
+                "nk": np.full(len(PL), float(len(kv))), "NN": np.sum(np.abs(n_k) ** 2, axis=1),
+                "NZ": np.real(np.sum(n_k * np.conj(charge_density(xyz, q, mu, kv)), axis=1))}
         for c, (cx, cq, cm) in cands.items():
             YL, YT = channels(cx, cq, cm, com, kv)
             sums[f"{c}_PY_L"] = np.real(np.sum(PL * np.conj(YL), axis=1))
             sums[f"{c}_YY_L"] = np.sum(np.abs(YL) ** 2, axis=1)
             sums[f"{c}_PY_T"] = np.real(np.sum(PT * np.conj(YT), axis=(1, 2)))
             sums[f"{c}_YY_T"] = np.sum(np.abs(YT) ** 2, axis=(1, 2))
+        ie = float(inv_eps_inf(k))
         L = jackknife(sums, ids, lambda t: C * t["LL"] / t["nk"])
         T = jackknife(sums, ids, lambda t: C * t["TT"] / t["nk"])
         TL = jackknife(sums, ids, lambda t: t["TT"] / t["LL"])
-        row = {"k": k, "L": L, "T": T, "T_over_L": TL, "inv_eps_inf": float(inv_eps_inf(k)),
-               "inv_eps_s": (float(inv_eps_inf(k)) - L[0], L[1]), "eps_s_from_T": (T[0] + EPS_INF, T[1]),
+
+        def inv_A_L(t):              # 4 pi / (eps_s,L - eps_inf(k)) with 1/eps_s,L = x, smooth through x = 0
+            x = ie - C * t["LL"] / t["nk"]
+            return 4 * np.pi * x / (1.0 - x / ie)
+        row = {"k": k, "L": L, "T": T, "T_over_L": TL, "inv_eps_inf": ie,
+               "inv_eps_s": (ie - L[0], L[1]), "eps_s_from_T": (T[0] + EPS_INF, T[1]),
+               "inv_A_T": jackknife(sums, ids, lambda t: 4 * np.pi * t["nk"] / (C * t["TT"])),
+               "inv_A_L": jackknife(sums, ids, inv_A_L),
+               "S_nn": jackknife(sums, ids, lambda t: t["NN"] / (t["nk"] * fr["n"])),
+               "S_nZ_over_k2": jackknife(sums, ids, lambda t: t["NZ"] / (t["nk"] * fr["n"] * k ** 2)),
                "candidates": {}}
         for c in cands:
-            bL = jackknife(sums, ids, lambda t, c=c: t[f"{c}_PY_L"] / t[f"{c}_YY_L"])
-            bT = jackknife(sums, ids, lambda t, c=c: t[f"{c}_PY_T"] / t[f"{c}_YY_T"])
-            rr = jackknife(sums, ids, lambda t, c=c: (t[f"{c}_PY_T"] / t[f"{c}_YY_T"]) / (t[f"{c}_PY_L"] / t[f"{c}_YY_L"]))
-            row["candidates"][c] = {"b_L": bL, "b_T": bT, "r": rr}
+            b_T = lambda t, c=c: t[f"{c}_PY_T"] / t[f"{c}_YY_T"]
+            r_ = lambda t, c=c: b_T(t) / (t[f"{c}_PY_L"] / t[f"{c}_YY_L"])
+            v_eta = lambda t, c=c: C * (t["TT"] - 0.5 * t[f"{c}_PY_T"] ** 2 / t[f"{c}_YY_T"]) / t["nk"]   # per direction
+            row["candidates"][c] = {"b_L": jackknife(sums, ids, lambda t, c=c: t[f"{c}_PY_L"] / t[f"{c}_YY_L"]),
+                                    "b_T": jackknife(sums, ids, b_T), "r": jackknife(sums, ids, r_),
+                                    "v_eta": jackknife(sums, ids, v_eta),
+                                    "rho": jackknife(sums, ids, lambda t: (r_(t) - 1.0 / ie) / v_eta(t)
+                                                     if v_eta(t) > 1e-9 * C * t["TT"] / t["nk"]
+                                                     else float("nan"))}         # nan: Y is P itself
         out["shells"][shell] = row
     # the static constant by the tin-foil formula, eps_s = eps_inf + 4 pi beta <M^2> / 3V, M the cell's total dipole
     M = molecular_dipoles(xyz, q, mu, com).sum(axis=1)
     mom = {"M2": np.sum(M ** 2, axis=1), "Mx": M[:, 0], "My": M[:, 1], "Mz": M[:, 2], "one": np.ones(len(M))}
-    out["eps_s_tinfoil"] = jackknife(mom, ids, lambda t: EPS_INF + C / 3 * (
-        t["M2"] / t["one"] - (t["Mx"] ** 2 + t["My"] ** 2 + t["Mz"] ** 2) / t["one"] ** 2))
+    var_M = lambda t: t["M2"] / t["one"] - (t["Mx"] ** 2 + t["My"] ** 2 + t["Mz"] ** 2) / t["one"] ** 2
+    out["eps_s_tinfoil"] = jackknife(mom, ids, lambda t: EPS_INF + C / 3 * var_M(t))
+    out["a_cell"] = jackknife(mom, ids, lambda t: 4 * np.pi / (C / 3 * var_M(t)))       # 4 pi / (eps_s - eps_inf)
     return out
 
 
-def fit_intercept(points):
-    """L = A + B k^2 by weighted least squares over (k, L, sigma): (A, sigma_A, B, chi2 per degree of freedom)."""
+def fit_line(points):
+    """y = a + b k^2 by weighted least squares over (k, y, sigma): (a, sigma_a, b, sigma_b, chi2 per degree of freedom)."""
     k, L, s = (np.array(x, float) for x in zip(*points))
     X = np.stack([np.ones_like(k), k ** 2], axis=1)
     W = 1.0 / s ** 2
     cov = np.linalg.inv(X.T @ (W[:, None] * X))
     coef = cov @ X.T @ (W * L)
     chi2 = float(np.sum(W * (L - X @ coef) ** 2) / max(len(L) - 2, 1))
-    return float(coef[0]), float(np.sqrt(cov[0, 0])), float(coef[1]), chi2
+    return float(coef[0]), float(np.sqrt(cov[0, 0])), float(coef[1]), float(np.sqrt(cov[1, 1])), chi2
+
+
+def fit_intercept(points):
+    """L = A + B k^2 by weighted least squares over (k, L, sigma): (A, sigma_A, B, chi2 per degree of freedom)."""
+    a, sa, b, _, chi2 = fit_line(points)
+    return a, sa, b, chi2
+
+
+def eft_fits(sizes):
+    """the nuclear EFT note's (7) on S0.1's shells (128-1024 molecules, k <= K_FIT): 1/A_T and 1/A_L each fitted as
+    a + b k^2, the overscreening zero k_os = (-a_L / b_L)^(1/2) where a_L and b_L differ in sign, and a = 4 pi /
+    (eps_s - eps_inf) from every cell's own dipole beside them. Not registered."""
+    out = {}
+    for ch in ("T", "L"):
+        pts = [(row["k"], row[f"inv_A_{ch}"][0], row[f"inv_A_{ch}"][1]) for n, rd in sizes.items() if n >= 128
+               for row in rd["shells"].values() if row["k"] <= K_FIT]
+        pts = [p for p in pts if np.isfinite(p[1]) and np.isfinite(p[2]) and p[2] > 0]
+        if len(pts) >= 3:
+            a, sa, b, sb, chi2 = fit_line(pts)
+            out[ch] = {"a": a, "a_error": sa, "b": b, "b_error": sb, "chi2_dof": chi2, "points": len(pts)}
+    if "L" in out and out["L"]["a"] * out["L"]["b"] < 0:
+        out["k_os"] = float(np.sqrt(-out["L"]["a"] / out["L"]["b"]))
+    out["a_cell"] = {str(n): rd["a_cell"] for n, rd in sizes.items()}
+    return out
 
 
 def evaluate(sizes):
-    """S0.1-S0.4 from read_size's readings by size ({n: reading}): each with its value, error, band and verdict."""
+    """S0.1-S0.5 from read_size's readings by size ({n: reading}): each with its value, error, band and verdict."""
     out = {}
     pts = [(row["k"], row["L"][0], row["L"][1]) for n, rd in sizes.items() if n >= 128
            for row in rd["shells"].values() if row["k"] <= K_FIT]
@@ -363,14 +413,22 @@ def evaluate(sizes):
     if tl:
         out["S0.2"] = {"values": {f"n{n} ({sh})": v for n, sh, v in tl}, "band": [BANDS["S0.2"][0], None],
                        "holds": bool(all(v[0] >= BANDS["S0.2"][0] for _, _, v in tl))}
-    for key, lab, ns in (("S0.3", "perm", (512, 1024)), ("S0.4", S04_MODEL, (128, 256))):
-        rows = {}
+    for key, lab, ns, what in (("S0.3", "perm", (512, 1024), "r"), ("S0.4", S04_MODEL, (128, 256), "r"),
+                               ("S0.5", "perm", (512, 1024), "rho")):
+        rows, parts = {}, {}
         for n in ns:
             if n in sizes and lab in sizes[n]["shells"]["100"]["candidates"]:
-                rows[f"n{n} (100), {lab}"] = sizes[n]["shells"]["100"]["candidates"][lab]["r"]
+                row = sizes[n]["shells"]["100"]
+                cand = row["candidates"][lab]
+                rows[f"n{n} (100), {lab}"] = cand[what]
+                if key == "S0.5":       # its two sides: r - eps_inf(k) (r's error) and v_eta
+                    parts[f"n{n} (100), {lab}"] = {"excess": (cand["r"][0] - 1.0 / row["inv_eps_inf"], cand["r"][1]),
+                                                   "v_eta": cand["v_eta"]}
         if rows:
             lo, hi = BANDS[key]
             out[key] = {"values": rows, "band": [lo, hi], "holds": bool(all(lo <= v[0] <= hi for v in rows.values()))}
+            if parts:
+                out[key]["parts"] = parts
     return out
 
 
@@ -407,7 +465,11 @@ def run_read(a):
             print(f"      L(k -> 0) = A = {b['value']:.3f} +- {b['error']:.3f} (B {b['slope_B']:+.2f} A^2; "
                   f"{b['points']} shells, chi2/dof {b['chi2_dof']:.2f})")
         for k, v in b.get("values", {}).items():
-            print(f"      {k:24s} {pm(v, 3 if name != 'S0.2' else 1)}")
+            extra = ""
+            if k in b.get("parts", {}):
+                p = b["parts"][k]
+                extra = f"   (r - eps_inf(k) {pm(p['excess'])}; v_eta {pm(p['v_eta'])})"
+            print(f"      {k:24s} {pm(v, 3 if name != 'S0.2' else 1)}{extra}")
     print("\n  Beside them, not registered: every shell")
     for n, rd in sizes.items():
         print(f"  n {n} ({rd['frames']} frames, {rd['blocks']} blocks; the dynamics' settings move the induced "
@@ -420,10 +482,29 @@ def run_read(a):
                   f"{pm(row['eps_s_from_T'], 1)}")
             print("        r = b_T / b_L: " + "; ".join(f"{lab} {pm(v['r'], 2)} (b_L {v['b_L'][0]:.3f}, "
                                                         f"b_T {v['b_T'][0]:.3f})" for lab, v in c.items()))
+    eft = eft_fits(sizes)
+    print("\n  From the nuclear EFT note (pre-registration section 6; not registered): every shell")
+    print("    v_eta = (4 pi beta / V) <|P_T - b_T Y_T|^2> per direction, and rho = (r - eps_inf(k)) / v_eta;")
+    print("    the proper stiffnesses 1/A_T = 4 pi / T and 1/A_L = 4 pi x / (1 - eps_inf(k) x), x = 1/eps_inf(k) - L;")
+    print("    S_nn and S_nZ / k^2 (e A^2) of the molecules' centres of mass and the charge density")
+    for n, rd in sizes.items():
+        print(f"  n {n}: 4 pi / (eps_s - eps_inf) from the cell's dipole {pm(rd['a_cell'])}")
+        for sh, row in rd["shells"].items():
+            c = row["candidates"]
+            print(f"    ({sh}) k {row['k']:.4f}: 1/A_T {pm(row['inv_A_T'])}, 1/A_L {pm(row['inv_A_L'])}; "
+                  f"S_nn {pm(row['S_nn'])}, S_nZ/k^2 {pm(row['S_nZ_over_k2'], 4)}")
+            print("        v_eta (rho): " + "; ".join(f"{lab} {pm(v['v_eta'])} ({pm(v['rho'], 2)})" for lab, v in c.items()))
+    for ch in ("T", "L"):
+        if ch in eft:
+            f = eft[ch]
+            print(f"  1/A_{ch} = a + b k^2 over S0.1's {f['points']} shells: a {f['a']:.3f} +- {f['a_error']:.3f}, "
+                  f"b {f['b']:+.2f} +- {f['b_error']:.2f} A^2, chi2/dof {f['chi2_dof']:.2f}")
+    if "k_os" in eft:
+        print(f"  the overscreening zero of 1/A_L: k_os = (-a_L / b_L)^(1/2) = {eft['k_os']:.3f} /A")
     if a.json:
         os.makedirs(os.path.dirname(a.json) or ".", exist_ok=True)
         with open(a.json, "w") as fh:
-            json.dump({"bands": bands, "sizes": {str(n): v for n, v in sizes.items()},
+            json.dump({"bands": bands, "eft": eft, "sizes": {str(n): v for n, v in sizes.items()},
                        "settings_check": {str(n): v for n, v in notes.items()},
                        "constants": {"T_K": T_K, "beta_e2_per_A": BETA_E2, "eps_inf": EPS_INF, "c2": C2,
                                      "block": a.block}}, fh, indent=1)

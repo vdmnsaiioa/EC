@@ -508,6 +508,15 @@ The read is `notes/e4-s0-results.md`.
 - S0.4 waits for the model step, which stopped at 128 molecules on the first run. Its rung check compared the
   reciprocal grid, which follows the cell. That is fixed, and the step now solves as the config does (GMRES;
   `--solver direct` for the dense solve).
+- **S0.5** (pre-registration §6, 12 Nov 14:48 CET) tests the nuclear EFT's account of S0.3:
+  - the EFT's Coulomb term couples the induced dipoles' local-field residual to the sources in the longitudinal
+    channel only;
+  - so r = ε_∞ + v_η, with v_η the transverse regression's residual.
+
+  The read prints ρ = (r − ε_∞(k))/v_η, band 0.7–1.4. Beside it, not registered, it prints:
+  - the proper stiffnesses 1/A_T and 1/A_L, with their a + bk² fits and the overscreening zero;
+  - 4π/(ε_s − ε_∞) from each cell's dipole;
+  - S_nn(k) and S_nZ(k)/k².
 
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame

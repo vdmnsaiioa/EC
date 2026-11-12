@@ -99,3 +99,15 @@ The first run of `run_e4_s0_model.sbatch` wrote arm C's 64-molecule file and sto
     dense solve's cost grows as N³. On the test cells the two agree to 1e-7.
 
   None of this changes what S0.4 reads: the same read-out, the same frames, the same −∂E/∂E_ext,i.
+
+## 3. S0.5 and the nuclear EFT's readings (to come)
+
+S0.5 was registered after §1 and before any of its numbers (pre-registration §6, 12 Nov, 14:48 CET). It is the
+nuclear EFT note's account of S0.3:
+
+- the Coulomb term (2π/ε_∞V)|Π_L|² couples the induced dipoles' local-field residual to the sources in the
+  longitudinal channel only;
+- so r = ε_∞ + v_η, with v_η the transverse regression's residual.
+
+The band is 0.7–1.4 on ρ = (r − ε_∞(k))/v_η, at S0.3's shells. S3's normalisation was amended with it, to
+ε_∞(k) − 1. The read step computes ρ and the readings beside it from the files S0.1–S0.3 were read on.
