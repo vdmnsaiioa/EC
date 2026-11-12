@@ -517,6 +517,33 @@ The read is `notes/e4-s0-results.md`.
   - the proper stiffnesses 1/A_T and 1/A_L, with their a + bk² fits and the overscreening zero;
   - 4π/(ε_s − ε_∞) from each cell's dipole;
   - S_nn(k) and S_nZ(k)/k².
+- **The tie of induction and dispersion** (`notes/v2-one-field-proposal.md` §5.1; not registered). The model step also
+  stores every atom's order-0 polarisability tr C_i/3 (`aux["C_pol"]`). The read reports, per species and per
+  molecule:
+  - α(0) against the dispersion pins' α(0);
+  - the oscillator frequency that MB-pol's long-range c6 needs from it, ω = 4C₆/3α²;
+  - the cross term that one-oscillator tie implies;
+  - the implied C₆'s spread over the liquid.
+
+**S1 and S2** (`notes/e4-s1-preregistration.md`, 12 Nov 15:18 CET; the bands of the path-integral note §4.2–4.3) run the
+models' own liquids. `scripts/e4_md.py` is the MD driver:
+
+- `sseft/rigidmd.py` with a trained model's forces, or MB-pol's;
+- 2 fs steps, Bussi at 300 K, 10 + 100 ps;
+- the polarisation saved every 0.05 ps;
+- checkpointed, so that a run continues exactly over 4-hour jobs.
+
+```sh
+sbatch run_e4_s1_time.sbatch               # seconds a step: D' at 64 and 128, the dagger at 64
+sbatch run_e4_s1_model.sbatch              # ten GPU tasks: D' at 64 and 128 (seeds 0-3), the dagger at 64 (0, 1)
+sbatch run_e4_s1_mbpol.sbatch              # eight CPU tasks: MB-pol at 64 and 128 (seeds 0-3)
+python scripts/e4_md.py read               # S1.1 and S2.1, and the readings beside them, into results/e4_s1/s1.json
+```
+
+The bands:
+
+- S1.1: |L_D′ − L_MB-pol| ≤ 0.02 + 2σ on the 64 cell's (100) shell and the 128 cell's (100) and (110);
+- S2.1: the dagger's own L(k₁) ≥ 0.90 on the 64 cell.
 
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame

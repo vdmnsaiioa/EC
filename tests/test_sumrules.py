@@ -226,6 +226,9 @@ def test_model_step_gives_mu_ind_when_the_orders_above_zero_are_off(tmp_path):
     assert np.allclose(off["mu_full"], off["mu_ind"], rtol=0, atol=1e-10 * np.abs(off["mu_ind"]).max())
     assert not np.allclose(onf["mu_full"], onf["mu_ind"], rtol=0, atol=1e-6 * np.abs(onf["mu_ind"]).max())
     assert np.allclose(off["q"], np.tile(SITE_Q, 16)) or off["q"].shape == (64,)
+    assert onf["c_iso"].shape == (2, 48) and np.all(np.isfinite(onf["c_iso"])) and np.abs(onf["c_iso"]).max() > 0
+    tie = json.loads(str(onf["meta"]))["tie"]
+    assert set(tie["c6_site_kcal_A6_sqrt"]) == {"O", "H"} and tie["pins_alpha0_bohr3"]["O"] > 0
 
 
 def test_model_step_reads_cells_other_than_the_matching_one_with_the_configured_solve(tmp_path):
@@ -352,3 +355,22 @@ def test_s05_band_and_the_eft_fits():
     assert eft["L"]["a"] == pytest.approx(a) and eft["L"]["b"] == pytest.approx(bL) and eft["L"]["points"] == 6
     assert eft["T"]["a"] == pytest.approx(a) and eft["T"]["b"] == pytest.approx(bT)
     assert eft["k_os"] == pytest.approx(np.sqrt(-a / bL)) and set(eft["a_cell"]) == {"512", "1024"}
+
+
+def test_the_tie_reading_on_constructed_polarisabilities():
+    """constant alpha(0) per species: omega_Z = 4 C6_ZZ / 3 alpha_Z^2, the implied cross term over MB-pol's is
+    2 (omega_O omega_H)^(1/2) / (omega_O + omega_H), and the implied C6 has no spread; a spread in alpha(0) is
+    sd(alpha^2) / mean(alpha^2) in the implied C6."""
+    from sseft.units import KCALMOL_PER_HARTREE, BOHR_PER_ANGSTROM
+    tie = {"c6_site_kcal_A6_sqrt": {"O": 15.4, "H": 4.48}, "pins_alpha0_bohr3": {"O": 1.0, "H": 0.5}}
+    c = np.tile([8.0, 2.0, 2.0], (5, 4))                           # 5 frames of 4 molecules, bohr^3
+    t = SR.tie_reading({4: c}, tie)
+    u = BOHR_PER_ANGSTROM ** 6 / KCALMOL_PER_HARTREE
+    wO, wH = 4 * 15.4 ** 2 * u / (3 * 64.0), 4 * 4.48 ** 2 * u / (3 * 4.0)
+    assert t["omega_hartree"]["O"] == pytest.approx(wO) and t["omega_hartree"]["H"] == pytest.approx(wH)
+    assert t["omega_hartree"]["mol"] == pytest.approx(4 * (15.4 + 2 * 4.48) ** 2 * u / (3 * 144.0))
+    assert t["cross_OH_over_mbpol"] == pytest.approx(2 * np.sqrt(wO * wH) / (wO + wH))
+    assert t["alpha0_bohr3"]["molecule"] == (12.0, 0.0) and t["C6_spread_at_fixed_omega"]["O"] == 0.0
+    c2 = c.copy(); c2[:, 0::3] = np.linspace(7.0, 9.0, 20).reshape(5, 4)
+    a2 = c2[:, 0::3].ravel() ** 2
+    assert SR.tie_reading({4: c2}, tie)["C6_spread_at_fixed_omega"]["O"] == pytest.approx(a2.std() / a2.mean())

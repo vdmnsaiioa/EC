@@ -218,13 +218,41 @@ def run_mbpol(a):
 
 
 # ---------------------------------------------------------------- model ---------------------------------------------
+def dipole_fn(r):
+    """for one cell's rung r, a function of (params, b) giving at every atom, with the external field and its
+    derivatives held at zero: -dE/dE_ext,i (the frozen form's polarisation: the order-0 sector's mu_ind with the
+    orders >= 1's field-gradient terms), the order-0 mu_ind alone, and the isotropic part tr C_i / 3 of the order-0
+    local polarisabilities (bohr^3; zero for a rung without them), all in atomic units. Used by the model step here and
+    by scripts/e4_md.py at every saved frame."""
+    import jax
+    import jax.numpy as jnp
+    from sseft import model as M
+
+    def dipoles(p, b):
+        N = b["positions"].shape[0]
+        z = (jnp.zeros((N, 3)), jnp.zeros((N, 3, 3)), jnp.zeros((N, 3, 3, 3)))
+
+        def e(f):
+            en, aux = M.energy_single(p, r, {**b, "ext_field": f, "ext_grad": z[1], "ext_grad2": z[2]})
+            return en, (aux.get("mu_ind", jnp.zeros((N, 3))), aux.get("C_pol", jnp.zeros((N, 3, 3))))
+        g, (mu0, C) = jax.grad(e, has_aux=True)(z[0])
+        return -g, mu0, jnp.trace(C, axis1=-2, axis2=-1) / 3.0
+    return dipoles
+
+
+def with_m_sites(d):
+    """atom dipoles (3n, 3) as site dipoles (4n, 3), O, H, H, M per molecule, with nothing at the M-sites."""
+    m = len(d)
+    return np.concatenate([d.reshape(m // 3, 3, 3), np.zeros((m // 3, 1, 3))], axis=1).reshape(-1, 3)
+
+
 def run_model(a):
     import pickle
     from dataclasses import replace
     import jax
-    import jax.numpy as jnp
     import e4_water as E4
     from sseft import model as M, structure as S, water as W
+    from sseft import kernels as kn
     from sseft.units import bohr_to_ang
     os.makedirs(a.out, exist_ok=True)
     cfg = E4.load_config(a.config)
@@ -232,6 +260,12 @@ def run_model(a):
         cached = pickle.load(fh)
     K, om = int(cfg["model"]["K"]), float(cfg["model"]["omega0"])
     grid = lambda s: re.sub(r"ewald_n_max=\d+", "ewald_n_max=*", s)    # the reciprocal grid follows the cell
+    # the tie (R10; the v2 proposal): MB-pol's long-range c6 per site and the dispersion band's pinned alpha(0)
+    w_cp = np.asarray(kn.casimir_polder_grid(K, om)[0])
+    pins = np.asarray(W.mbpol_dispersion_pins(np.array([8, 1]), K=K, omega0=om))
+    tie = {"c6_site_kcal_A6_sqrt": {"O": float(W.MBPOL_C6_LR[8]), "H": float(W.MBPOL_C6_LR[1])},
+           "pins_alpha0_bohr3": {"O": float(pins[0, 0] * (1 + (w_cp[0] / 0.5) ** 2)),
+                                 "H": float(pins[1, 0] * (1 + (w_cp[0] / 0.5) ** 2))}}
     for n in a.sizes:
         fr = load_frames(a.data, n)
         if fr is None:
@@ -249,34 +283,26 @@ def run_model(a):
                                  cached["readout"])
         solver = a.solver or rung_cell.bf_solver
         r = E4.in_cell(replace(rung_cell, bf_solver=solver), structs[0].cell)
-
-        def dipoles(p, b):        # (-dE/dE_ext,i, the order-0 mu_ind) at every atom, the field and its derivatives zero
-            N = b["positions"].shape[0]
-            z = (jnp.zeros((N, 3)), jnp.zeros((N, 3, 3)), jnp.zeros((N, 3, 3, 3)))
-
-            def e(f):
-                en, aux = M.energy_single(p, r, {**b, "ext_field": f, "ext_grad": z[1], "ext_grad2": z[2]})
-                return en, aux["mu_ind"]
-            g, mu0 = jax.grad(e, has_aux=True)(z[0])
-            return -g, mu0
-        f_dip = jax.jit(dipoles)
-        mu_full, mu_ind = [], []
+        f_dip = jax.jit(dipole_fn(r))
+        mu_full, mu_ind, c_iso = [], [], []
         t0 = time.time()
         for j, st in enumerate(structs):
             b = {k: v[0] for k, v in S.pad_batch([st], n_freq=r.K).items()}
             m = st.n_atoms
-            for out, dd in zip((mu_full, mu_ind), f_dip(params, b)):
-                d = bohr_to_ang(np.asarray(dd)[:m])                            # e bohr -> e A
-                out.append(np.concatenate([d.reshape(m // 3, 3, 3), np.zeros((m // 3, 1, 3))], axis=1).reshape(-1, 3))
+            full, ind, ci = f_dip(params, b)
+            mu_full.append(with_m_sites(bohr_to_ang(np.asarray(full)[:m])))          # e bohr -> e A
+            mu_ind.append(with_m_sites(bohr_to_ang(np.asarray(ind)[:m])))
+            c_iso.append(np.asarray(ci)[:m])
             if j == 0 or (j + 1) % 20 == 0 or j + 1 == len(structs):
                 print(f"  n {n}: frame {j + 1} of {len(structs)}: rms induced dipole "
                       f"{np.sqrt(np.mean(np.sum(mu_full[-1] ** 2, axis=1)) * 4 / 3):.4f} e A per atom  "
                       f"[{time.time() - t0:.0f} s]", flush=True)
         q4 = np.tile(fr["site_q"], n)
         meta = {"n": n, "label": a.label, "config": a.config, "readout": a.readout, "rung": a.rung, "solver": solver,
-                "time": time.time() - t0}
+                "time": time.time() - t0, "tie": tie}
         path = os.path.join(a.out, f"model_{a.label}_n{n}.npz")
-        np.savez(path, q=q4, mu_full=np.array(mu_full), mu_ind=np.array(mu_ind), meta=np.array(json.dumps(meta)))
+        np.savez(path, q=q4, mu_full=np.array(mu_full), mu_ind=np.array(mu_ind), c_iso=np.array(c_iso),
+                 meta=np.array(json.dumps(meta)))
         print(f"n {n}: {len(structs)} frames into {path}  [{time.time() - t0:.0f} s]", flush=True)
 
 
@@ -432,8 +458,34 @@ def evaluate(sizes):
     return out
 
 
+def tie_reading(c_iso, tie):
+    """R10's tie read on a frozen form's order-0 polarisabilities (notes/v2-one-field-proposal.md; not registered).
+    c_iso: {n: (F, 3n) tr C_i / 3 in bohr^3}; tie: the model file's meta["tie"] (MB-pol's long-range c6 per site, the
+    dispersion pins' alpha(0)). Per species and per molecule: alpha(0)'s mean and spread over the liquid frames; the
+    frequency one oscillator per site (and per molecule) needs to give MB-pol's c6 from it, omega = 4 C6 / 3 alpha^2;
+    the cross C6_OH that the one-oscillator tie then implies, against MB-pol's; and the implied C6's relative spread at
+    fixed omega, which a tied model would carry where MB-pol's c6 has none."""
+    C = np.concatenate([np.asarray(c, float) for c in c_iso.values()])
+    aO = C[:, 0::3].ravel()
+    aH = np.concatenate([C[:, 1::3].ravel(), C[:, 2::3].ravel()])
+    amol = (C[:, 0::3] + C[:, 1::3] + C[:, 2::3]).ravel()
+    u = BOHR_PER_ANGSTROM ** 6 / KCALMOL_PER_HARTREE                 # kcal/mol A^6 -> hartree bohr^6
+    cO, cH = tie["c6_site_kcal_A6_sqrt"]["O"], tie["c6_site_kcal_A6_sqrt"]["H"]
+    C6 = {"OO": cO * cO * u, "HH": cH * cH * u, "OH": cO * cH * u, "mol": (cO + 2 * cH) ** 2 * u}
+    w = {"O": 4 * C6["OO"] / (3 * aO.mean() ** 2), "H": 4 * C6["HH"] / (3 * aH.mean() ** 2),
+         "mol": 4 * C6["mol"] / (3 * amol.mean() ** 2)}
+    cross = 1.5 * aO.mean() * aH.mean() * w["O"] * w["H"] / (w["O"] + w["H"])
+    rel = lambda a: float(np.std(a ** 2) / np.mean(a ** 2))
+    return {"frames": int(len(C)), "alpha0_bohr3": {"O": (float(aO.mean()), float(aO.std())),
+                                                   "H": (float(aH.mean()), float(aH.std())),
+                                                   "molecule": (float(amol.mean()), float(amol.std()))},
+            "pins_alpha0_bohr3": tie["pins_alpha0_bohr3"], "C6_mbpol_au": C6, "omega_hartree": w,
+            "cross_OH_over_mbpol": float(cross / C6["OH"]),
+            "C6_spread_at_fixed_omega": {"O": rel(aO), "H": rel(aH), "molecule": rel(amol)}}
+
+
 def run_read(a):
-    sizes, notes = {}, {}
+    sizes, notes, ties = {}, {}, {}
     for n in SIZES:
         fr = load_frames(a.data, n)
         if fr is None:
@@ -449,6 +501,9 @@ def run_read(a):
             label = os.path.basename(p)[len("model_"):-len(f"_n{n}.npz")]
             d = np.load(p, allow_pickle=False)
             models[label] = {"q": d["q"], "mu_full": d["mu_full"], "mu_ind": d["mu_ind"]}
+            if "c_iso" in d.files:                              # the tie reading (model files from v0.0.29's S1 patch on)
+                meta = json.loads(str(d["meta"]))
+                ties.setdefault(label, {"c_iso": {}, "tie": meta.get("tie")})["c_iso"][n] = d["c_iso"]
         sizes[n] = read_size(fr, mb, models, a.block)
         notes[n] = [m.get("dynamics_settings_rel_rms") for m in mb["meta"] if "dynamics_settings_rel_rms" in m]
     if not sizes:
@@ -501,10 +556,27 @@ def run_read(a):
                   f"b {f['b']:+.2f} +- {f['b_error']:.2f} A^2, chi2/dof {f['chi2_dof']:.2f}")
     if "k_os" in eft:
         print(f"  the overscreening zero of 1/A_L: k_os = (-a_L / b_L)^(1/2) = {eft['k_os']:.3f} /A")
+    tie_out = {}
+    for label, t in ties.items():
+        if not t["tie"]:
+            continue
+        tr = tie_out[label] = tie_reading(t["c_iso"], t["tie"])
+        al, w, sp = tr["alpha0_bohr3"], tr["omega_hartree"], tr["C6_spread_at_fixed_omega"]
+        print(f"\n  The tie of induction and dispersion (R10; notes/v2-one-field-proposal.md; not registered): {label}, "
+              f"{tr['frames']} frames of {', '.join(str(n) for n in t['c_iso'])} molecules")
+        print(f"    the order-0 alpha(0) = tr C / 3, mean +- sd over the liquid's atoms: O {al['O'][0]:.3f} +- "
+              f"{al['O'][1]:.3f}, H {al['H'][0]:.3f} +- {al['H'][1]:.3f}, per molecule {al['molecule'][0]:.3f} +- "
+              f"{al['molecule'][1]:.3f} bohr^3; the dispersion pins' alpha(0): O {tr['pins_alpha0_bohr3']['O']:.3f}, "
+              f"H {tr['pins_alpha0_bohr3']['H']:.3f}")
+        print(f"    one oscillator for MB-pol's long-range c6 on that alpha(0): omega_O {w['O']:.3f}, omega_H {w['H']:.3f}, "
+              f"per molecule {w['mol']:.3f} hartree (the gas-phase monomer's 4 C6 / 3 alpha^2: 0.65-0.67); the cross "
+              f"C6_OH it implies / MB-pol's {tr['cross_OH_over_mbpol']:.3f}")
+        print(f"    the implied C6's spread over the liquid at fixed omega (sd / mean of alpha^2): O {100 * sp['O']:.1f} %, "
+              f"H {100 * sp['H']:.1f} %, per molecule {100 * sp['molecule']:.1f} %")
     if a.json:
         os.makedirs(os.path.dirname(a.json) or ".", exist_ok=True)
         with open(a.json, "w") as fh:
-            json.dump({"bands": bands, "eft": eft, "sizes": {str(n): v for n, v in sizes.items()},
+            json.dump({"bands": bands, "eft": eft, "tie": tie_out, "sizes": {str(n): v for n, v in sizes.items()},
                        "settings_check": {str(n): v for n, v in notes.items()},
                        "constants": {"T_K": T_K, "beta_e2_per_A": BETA_E2, "eps_inf": EPS_INF, "c2": C2,
                                      "block": a.block}}, fh, indent=1)

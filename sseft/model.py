@@ -410,6 +410,7 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
                 _, mu_ind = BF.mutual_response(C, BF.band_dipole_tensor(pos, Tmask, l_mut), Ef, rung.bf_mutual)
             eps_bf = eps_hi - 0.5 * jnp.sum(Ef * mu_ind, axis=-1)                  # per atom: -1/2 E_i . mu_i + the orders >= 1
             aux["mu_ind"] = mu_ind
+            aux["C_pol"] = C                    # the order-0 local polarisabilities (N, 3, 3), bohr^3: the static source R10 ties
         elif rung.readout == "pair":
             eps_bf = BF.response_energy_pair(params["readout"], cfg, rung.band_fields, s_ro, r, D, pmask, mask, Ef, gE, ggE,
                                              l_bf, E_ref=rung.bf_E_ref, e_scale=unit)

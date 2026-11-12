@@ -1631,3 +1631,57 @@ its ablation, four seeds each, on D′'s read-out. It was read with `scripts/e4_
 
   `tests/test_sumrules.py` checks the residual against a direct computation and against the variance of independent
   noise dipoles, the stiffnesses' algebra, S_nZ's sign and normalisation on one molecule, and S0.5's band and the fits.
+
+## v0.0.29, 12 Nov — S1 and S2 pre-registered, the MD driver, and the tie of induction and dispersion (`notes/e4-s1-preregistration.md`, `notes/v2-one-field-proposal.md`)
+
+**S1 and S2 were registered at 15:18 CET, before the driver existed.** The bands are the path-integral note's
+§4.2–4.3, copied:
+
+- **S1.1:** |L_D′(k) − L_MB-pol(k)| ≤ 0.02 + 2σ on the 64 cell's (100) shell and the 128 cell's (100) and (110). The
+  electronic part of the difference is known before the run: −0.006, −0.004 and −0.005 from D′'s χ.
+- **S2.1:** the dagger's own L(k₁) ≥ 0.90 on the 64 cell. A field-blind sector has no electronic screening of its own.
+
+The runs and the reader's choices were fixed with them.
+
+- **The engines:**
+  - D′'s frozen form, seeds 0–3, at 64 and 128 molecules;
+  - MB-pol, through MBX with the dynamics' settings, the same;
+  - job 1's dagger at 64, seeds 0 and 1.
+- **The integrator:** `sseft/rigidmd.py`, 2 fs steps, Bussi at 300 K, 10 ps of equilibration and 100 ps of sampling,
+  the polarisation every 0.05 ps.
+- **The reader:** S0's estimators, with jackknife over 10-ps blocks.
+
+**The driver,** `scripts/e4_md.py`, has three steps:
+
+- `run`: a trained model's or MB-pol's forces. A model's polarisation is S0's −∂E/∂E_ext,i, MB-pol's its zero-field
+  induced dipoles. Checkpointed atomically with the thermostat's random state and the constrained distances, so a
+  continued run reproduces the uninterrupted one to the bit. It stops on non-finite forces and before the time limit.
+- `time`: seconds a step and a saved frame.
+- `read`: S1.1, S2.1, and beside them T, T/L, ε_s, 1/A, τ_L of the first shell, and each trajectory's temperature,
+  conserved-energy drift and constraint error.
+
+`tests/test_md.py` checks:
+
+- the bitwise continuation, across a centre-of-mass removal;
+- the stop on non-finite forces;
+- the model engine's forces as its energy's gradient in kcal/mol/Å, and its polarisation;
+- the read on files in the driver's format.
+
+`scripts/e4_sumrules.py`'s dipoles became `dipole_fn`, which the driver shares.
+
+**The tie** (Vadic's question of 12 Nov; `notes/v2-one-field-proposal.md`).
+
+- **The statement.** Induction is the electronic path integral's saddle and dispersion its one loop, with one α_i(iξ)
+  and one T.
+- **What E4 has now: two fields.**
+  - The pinned dispersion band's α carries MB-pol's c6, and its static value is not a polarisability.
+  - The induction's C_i(0) is matched separately.
+  - MB-pol itself is two fields.
+- **The proposal.** α_i(iξ) = C_i(0)/(1 + ξ²/ω_Z²) for both channels, with the Tr ln's many-body remainder on the
+  induction's mutual tensor.
+- **The first reading** (not registered) is in this patch. `sseft/model.py` now exposes the order-0 polarisabilities
+  (`aux["C_pol"]`), S0's model step stores tr C_i/3, and the read reports:
+  - α(0) per species and per molecule, against the pins';
+  - the ω that MB-pol's c6 needs from it;
+  - the implied cross term;
+  - the implied C₆'s spread over the liquid.

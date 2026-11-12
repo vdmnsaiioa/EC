@@ -425,4 +425,16 @@ code is still open: CP2K, GPAW, VASP or QE.
      - *S3's normalisation was amended to ε_∞(k) − 1.*
      - *The EFT's readings were added beside it: 1/A_T and 1/A_L with their fits and the overscreening zero, S_nn and
        S_nZ. All of it is on the existing frames.*
+     - *S1 and S2 were registered at 15:18 CET (`e4-s1-preregistration.md`), before the MD driver existed.*
+       - *S1.1: |L_D′ − L_MB-pol| ≤ 0.02 + 2σ on the 64 cell's (100) shell and the 128 cell's (100) and (110).*
+       - *S2.1: the dagger's own L(k₁) ≥ 0.90.*
+       - *The runs: D′ at 64 and 128 with four seeds, MB-pol the same, and the dagger at 64 with two; 10 + 100 ps.*
+       - *The driver is `scripts/e4_md.py`, on `sseft/rigidmd.py`, checkpointed over 4-hour jobs. A timing job comes
+         first.*
+     - *Vadic's question of 12 Nov — induction and dispersion from one path integral — became
+       `v2-one-field-proposal.md`.*
+       - *It argues for v2's long-range sector as one field: α_i(iξ) = C_i(0)/(1 + ξ²/ω_Z²) for both channels, and the
+         Tr ln's many-body remainder on the induction's mutual tensor.*
+       - *Its first test, the tie read on the frozen form, rides with S0's model step.*
+       - *The real tests are a truth built as one field (MB-pol₁), after S1, and the DFT phase.*
 7. **The L₀ sweep** (Form II).
