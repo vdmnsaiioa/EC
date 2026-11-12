@@ -1578,3 +1578,32 @@ dipoles are within 0.001–0.002 % of the truth's.
   reciprocal grid, which follows the cell (22, 27 and 34 at 64, 128 and 256). Fixed, with a test on two cells. It now
   evaluates both dipole sets in one pass and solves as the config does (GMRES). `run_e4_s0_model.sbatch` runs again
   unchanged.
+
+## v0.0.29, read 12 Nov — job 5's training: the finite-k fix is free, and D′'s frozen form is the model (`notes/e4-job5-results.md` §2)
+
+**Job 5 trained** as eight tasks on the 4-hour GPUs, 2:57–3:40 each (`run_e4_job5_train_4h.sbatch`): the frozen form and
+its ablation, four seeds each, on D′'s read-out. It was read with `scripts/e4_report.py --job2` against pre-registration
+§8 (committed 15:19 CET on 11 Nov). Rigid forces on the unseen frames, paired by seed:
+
+| | registered | 64 / 128 / 256 molecules | |
+|---|---|---|---|
+| T0′: the read-out's readings before and after training | the matching job's | ε_∞ 1.6893, χ +1.32 / −0.38 % on every run; unchanged in training | holds |
+| T1′: the frozen form, D′ against arm C | +0.5 to +4.0 % | **−0.6 / −0.7 / −0.7 %** (3 of 4 seeds at or below) | fails low |
+| T2′: the ablation, D′ against arm C | +0.5 to +4.0 % | **−0.6 / −1.0 / −1.1 %** (4 of 4) | fails low |
+| T3′: D′ against arm D | at or below on ≥ 3 of 4 seeds | −6.7 to −7.5 % on both rungs, every seed | holds |
+| M′: D′'s frozen form within +1.0 % of arm C's | — | −0.6 / −0.7 / −0.7 % | **D′ is the model** |
+
+- **The registered branch for T1′ failing low applies.** Arm D's re-fit on the far probes carried its 6–7 % cost; the
+  finite-k fix is free in the bulk. No Dx run was trained, so the re-fit's cost is inferred, not measured.
+- **Beside them.**
+  - The field term's gain (23 %) and the atomic forces are arm C's.
+  - The energies are within ±2 % of arm C's; arm D's were +5.5 to +15 %.
+  - The response pays its way again: the frozen form is 3.6–4.3 % below the dagger with the field term, against arm C's
+    3.0–3.6 %.
+- **Pricing.** T1′ and T2′ scaled arm D's cost by D′'s share of the change at contact (0.48), within one kind of change,
+  and got the sign wrong. At matching level, what separated D′ from arm D was the far probes: arm D over-fitted the
+  training cores, D′ held them. That is two cases, not a rule.
+- **E4's model is D′'s frozen form**: rigid forces 0.541 / 0.551 / 0.552 kcal/mol/Å at 64 / 128 / 256 molecules, energies
+  0.024 / 0.019 / 0.010 kcal/mol per molecule, ε_∞ 1.6893, χ +1.32 / −0.38 % at k₁ / k₂, the far probes 2.2–2.7 %.
+- **Next, proposed:** the molecules' finite-k rows (D′'s molecules at k₁ / k₂ are 0.5–1.1 points worse than arm C's),
+  or the rest of the plan on the new model. S0's model step reads D′'s polarisation beside arm C's.

@@ -476,6 +476,14 @@ python scripts/e4_report.py --job2 results/e4_job2a,results/e4_job2b,results/e4_
 On GPUs with a 4-hour limit, `run_e4_job5_train_4h.sbatch` runs the same eight runs as eight tasks
 (`scripts/e4_water.py train --task i`), as job 2c's were. This is how it ran on Niflheim on 11 Nov.
 
+The training's read is `notes/e4-job5-results.md` §2.
+
+- T0′ and T3′ hold. T1′ and T2′ fail low: D′ trains to 0.6–0.7 % below arm C's rigid forces (frozen form) and 0.6–1.1 %
+  below them (ablation), where +0.5 to +4.0 % was registered.
+- So arm D's cost was its re-fit on the probes, and the finite-k fix is free in the bulk.
+- By the model rule (M′), **D′'s frozen form is E4's model** (`configs/e4_job5.yaml`): rigid forces 0.541 / 0.551 /
+  0.552 kcal/mol/Å at 64 / 128 / 256 molecules, ε_∞ 1.6893, and χ +1.32 / −0.38 % at k₁ / k₂.
+
 **S0** (`notes/e4-s0-preregistration.md`; the bands of the project's note `path-integral-ir-sector.md` §4.1) reads the
 polarisation sum rules on MB-pol's own trajectories, with no training and no new MD:
 

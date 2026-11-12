@@ -395,7 +395,14 @@ code is still open: CP2K, GPAW, VASP or QE.
      −0.38 %, arm D's χ to 0.01 point. At contact it moves 0.156 rms against arm D's 0.325, and every other reading is
      closer to arm C's. Training predictions T0′–T3′ and the model rule (D′ is the model if within +1.0 % of arm C's)
      were registered at 15:19 CET on 11 Nov (pre-registration §8); `run_e4_job5_train.sbatch` follows.*
-   - *Training started 11 Nov as eight tasks on the 4-hour GPUs (`run_e4_job5_train_4h.sbatch`).*
+   - *Trained 11–12 Nov as eight tasks on the 4-hour GPUs (`run_e4_job5_train_4h.sbatch`, 2:57–3:40 each). Read in
+     `e4-job5-results.md` §2.*
+     - *T0′ and T3′ hold. T1′ and T2′ fail low: D′ is 0.6–0.7 % below arm C's rigid forces (frozen form) and 0.6–1.1 %
+       below them (ablation), every split. So arm D's re-fit carried its cost, and the finite-k fix is free in the bulk.*
+     - *E4's model is now D′'s frozen form (model rule M′; `configs/e4_job5.yaml`): 0.541 / 0.551 / 0.552 kcal/mol/Å at
+       64 / 128 / 256 molecules, ε_∞ 1.6893, χ +1.32 / −0.38 %.*
+     - *Next, proposed: the molecules' finite-k rows, since D′'s molecules at k₁ / k₂ are 0.5–1.1 points worse than arm
+       C's. Or the readers on the new model, Form I and the L₀ sweep (item 7).*
    - *S0 registered 11 Nov (`e4-s0-preregistration.md`; the bands of the project's `path-integral-ir-sector.md` §4.1;
      Vadic's go of 11 Nov). It reads the polarisation sum rules on MB-pol's own trajectories:
      - L(k → 0) = 1/ε_∞ − 1/ε_s and T/L ≈ ε_∞ε_s;
