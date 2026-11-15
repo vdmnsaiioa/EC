@@ -180,11 +180,13 @@ def test_mbpol_step_on_a_fake_mbx_and_the_read_end_to_end(tmp_path, monkeypatch)
                                        "mbpol_n256_p1of2.npz"]
     meta = json.loads(str(np.load(out / "mbpol_n128_p0of2.npz")["meta"]))
     assert meta["dynamics_settings_rel_rms"] == 0.0 and meta["of"] == 16
-    for n in (128, 256):                                  # arm C's file: MB-pol's own polarisation
+    tie = {"c6_site_kcal_A6_sqrt": {"O": 15.4, "H": 4.48}, "pins_alpha0_bohr3": {"O": 1.0, "H": 0.5}}
+    for n in (128, 256):                                  # arm C's file: MB-pol's own polarisation, and the tie's input
         fr = SR.load_frames(str(tmp_path), n)
         mb = SR.load_mbpol(str(out), n, len(fr["positions"]))
         assert mb["missing"] == 0 and np.allclose(mb["xyz"], SR.site_positions(fr["positions"], GAMMA))
-        np.savez(out / f"model_C_n{n}.npz", q=np.tile(SITE_Q, n), mu_full=mb["mu"], mu_ind=0.5 * mb["mu"])
+        np.savez(out / f"model_C_n{n}.npz", q=np.tile(SITE_Q, n), mu_full=mb["mu"], mu_ind=0.5 * mb["mu"],
+                 c_iso=np.tile([8.0, 2.0, 2.0], (len(fr["positions"]), n)), meta=json.dumps({"tie": tie}))
     bands, sizes = SR.run_read(SimpleNamespace(data=str(tmp_path), out=str(out), json=str(out / "s0.json"), block=2))
     assert set(bands) == {"S0.1", "S0.2", "S0.4"} and bands["S0.4"]["holds"]
     for v in bands["S0.4"]["values"].values():
@@ -194,6 +196,7 @@ def test_mbpol_step_on_a_fake_mbx_and_the_read_end_to_end(tmp_path, monkeypatch)
     assert bands["S0.1"]["points"] == 5 and np.isfinite(bands["S0.1"]["value"])      # k <= 0.46: 2 shells at 20 A, 3 at 25
     j = json.load(open(out / "s0.json"))
     assert set(j["sizes"]) == {"128", "256"} and j["constants"]["block"] == 2
+    assert j["tie"]["C"]["frames"] == 32 and j["tie"]["C"]["alpha0_bohr3"]["molecule"] == [12.0, 0.0]
 
 
 def test_model_step_gives_mu_ind_when_the_orders_above_zero_are_off(tmp_path):
@@ -374,3 +377,24 @@ def test_the_tie_reading_on_constructed_polarisabilities():
     c2 = c.copy(); c2[:, 0::3] = np.linspace(7.0, 9.0, 20).reshape(5, 4)
     a2 = c2[:, 0::3].ravel() ** 2
     assert SR.tie_reading({4: c2}, tie)["C6_spread_at_fixed_omega"]["O"] == pytest.approx(a2.std() / a2.mean())
+
+
+def test_the_tie_reading_pools_cell_sizes_atom_by_atom():
+    """S0's model step stores c_iso for each cell size, (F, 3n) with a different n per size (the read of 15 Nov crashed
+    on 64 and 128 molecules): the sizes pool atom by atom, so the reading equals the one on the atoms listed together."""
+    tie = {"c6_site_kcal_A6_sqrt": {"O": 15.4, "H": 4.48}, "pins_alpha0_bohr3": {"O": 1.0, "H": 0.5}}
+    rng = np.random.default_rng(3)
+    small = rng.uniform(1.5, 9.0, (5, 12))                         # 5 frames of 4 molecules
+    large = rng.uniform(1.5, 9.0, (3, 24))                         # 3 frames of 8 molecules
+    t = SR.tie_reading({4: small, 8: large}, tie)
+    assert t["frames"] == 8
+    O = np.concatenate([small[:, 0::3].ravel(), large[:, 0::3].ravel()])
+    H = np.concatenate([small[:, 1::3].ravel(), small[:, 2::3].ravel(), large[:, 1::3].ravel(), large[:, 2::3].ravel()])
+    mol = np.concatenate([small.reshape(5, 4, 3).sum(-1).ravel(), large.reshape(3, 8, 3).sum(-1).ravel()])
+    assert t["alpha0_bohr3"]["O"] == pytest.approx((O.mean(), O.std()))
+    assert t["alpha0_bohr3"]["H"] == pytest.approx((H.mean(), H.std()))
+    assert t["alpha0_bohr3"]["molecule"] == pytest.approx((mol.mean(), mol.std()))
+    assert t["C6_spread_at_fixed_omega"]["H"] == pytest.approx((H ** 2).std() / (H ** 2).mean())
+    one = SR.tie_reading({4: np.tile([8.0, 2.0, 2.0], (5, 4))}, tie)
+    two = SR.tie_reading({4: np.tile([8.0, 2.0, 2.0], (5, 4)), 8: np.tile([8.0, 2.0, 2.0], (3, 8))}, tie)
+    assert two["omega_hartree"] == pytest.approx(one["omega_hartree"]) and two["frames"] == 8

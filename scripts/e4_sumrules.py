@@ -464,11 +464,12 @@ def tie_reading(c_iso, tie):
     dispersion pins' alpha(0)). Per species and per molecule: alpha(0)'s mean and spread over the liquid frames; the
     frequency one oscillator per site (and per molecule) needs to give MB-pol's c6 from it, omega = 4 C6 / 3 alpha^2;
     the cross C6_OH that the one-oscillator tie then implies, against MB-pol's; and the implied C6's relative spread at
-    fixed omega, which a tied model would carry where MB-pol's c6 has none."""
-    C = np.concatenate([np.asarray(c, float) for c in c_iso.values()])
-    aO = C[:, 0::3].ravel()
-    aH = np.concatenate([C[:, 1::3].ravel(), C[:, 2::3].ravel()])
-    amol = (C[:, 0::3] + C[:, 1::3] + C[:, 2::3]).ravel()
+    fixed omega, which a tied model would carry where MB-pol's c6 has none. The cell sizes have different numbers of
+    atoms per frame, so each size is split into its atoms (O, H, H per molecule) before the sizes are pooled."""
+    cs = [np.asarray(c, float) for c in c_iso.values()]
+    aO = np.concatenate([c[:, 0::3].ravel() for c in cs])
+    aH = np.concatenate([np.concatenate([c[:, 1::3].ravel(), c[:, 2::3].ravel()]) for c in cs])
+    amol = np.concatenate([(c[:, 0::3] + c[:, 1::3] + c[:, 2::3]).ravel() for c in cs])
     u = BOHR_PER_ANGSTROM ** 6 / KCALMOL_PER_HARTREE                 # kcal/mol A^6 -> hartree bohr^6
     cO, cH = tie["c6_site_kcal_A6_sqrt"]["O"], tie["c6_site_kcal_A6_sqrt"]["H"]
     C6 = {"OO": cO * cO * u, "HH": cH * cH * u, "OH": cO * cH * u, "mol": (cO + 2 * cH) ** 2 * u}
@@ -476,7 +477,7 @@ def tie_reading(c_iso, tie):
          "mol": 4 * C6["mol"] / (3 * amol.mean() ** 2)}
     cross = 1.5 * aO.mean() * aH.mean() * w["O"] * w["H"] / (w["O"] + w["H"])
     rel = lambda a: float(np.std(a ** 2) / np.mean(a ** 2))
-    return {"frames": int(len(C)), "alpha0_bohr3": {"O": (float(aO.mean()), float(aO.std())),
+    return {"frames": int(sum(len(c) for c in cs)), "alpha0_bohr3": {"O": (float(aO.mean()), float(aO.std())),
                                                    "H": (float(aH.mean()), float(aH.std())),
                                                    "molecule": (float(amol.mean()), float(amol.std()))},
             "pins_alpha0_bohr3": tie["pins_alpha0_bohr3"], "C6_mbpol_au": C6, "omega_hartree": w,
