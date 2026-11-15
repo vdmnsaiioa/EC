@@ -9,8 +9,8 @@ the electronic level — and his "yes" to a note. Read against:*
 - *`nuclear-eft-ir-sector.md` §5.2;*
 - *`e4-plan.md` §2 and `e4-s0-results.md`.*
 
-*Nothing here was run on data. The tie reading of §5.1 is in the S1 patch (`scripts/e4_sumrules.py`). Everything else is
-proposed, not registered.*
+*The tie reading of §5.1 is in the S1 patch (`scripts/e4_sumrules.py`), and was read on 15 Nov (`e4-s0-results.md`
+§4; the outcome is at the end of §5.1). Everything else is proposed, not registered.*
 
 ## 1. The statement
 
@@ -112,6 +112,20 @@ This is in the S1 patch, and not registered.
   - ω far off, or a large spread, mean that this truth's induction and dispersion are not one field. E4 is then not
     the place to test v2's tie, and §5.2 is.
 
+**Read 15 Nov** (`e4-s0-results.md` §4), on arm C's order 0, which is also D′'s. The answer is split.
+
+- **Per molecule, one field.**
+  - ω = 0.577 E_h against 0.65–0.67. The gap is exactly two known factors: MB-pol's long-range C₆ is 43.1 au, 5 %
+    below 45.4, and the liquid's order-0 α is 9.98 bohr³, 5 % above MB-pol's gas-phase monomer, entering squared.
+  - The spread at fixed ω is 2.8 %.
+- **Per site, not.**
+  - MB-pol's site c6 on the model's α need ω_O = 0.40 and ω_H = 1.34 E_h.
+  - The one-oscillator cross term is then 0.84 of MB-pol's product rule.
+  - The share of the molecule's α on O is 0.76 in the model's induction, 0.69 in MB-pol's bare Thole values, and 0.63
+    in its c6.
+- **So on MB-pol the tie is tested with one ω for every site.** That keeps the C₆ tail exact and moves the site
+  partition: OO +44 %, OH −21 %, HH −57 %. The ω per species of §4 waits for §5.2.
+
 ### 5.2 A truth built as one field
 
 - **The truth, MB-pol₁.** MB-pol with its long-range pairwise dispersion replaced by the MBD of its own Thole
@@ -133,7 +147,8 @@ MBD-corrected DFT with the same polarisabilities (`e4-plan.md` §8).
 ## 6. What would change the plan
 
 - **§5.1 shows MB-pol far from one field.** Then §5.2 is the only test at E4's scale, and v2's dispersion is checked
-  against a truth built for it.
+  against a truth built for it. *As read on 15 Nov this holds per site, not per molecule. So MB-pol can test the
+  molecule-level tie, and §5.2 remains the only test of the site-level one.*
 - **§5.2 shows no gain in data efficiency or transfer.** Then the tie stays a statement of the theory, and the pinned
   pair band stays.
 

@@ -416,7 +416,7 @@ code is still open: CP2K, GPAW, VASP or QE.
        b_L sits about 15 % below b_T/ε_∞ at small k. The lemma's scale between 1 and ε_∞ does not hold for MB-pol, but
        field-blind (≈ 2.0) and response-carrying (1) sources are still told apart.*
      - *MB-pol overscreens from about 0.3 Å⁻¹. Arm C at 64 molecules reads r = 0.99–1.00, not registered.*
-     - *S0.4 waits for the model step, which stopped at 128 molecules on a reader bug, since fixed.*
+     - *S0.4 waited for the model step, which stopped at 128 molecules on a reader bug, since fixed.*
    - *Direction chosen 12 Nov (Vadic's go): close S0 first, then the MD driver and S1/S2 (the path-integral note's
      §4.2–4.3) as the main line. The molecules' finite-k rows, the L₀ sweep and Form I are deferred.*
      - *S0.5 was registered at 14:48 CET (`e4-s0-preregistration.md` §6). It is the nuclear EFT note's account of
@@ -437,4 +437,20 @@ code is still open: CP2K, GPAW, VASP or QE.
          Tr ln's many-body remainder on the induction's mutual tensor.*
        - *Its first test, the tie read on the frozen form, rides with S0's model step.*
        - *The real tests are a truth built as one field (MB-pol₁), after S1, and the DFT phase.*
+   - *S0 read in full on 15 Nov, and closed (`e4-s0-results.md` §2–5).*
+     - *S0.4 holds: r = 0.995 ± 0.002 and 0.994 ± 0.002. On MB-pol's own frames the frozen form's polarisation is
+       MB-pol's to half a percent, for arm C and D′ alike, and the order 0 carries it.*
+     - *S0.5 holds: ρ = 0.91 ± 0.12 and 0.95 ± 0.16. S0.3's excess is the local-field residual that the Coulomb term
+       screens, with nothing fitted. The lemma stands for sources proportional to Π. Sources that are not read
+       ε_∞(k) + v_η, about 2.0 here.*
+     - *Beside them:*
+       - *ε_s = 68.5 ± 3.6 from 1/A_T, which agrees with the cells' dipoles and with MB-pol's published 68.4;*
+       - *the overscreening pole at 0.16–0.22 Å⁻¹;*
+       - *κ_T = 4.1×10⁻⁵ bar⁻¹;*
+       - *S_nZ ∝ k² to 10 %;*
+       - *ρ at 0.84–0.95 below 0.36 Å⁻¹, failing beyond 0.4.*
+     - *The tie: one field per molecule (ω 0.577 E_h, spread 2.8 %), not per site (ω_O 0.40, ω_H 1.34). On MB-pol the tie
+       is tested with one ω for every site.*
+     - *The read first stopped in the tie reading, which stacked cells of different sizes; it was fixed with a test.*
+     - *Next, the main line: S1's runs, the timing job first.*
 7. **The L₀ sweep** (Form II).

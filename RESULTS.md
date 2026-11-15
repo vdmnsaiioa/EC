@@ -1685,3 +1685,50 @@ The runs and the reader's choices were fixed with them.
   - the ω that MB-pol's c6 needs from it;
   - the implied cross term;
   - the implied C₆'s spread over the liquid.
+
+## v0.0.29, read 15 Nov — S0.4 and S0.5 hold, and S0 is closed; the tie holds per molecule, not per site (`notes/e4-s0-results.md` §2–5)
+
+**The model step ran again** and wrote arm C's and D′'s files at 64, 128 and 256 molecules. The read printed every band,
+then stopped in the tie reading, before writing the json. The tie reading stacked each cell size's polarisabilities
+(192, 384 and 768 atoms per frame). It now pools them atom by atom; a two-size test and an end-to-end test of the tie
+were added. Nothing registered moved.
+
+| | band | prediction | Niflheim |
+|---|---|---|---|
+| S0.4: r for arm C, 128 and 256 | 0.90–1.10 | 1 | **0.995 ± 0.002, 0.994 ± 0.002** ✓ |
+| S0.5: ρ = (r − ε_∞(k))/v_η for P_perm, 512 and 1024 | 0.7–1.4 | 1 | **0.910 ± 0.118, 0.945 ± 0.162** ✓ |
+
+- **S0.4.** On MB-pol's own frames the frozen form's polarisation is MB-pol's.
+  - r = 0.99–1.00 on every shell of 64–256, for arm C and D′. Their order 0 alone reads the same.
+  - The half percent left is longitudinal: b_L 1.004–1.012, b_T 1.000–1.003.
+  - It does not follow the two models' clamped χ(k₁) errors, which have opposite signs.
+  - The model's transverse residual is 1 % of the sources'.
+- **S0.5.** S0.3's excess is the local-field residual that the protected Coulomb term screens in the longitudinal
+  channel: r − ε_∞(k) = 0.270 and 0.291 against v_η = 0.297 and 0.308, with nothing fitted.
+  - The lemma stands for sources proportional to Π. Sources that are not read ε_∞(k) + v_η.
+  - S3's amended normalisation, ε_∞(k) − 1, stands.
+- **Beside them, not registered:**
+  - **ρ on every shell:** 0.84–0.95 at k ≤ 0.36 Å⁻¹, 0.27–0.64 at 0.32–0.57 Å⁻¹, negative above 0.65.
+    - The anisotropy of the proper stiffnesses predicts the dip where the account holds: 0.84–0.93 against
+      0.84–0.95. That is a reading added after the numbers.
+    - Beyond 0.4 Å⁻¹ the local-field split differs between the channels.
+  - **1/A_T** gives a = 0.188 ± 0.010, so ε_s = 68.5 ± 3.6.
+    - The cells' dipoles give 0.184 ± 0.011.
+    - MB-pol's published value is 68.4 (Reddy et al. 2016, flexible monomers).
+  - **1/A_L** is negative on all nine shells.
+    - With the common intercept, b_L = −7.2 ± 0.8 Å².
+    - So the overscreening pole is at 0.16–0.22 Å⁻¹, a wavelength of 29–39 Å.
+  - **S_nn(0)** is 0.057 ± 0.002, so κ_T = (4.1 ± 0.2)×10⁻⁵ bar⁻¹. Experiment is 4.5.
+  - **S_nZ/k²** is −0.0087 e Å², constant to 10 % from 0.2 to 0.9 Å⁻¹. That gives λ ≈ −1.8 e Å², mostly the molecules'
+    own charge second moment.
+- **The tie** (`notes/v2-one-field-proposal.md` §5.1), read on 420 frames.
+  - **Per molecule, one field.** ω = 0.577 E_h against 0.65–0.67.
+    - The gap is MB-pol's long-range C₆, 5 % below 45.4 au.
+    - It is also the liquid's order-0 α (9.98 bohr³), 5 % above MB-pol's gas-phase monomer.
+    - The spread at fixed ω is 2.8 %.
+  - **Per site, not.**
+    - ω_O 0.40 and ω_H 1.34 E_h.
+    - The cross term is 0.84 of MB-pol's product rule.
+    - The O share of α is 0.76 in the model, 0.69 in MB-pol's Thole values and 0.63 in its c6.
+  - So on MB-pol the tie is tested with one ω for every site. The ω per species waits for MB-pol₁.
+- **Next:** S1's runs, the timing job first.

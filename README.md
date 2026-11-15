@@ -496,8 +496,8 @@ polarisation sum rules on MB-pol's own trajectories, with no training and no new
 
 ```sh
 sbatch run_e4_s0_mbpol.sbatch              # five CPU tasks, one per size: MBX's sites at zero field on every frame
-sbatch run_e4_s0_model.sbatch              # one GPU task: arm C's own polarisation on the 64-256 sets
-python scripts/e4_sumrules.py read         # S0.1-S0.4 and the readings beside them, into results/e4_s0/s0.json
+sbatch run_e4_s0_model.sbatch              # one GPU task: arm C's and D′'s own polarisation on the 64-256 sets
+python scripts/e4_sumrules.py read         # S0.1-S0.5 and the readings beside them, into results/e4_s0/s0.json
 ```
 
 The read is `notes/e4-s0-results.md`.
@@ -505,15 +505,15 @@ The read is `notes/e4-s0-results.md`.
 - S0.1 and S0.2 hold: L(k → 0) = 0.610 ± 0.030, and T/L = 86–114.
 - S0.3 fails high. MB-pol's own permanent sources regress at r = 1.98–1.99, not at ε_∞(k) = 1.70: b_T is 1.455 at
   every k, while b_L is about 15 % below b_T/ε_∞ at small k.
-- S0.4 waits for the model step, which stopped at 128 molecules on the first run. Its rung check compared the
-  reciprocal grid, which follows the cell. That is fixed, and the step now solves as the config does (GMRES;
-  `--solver direct` for the dense solve).
+- S0.4 holds: r = 0.995 ± 0.002 and 0.994 ± 0.002 for the frozen form's polarisation (arm C; D′ reads the same).
+  The model step solves as the config does (GMRES; `--solver direct` for the dense solve).
 - **S0.5** (pre-registration §6, 12 Nov 14:48 CET) tests the nuclear EFT's account of S0.3:
   - the EFT's Coulomb term couples the induced dipoles' local-field residual to the sources in the longitudinal
     channel only;
   - so r = ε_∞ + v_η, with v_η the transverse regression's residual.
 
-  The read prints ρ = (r − ε_∞(k))/v_η, band 0.7–1.4. Beside it, not registered, it prints:
+  It holds: ρ = (r − ε_∞(k))/v_η = 0.91 ± 0.12 and 0.95 ± 0.16, band 0.7–1.4. S0 is closed. Beside it, not
+  registered, the read prints:
   - the proper stiffnesses 1/A_T and 1/A_L, with their a + bk² fits and the overscreening zero;
   - 4π/(ε_s − ε_∞) from each cell's dipole;
   - S_nn(k) and S_nZ(k)/k².
@@ -524,6 +524,9 @@ The read is `notes/e4-s0-results.md`.
   - the oscillator frequency that MB-pol's long-range c6 needs from it, ω = 4C₆/3α²;
   - the cross term that one-oscillator tie implies;
   - the implied C₆'s spread over the liquid.
+
+  Read 15 Nov: MB-pol is one field per molecule (ω = 0.577 E_h, spread 2.8 %) but not per site (ω_O 0.40, ω_H 1.34,
+  cross term 0.84). The cell sizes are pooled atom by atom.
 
 **S1 and S2** (`notes/e4-s1-preregistration.md`, 12 Nov 15:18 CET; the bands of the path-integral note §4.2–4.3) run the
 models' own liquids. `scripts/e4_md.py` is the MD driver:
