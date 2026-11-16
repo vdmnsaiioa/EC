@@ -16,7 +16,7 @@ import jax.numpy as jnp
 from .e0 import _mlp_init, mlp
 
 
-def init_heads(key, cfg, K=8, one_oscillator=False, energy_scale=1.0):
+def init_heads(key, cfg, K=8, one_oscillator=False, energy_scale=1.0, alpha_ref0=1.0):
     F = cfg["F"]
     k = jax.random.split(key, 6)
     p = {
@@ -27,7 +27,10 @@ def init_heads(key, cfg, K=8, one_oscillator=False, energy_scale=1.0):
         "q_ref": jnp.zeros(cfg["n_species"]),
         "dipole": _mlp_init(k[2], [F, F, F]),
         "alpha": _mlp_init(k[3], [F, F, 2 if one_oscillator else K]),
-        "alpha_ref": jnp.zeros(cfg["n_species"]) + 1.0,      # species offset inside the softplus (log-scale start)
+        # species offset inside the softplus (log-scale start): softplus(1) = 1.31 bohr^3; v0.0.30, Rung.alpha_ref0: a
+        # negative start, e.g. -6 (2.5e-3 bohr^3), begins the learned dispersion near zero, where softplus is e^x and
+        # Adam's steps change alpha by a fixed fraction
+        "alpha_ref": jnp.zeros(cfg["n_species"]) + alpha_ref0,
         "alpha2": _mlp_init(k[5], [F, F, 2 if one_oscillator else K]),   # quadrupole polarisability alpha_2(i w) (C8 channel)
         "alpha2_ref": jnp.zeros(cfg["n_species"]) + 2.0,
         "source_A": _mlp_init(k[4], [F, F, 1]),               # scalar source of the analytic-kernel rung
@@ -40,14 +43,18 @@ def site_energy(p, s, numbers, mask):
     return e * mask
 
 
-def charges(p, s, numbers, mask, total_charge, frag_mask=None, frag_charge=None):
+def charges(p, s, numbers, mask, total_charge, frag_mask=None, frag_charge=None, unit=1.0):
     """q_i = q0(Z_i) + dq_i, shifted uniformly so that the charges sum exactly to their target.  With frag_mask (F,N)
     and frag_charge (F,) the shift is taken fragment by fragment -- each fragment's charges sum to its own total
     charge, whatever its environment, so that the charges of a fragment beyond r_c of everything else are exactly
     those of the fragment alone (the fragment reference E_int = E(all) - sum_f E(f) then cancels the intramolecular
     band energy exactly, and no fragment acquires a monopole from the others' environment-dependent dq).  Without
-    fragments one shift over the structure to total_charge."""
+    fragments one shift over the structure to total_charge.  unit (v0.0.30, Rung.q_unit): the head's output in units
+    of `unit` e before the shift -- a small unit starts the charges near zero and moves them in small steps (Adam's
+    steps are about its learning rate in the parameters); 1 is the head as before, bit for bit."""
     dq = mlp(p["charge"], s)[..., 0] + p["q_ref"][numbers]
+    if unit != 1.0:
+        dq = unit * dq
     dq = dq * mask
     if frag_mask is None:
         n = jnp.maximum(jnp.sum(mask), 1.0)

@@ -90,6 +90,14 @@ E3.RUNGS.setdefault("M_16C0pm_us", M.with_rung(E3.RUNGS["M_16C2pm_us"], name="M_
 # cross terms by species) and no response -- the frozen form less its read-out, so that frozen against it is the response
 E3.RUNGS.setdefault("M_16pm_us", M.with_rung(E3.RUNGS["M_16pm_w"], name="M_16pm_us", e0_field_self_on=ang_to_bohr(4.0),
                                              e0_field_self_off=ang_to_bohr(5.0), e0_field_cross_species=True))
+# job 6 (v0.0.30; notes/e4-job6-preregistration.md): job 1's learned-source rungs started near zero -- the charges in a
+# small unit (Rung.q_unit), the polarisabilities at a small softplus start (Rung.alpha_ref0) -- so that they start close
+# to E_0 alone and move in small steps; their gate is M_inf's final training loss (gate_status).  M_1uc, the same at
+# three times the unit, is the control that the learned charges' scale has converged (L1.2)
+Q_UNIT, Q_UNIT_CONTROL, ALPHA_REF0 = 0.05, 0.15, -6.0            # e; e; softplus(-6) = 2.5e-3 bohr^3
+E3.RUNGS.setdefault("M_1u", M.with_rung(E3.RUNGS["M_1"], name="M_1u", q_unit=Q_UNIT))
+E3.RUNGS.setdefault("M_1uc", M.with_rung(E3.RUNGS["M_1"], name="M_1uc", q_unit=Q_UNIT_CONTROL))
+E3.RUNGS.setdefault("M_16u", M.with_rung(E3.RUNGS["M_16"], name="M_16u", q_unit=Q_UNIT, alpha_ref0=ALPHA_REF0))
 
 DEFAULTS = {
     "data": {"dir": "data/e4", "train_size": 64, "eval_sizes": [64, 128, 256], "probes": "data/e4/probes_mbpol.npz",
@@ -178,6 +186,10 @@ def model_record(name, cfg, rung):
                K=int(rung.K), omega0=float(rung.omega0))
     if rung.bf_l_mutual > 0:
         rec["mutual_edge_angstrom"] = round(float(bohr_to_ang(rung.bf_l_mutual)), 12)
+    if rung.q_unit != 1.0:
+        rec["charge_unit_e"] = float(rung.q_unit)                    # v0.0.30
+    if rung.alpha_ref0 != 1.0:
+        rec["polarisability_softplus_start"] = float(rung.alpha_ref0)
     return rec
 
 
@@ -1141,6 +1153,60 @@ def rigid_errors(err_kcal, pos_ang, cell_ang, n_mol):
     return e.sum(axis=1), np.cross(d, e).sum(axis=1), float(s), float(c)
 
 
+DEBYE_PER_E_BOHR = 2.541746                                       # e bohr -> D
+# MB-pol's long-range dispersion per site pair and per molecule pair, au (water.MBPOL_C6_LR; e4-s0-results.md section 4)
+MBPOL_C6_AU = {k: float(v * BOHR_PER_ANGSTROM ** 6 / KCALMOL_PER_HARTREE) for k, v in
+               {"OO": W.MBPOL_C6_LR[8] ** 2, "OH": W.MBPOL_C6_LR[8] * W.MBPOL_C6_LR[1], "HH": W.MBPOL_C6_LR[1] ** 2,
+                "molecule": (W.MBPOL_C6_LR[8] + 2 * W.MBPOL_C6_LR[1]) ** 2}.items()}
+
+
+def learns_sources(rung):
+    """a rung whose charges or polarisabilities are learned (job 1's M_1 and M_16, job 6's M_1u and M_16u)."""
+    return (rung.charges and not rung.pin_q and not rung.msites) or (rung.dispersion and not rung.pin_alpha)
+
+
+def learned_sources(params, rung, structs):
+    """what a rung's learned sources are on frames of one size (v0.0.30, job 6): per species the charges' mean and sd
+    (e); every molecule's dipole about its centre of mass, |mu| mean and sd (D), and the share of molecules whose
+    dipole points to their H side (the charges' overall sign, which energies and forces of neutral molecules cannot
+    fix); and with learned polarisabilities the band's C6 per species pair and per molecule pair (au), from the species'
+    mean alpha(i omega_k), against MB-pol's long-range c6."""
+    f = jax.jit(lambda p, b: M.energy_single(p, rung, b)[1])
+    masses = np.array([15.999, 1.008, 1.008])
+    qs, mus, side, alphas = [], [], [], []
+    for st in structs:
+        b = {k: v[0] for k, v in S.pad_batch([st], n_freq=rung.K).items()}
+        aux = f(params, b)
+        n = st.n_atoms
+        pos = np.asarray(PB.make_whole(b["positions"], b["atom_frag"], b["frag_atoms"], b["cell"]))[:n].reshape(-1, 3, 3)
+        if "q" in aux and rung.charges and not rung.pin_q:
+            q = np.asarray(aux["q"])[:n].reshape(-1, 3)
+            com = np.einsum("mav,a->mv", pos, masses) / masses.sum()
+            mu = np.einsum("ma,mav->mv", q, pos - com[:, None, :])
+            qs.append(q); mus.append(mu)
+            side.append(np.einsum("mv,mv->m", mu, 0.5 * (pos[:, 1] + pos[:, 2]) - pos[:, 0]) > 0)
+        if "alpha" in aux and rung.dispersion and not rung.pin_alpha:
+            alphas.append(np.asarray(aux["alpha"])[:n].reshape(-1, 3, rung.K))
+    out = {}
+    if qs:
+        q, mu = np.concatenate(qs), np.concatenate(mus)
+        dip = np.linalg.norm(mu, axis=1) * DEBYE_PER_E_BOHR
+        out.update(q_O=(float(q[:, 0].mean()), float(q[:, 0].std())),
+                   q_H=(float(q[:, 1:].mean()), float(q[:, 1:].std())),
+                   dipole_debye=(float(dip.mean()), float(dip.std())),
+                   dipole_to_H_side=float(np.concatenate(side).mean()))
+    if alphas:
+        a = np.concatenate(alphas)                                     # (molecules, 3, K)
+        _, w = (np.asarray(x) for x in M.frequencies(rung))
+        aO, aH = a[:, 0].mean(axis=0), a[:, 1:].mean(axis=(0, 1))
+        c6 = lambda x, y: float(3.0 / np.pi * np.sum(w * x * y))
+        C6 = {"OO": c6(aO, aO), "OH": c6(aO, aH), "HH": c6(aH, aH)}
+        C6["molecule"] = C6["OO"] + 4 * C6["OH"] + 4 * C6["HH"]
+        out.update(C6_au=C6, C6_over_mbpol={k: v / MBPOL_C6_AU[k] for k, v in C6.items()},
+                   alpha_lowest_node_bohr3={"O": float(aO[0]), "H": float(aH[0])})
+    return out
+
+
 def read_cells(params, rung, structs, eps_frames=0):
     """energy per molecule and force errors on periodic frames of one size (one compilation), and eps_inf on the
     first eps_frames of them (the read-out's response to a uniform field at clamped nuclei; model.dielectric_inf)."""
@@ -1166,6 +1232,8 @@ def read_cells(params, rung, structs, eps_frames=0):
            "force_rigid_rmse": float(np.sqrt(ss / cc)), "net_force_rmse": rms(np.concatenate(net)),
            "torque_rmse": rms(np.concatenate(tau)), "force_atomic_rmse": float(np.sqrt(np.mean(fa))),
            "seconds_per_frame": float(np.median(times[1:] if len(times) > 1 else times))}
+    if learns_sources(r):
+        out["learned_sources"] = learned_sources(params, r, structs)
     if eps_frames > 0:
         g = jax.jit(lambda p, b: M.dielectric_inf(p, r, b))
         eps = []
@@ -1202,6 +1270,18 @@ def read_trimers(params, rung_open, probes):
             "slope": float(np.dot(model, ref) / np.dot(ref, ref)), "model": [float(x) for x in model]}
 
 
+def sources_line(v):
+    parts = []
+    if "dipole_debye" in v:
+        parts.append(f"q_O {v['q_O'][0]:+.3f} +- {v['q_O'][1]:.3f}, q_H {v['q_H'][0]:+.3f} +- {v['q_H'][1]:.3f} e; molecular "
+                     f"dipole {v['dipole_debye'][0]:.3f} +- {v['dipole_debye'][1]:.3f} D, {100 * v['dipole_to_H_side']:.0f} % "
+                     f"to the H side (MB-pol's permanent 1.864 D)")
+    if "C6_au" in v:
+        c, rel = v["C6_au"], v["C6_over_mbpol"]
+        parts.append("C6 " + ", ".join(f"{k} {c[k]:.2f} au ({rel[k]:.2f} of MB-pol's)" for k in ("OO", "OH", "HH", "molecule")))
+    return "; ".join(parts)
+
+
 def summary_line(name, seed, rd):
     parts = []
     for n, by in rd["cells"].items():
@@ -1224,6 +1304,34 @@ def summary_line(name, seed, rd):
 # ---------------------------------------------------------------- training ------------------------------------------
 def divisor_at_most(n, k):
     return max(d for d in range(1, max(1, min(n, k)) + 1) if n % d == 0)
+
+
+def final_loss(params, rung, structs, scale, w_energy, w_force, chunk, force_mode):
+    """the training objective on every training frame at the end of training (v0.0.30): the energy and force terms and
+    their weighted sum, exactly the L-BFGS polish's full-batch loss, chunk by chunk.  Job 6's gate compares it rung
+    against M_inf, seed by seed (gate_status)."""
+    sums = jax.jit(T.make_loss_sums(rung, scale, w_force, force_mode))
+    data = S.pad_batch(structs, n_freq=rung.K)
+    tot = np.zeros(4)
+    for i in range(0, len(structs), chunk):
+        tot += np.array([float(x) for x in sums(params, {k: v[i:i + chunk] for k, v in data.items()})])
+    le, lf = tot[0] / max(tot[1], 1.0), tot[2] / max(tot[3], 1.0)
+    return {"total": float(w_energy * le + w_force * lf), "energy": float(le), "forces": float(lf)}
+
+
+def gate_status(out_dir, rung, reference="M_inf"):
+    """job 6's gate (notes/e4-job6-preregistration.md): seed by seed, whether a rung's final training loss is at or
+    below the reference rung's, from the jsons in out_dir. {seed: (passes, loss, reference loss)}; a seed without
+    both losses is left out."""
+    loss = {}
+    for p in glob.glob(os.path.join(out_dir, "*_seed*.json")):
+        with open(p) as fh:
+            r = json.load(fh)
+        fl = r.get("training", {}).get("final_loss")
+        if fl is not None:
+            loss[(r["rung"], int(r["seed"]))] = float(fl["total"])
+    seeds = sorted({s for (name, s) in loss if name == rung and (reference, s) in loss})
+    return {s: (loss[(rung, s)] <= loss[(reference, s)], loss[(rung, s)], loss[(reference, s)]) for s in seeds}
 
 
 def run_train(a):
@@ -1310,6 +1418,10 @@ def run_train(a):
                                  lbfgs_max_linesearch_steps=int(lb["max_linesearch_steps"]), readout_init=readout,
                                  force_mode=ls["forces"], verbose=True)
             t_train = time.time() - t0
+            fl = final_loss(params, rung, train, scale, float(ls["energy_weight"]), float(ls["force_weight"]), chunk,
+                            ls["forces"])
+            print(f"  {name} seed {seed}: final training loss {fl['total']:.4e} (energy {fl['energy']:.3e}, forces "
+                  f"{fl['forces']:.3e}) on all {len(train)} cells", flush=True)
             stem = os.path.join(out_dir, f"{name}_seed{seed}")
             with open(stem + ".params.pkl", "wb") as fh:
                 pickle.dump(jax.tree_util.tree_map(np.asarray, params), fh)
@@ -1332,6 +1444,8 @@ def run_train(a):
                           f"{v['torque_rmse']:.3f} kcal/mol; atomic {v['force_atomic_rmse']:.3f})"
                           + (f", eps_inf {v['eps_inf']['isotropic_mean']:.4f} on {v['eps_inf']['frames']} frames"
                              if "eps_inf" in v else "") + f"  [{time.time() - t1:.0f} s]", flush=True)
+                    if v.get("learned_sources"):
+                        print(f"      learned sources: {sources_line(v['learned_sources'])}", flush=True)
             t1 = time.time()
             rd["probes"] = read_probes(params, rung_open, probes)
             print(f"  {name} seed {seed}: far-field probes {E3.probe_summary(rd['probes'])}  [{time.time() - t1:.0f} s]",
@@ -1349,7 +1463,7 @@ def run_train(a):
                       "sseft": sseft.__version__, "jax": jax.__version__, "devices": str(jax.devices()),
                       "probes_hash": probes["hash"], "energy_scale": scale, "training_frames": len(train),
                       "matching": match, "training": {"time": t_train, "history": info["history"],
-                                                      "options": info["training_options"]},
+                                                      "options": info["training_options"], "final_loss": fl},
                       "readings": rd}
             with open(stem + ".json", "w") as fh:
                 json.dump(result, fh, indent=1)
@@ -1389,6 +1503,21 @@ def run_summary(a):
         if by:
             print("  far-field probes, non-additive rmse / rms: " + ", ".join(
                 f"{d} A {ms([100 * b[d]['nonadditive_rmse'] / b[d]['nonadditive_rms'] for b in by])} %" for d in by[0]))
+        fl = [r["training"]["final_loss"]["total"] for r in rs if r.get("training", {}).get("final_loss")]
+        if fl and name != "M_inf":
+            g = gate_status(a.out_dir, name)
+            if g:
+                print(f"  the gate (final training loss at or below M_inf's, seed by seed): "
+                      + ", ".join(f"seed {s} {'passes' if ok else 'FAILS'} ({x:.3e} against {y:.3e})"
+                                  for s, (ok, x, y) in g.items())
+                      + f"; {sum(ok for ok, _, _ in g.values())} of {len(g)}")
+        elif fl:
+            print(f"  final training loss {ms(fl)}")
+        for n in sizes:
+            for r in sorted(rs, key=lambda r: r["seed"]):
+                v = r["readings"]["cells"].get(n, {}).get("test", {}).get("learned_sources")
+                if v:
+                    print(f"  test n{n} seed {r['seed']}, learned sources: {sources_line(v)}")
         liq = [r["readings"]["liquid"] for r in rs if "liquid" in r["readings"]]
         if liq:
             print(f"  liquid cells (held out, {liq[0]['frames']} frames): eps_inf {ms([v['eps_inf_model'] for v in liq])} "

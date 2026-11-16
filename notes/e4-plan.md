@@ -306,6 +306,17 @@ MACE (short range, r_c 6 Å, 2 layers) and MACE-LES:
 
 MACE+D3 is optional. EFA/RANGE come later (`long-range-models-survey.md`).
 
+*Added 16 Nov: the fairness of the comparison.*
+
+- *E4's model is given MB-pol's permanent charges and c6, and response labels. MACE-LES gets energies and forces alone.*
+- *On the response observables (ε_∞, T5, r, S1's screening) that information cannot help a field-blind model: the dagger
+  has the same pins and fails them as MACE-LES must.*
+- *On permanent electrostatics, dispersion tails and bulk accuracy it can help.*
+- *So the main table gives every model the same data and no pins: our architecture with learned charges (job 6 is stage
+  1, stage 2 adds the response), MACE-LES with its own Born-charge fine-tuning where response labels are used, and
+  MACE.*
+- *The pinned model and the dagger form a second panel.*
+
 ## 8. DFT, later
 
 The same rigid-monomer frames at one or two sizes (64 or 128 molecules), revPBE-D3 or SCAN, with DFPT ε_∞ and Z*. The
@@ -453,4 +464,22 @@ code is still open: CP2K, GPAW, VASP or QE.
        is tested with one ω for every site.*
      - *The read first stopped in the tie reading, which stacked cells of different sizes; it was fixed with a test.*
      - *Next, the main line: S1's runs, the timing job first.*
+   - *S1's runs, 15–16 Nov.*
+     - *MB-pol's eight runs completed (1.1 h at 64 molecules, 1.8 h at 128). Their L on S1.1's shells reproduces S0's
+       frames within 1.9σ.*
+     - *D′'s and the dagger's runs were submitted as five chained rounds of the 4-hour jobs.*
+   - *The comparison with competing models (Vadic's question of 16 Nov), and the fairness of pins.*
+     - *E4's model pins MB-pol's charges and c6, and its response is calibrated on MB-pol's induced dipoles. MACE-LES
+       learns its charges from energies and forces alone.*
+     - *So the main comparison is to be made with the same data and no pins. The pinned model and the dagger go in a
+       second panel, which separates information from architecture (§7).*
+     - *Stage 1 is job 6 (`e4-job6-preregistration.md`, v0.0.30, registered 16 Nov): job 1's learned-charge rungs again,
+       started near zero, with the charges in units of 0.05 e and the polarisabilities from softplus(−6). A control at
+       0.15 e checks that the learned scale converged. A synthetic check reproduced job 1's failure with its unit, and
+       the small units passed.*
+     - *L1.1: the gate, at or below M_∞'s training loss on at least 3 of 4 seeds.*
+     - *L1.2: |b_T| for the learned charges on S0's frames in 1.22–1.40. The lemma's √ε_∞(k) is 1.31–1.32, against 1.455
+       for MB-pol's permanent charges.*
+     - *L1.3: r in the field-blind class.*
+     - *Stage 2 is learned charges with the response. Then MACE and MACE-LES join the same readers.*
 7. **The L₀ sweep** (Form II).

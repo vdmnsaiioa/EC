@@ -87,6 +87,13 @@ class Rung:
     pin_alpha2: bool = False
     frag_neutral: bool = True              # learned charges: the neutrality shift per fragment (each molecule neutral, an ion
     # charged) on structures that carry fragments; False: one shift over the whole structure (the head before v0.0.8)
+    q_unit: float = 1.0                    # v0.0.30: the learned charges' unit (e), heads.charges.  A small unit starts the
+    # charges near zero, so that the rung starts close to E_0 alone, and moves them in small steps (E4 job 1's learned
+    # charges stalled with unit 1: notes/e4-job1-results.md section 4d; notes/e4-job6-preregistration.md).  Not exactly
+    # zero: the Coulomb band is bilinear in the charges, so zero charges are a stationary point of any loss
+    alpha_ref0: float = 1.0                # v0.0.30: the learned polarisabilities' species offset inside the softplus at
+    # initialisation (heads.init_heads): 1 starts them at 1.31 bohr^3 (job 1's M_16, a C6 4-49 times MB-pol's); -6 at
+    # 2.5e-3 bohr^3, where softplus is e^x and every step changes alpha by a fixed fraction
     l1: float = ang_to_bohr(1.5)           # band edge
     lA: float = ang_to_bohr(4.0)           # envelope of the analytic kernel (M_A)
     NA: int = 4                            # powers of q^2 in M_A
@@ -129,7 +136,8 @@ def init_params(key, rung: Rung, energy_scale=1.0):
     if rung.bf_mutual != 0 and (rung.band_fields < 0 or rung.readout != "pair" or rung.bf_mutual < -1):
         raise ValueError("bf_mutual (-1, or a series order >= 1) needs the pair band-field read-out")
     k = jax.random.split(key, 4)
-    p = {"e0": E0.init_e0(k[0], rung.e0), "heads": H.init_heads(k[1], rung.e0, rung.K, rung.one_oscillator, energy_scale)}
+    p = {"e0": E0.init_e0(k[0], rung.e0), "heads": H.init_heads(k[1], rung.e0, rung.K, rung.one_oscillator, energy_scale,
+                                                                alpha_ref0=rung.alpha_ref0)}
     if rung.analytic:
         p["A_coeffs"] = jnp.zeros(rung.NA + 1).at[0].set(1e-3)
     if rung.bf_species and (rung.band_fields < 0 or rung.readout != "pair"):
@@ -303,12 +311,13 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
         elif rung.pin_q:
             q = b["pin_q"]
         else:
-            q = H.charges(hp, s, Z, mask, b["total_charge"])
+            q = H.charges(hp, s, Z, mask, b["total_charge"], unit=rung.q_unit)
             if rung.frag_neutral and "frag_mask" in b:
                 # structures that carry fragments: one neutrality shift per fragment, so that every molecule is neutral
                 # and the ion carries its charge whatever the environment (a structure without fragments in the same
                 # batch keeps the shift over the structure)
-                q = jnp.where(b["has_frag"], H.charges(hp, s, Z, mask, b["total_charge"], b["frag_mask"], b["frag_charge"]), q)
+                q = jnp.where(b["has_frag"], H.charges(hp, s, Z, mask, b["total_charge"], b["frag_mask"], b["frag_charge"],
+                                                       unit=rung.q_unit), q)
         if rung.dipoles:
             mu = b["pin_mu"] if rung.pin_mu else H.dipoles(hp, s, v, mask)
         if not rung.coulomb_energy:

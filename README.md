@@ -548,6 +548,24 @@ The bands:
 - S1.1: |L_D′ − L_MB-pol| ≤ 0.02 + 2σ on the 64 cell's (100) shell and the 128 cell's (100) and (110);
 - S2.1: the dagger's own L(k₁) ≥ 0.90 on the 64 cell.
 
+**Job 6** (`notes/e4-job6-preregistration.md`, v0.0.30) trains job 1's learned-charge rungs again, as stage 1 of the
+comparison with competing models: our architecture with learned charges, as MACE-LES has them. Job 1's M_1 and M_16 did
+not train; here their sources start near zero.
+
+- **M_1u:** the charges in units of 0.05 e (`Rung.q_unit`).
+- **M_1uc:** the same at 0.15 e, the control that the learned scale has converged.
+- **M_16u:** M_1u with the polarisabilities started at softplus(−6) (`Rung.alpha_ref0`).
+- **The gate:** every run records its final full-batch training loss, and a learned-source rung is read only if it ends
+  at or below M_∞'s (L1.1).
+- **L1.2 and L1.3,** read with S0's reader on the learned charges: |b_T| near √ε_∞(k), the lemma's value for field-blind
+  sources whose long-wavelength energetics are right, and r in the field-blind class.
+
+```sh
+sbatch run_e4_job6.sbatch                  # 16 GPU tasks: M_inf, M_1u, M_1uc, M_16u x seeds 0-3, then the charges on S0's frames
+python scripts/e4_water.py summary --out_dir results/e4_job6         # L1.1, the learned sources
+python scripts/e4_sumrules.py read --gate_dir results/e4_job6        # L1.2 and L1.3 beside S0's bands
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

@@ -1732,3 +1732,69 @@ were added. Nothing registered moved.
     - The O share of α is 0.76 in the model, 0.69 in MB-pol's Thole values and 0.63 in its c6.
   - So on MB-pol the tie is tested with one ω for every site. The ω per species waits for MB-pol₁.
 - **Next:** S1's runs, the timing job first.
+
+## v0.0.29 → v0.0.30 — job 6 registered: the learned charges, started near zero (`notes/e4-job6-preregistration.md`)
+
+**Why.** Comparing E4's model with competing ones raises a fairness question.
+
+- E4's model is given MB-pol's charges and c6, and response labels. MACE-LES learns its charges from energies and forces
+  alone.
+- The like-for-like comparison is our architecture with learned charges. Job 1's learned-charge rungs did not train
+  (`notes/e4-job1-results.md` §4d).
+- Job 6 is stage 1: those rungs, fixed, without the response. Stage 2 adds the response.
+
+**What changes, fixed before any run:**
+
+- **`Rung.q_unit`.** The learned charges' unit.
+  - M_1u's is 0.05 e: at the same parameters its charges are exactly 0.05 times M_1's, so it starts close to E₀ alone
+    and its charges move 20 times more slowly.
+  - Not zero: the Coulomb band is bilinear in the charges, so zero charges are a stationary point.
+  - M_1uc, at 0.15 e, is the control that the learned scale has converged.
+- **`Rung.alpha_ref0`.** The learned polarisabilities' softplus start. M_16u's is −6, so α starts near 2.5×10⁻³ bohr³
+  instead of 1.31.
+- **`scripts/e4_water.py`.**
+  - Every run records its final full-batch training loss (`final_loss`).
+  - The summary prints the gate against M_∞, seed by seed (`gate_status`).
+  - Learned-source rungs are read for their charges, their molecular dipole and its sign, and their band's C₆ against
+    MB-pol's (`learned_sources`).
+- **`scripts/e4_sumrules.py model --params`** writes a field-blind rung's learned charges per frame. The read regresses
+  MB-pol's polarisation on them, reads job 6's bands with the gates and the control (`--gate_dir`), and prints every
+  candidate's molecular dipole.
+
+**A check on synthetic cells before registering** (`scratch/e4_job6_teacher_student.py`). A teacher made of MB-pol's site
+charges alone labelled 12 cells of 32 molecules. After 600 Adam steps:
+
+| rung | final loss | against M_∞ (6.95) | learned dipole |
+|---|---|---|---|
+| job 1's unit, 1 e | 8.47 | +22 %, fails the gate | 1.07 D |
+| 0.02 e | 6.49 | −7 % | 0.50 D |
+| 0.05 e | 5.53 | −20 % | 0.70 D |
+
+- Job 1's failure reproduces with its unit, and both small units pass. So 0.05 e is registered.
+- The charges were still growing towards the teacher's 1.864 D, which is why the control is in the job.
+
+**Registered** (16 Nov, before any run on MB-pol's data):
+
+| | reading | band |
+|---|---|---|
+| L1.1 | M_1u's final training loss at or below M_∞'s, seed by seed | at least 3 of 4 seeds |
+| L1.2 | \|b_T\| for M_1u's learned charges, first shells of 128 and 256 | 1.22–1.40 at both, on at least 3 gated seeds; read only if M_1uc's mean is within 5 % |
+| L1.3 | r there | 1.45–2.30, the same seeds |
+
+- L1.2's prediction is the lemma's √ε_∞(k) = 1.32 and 1.31: the scale at which field-blind sources get the
+  long-wavelength energetics right.
+- MB-pol's own permanent charges read 1.455 there, and a source carrying the whole liquid polarisation would read 1.0.
+- The learned dipole it implies is about 2.07 D, the electronic-continuum value.
+
+`run_e4_job6.sbatch` has sixteen tasks: M_∞, M_1u, M_1uc and M_16u, seeds 0–3. The learned-charge tasks then run S0's
+model step.
+
+### Tests (`tests/test_job6.py`, 7 tests)
+
+- the near-zero start, exactly the unit times M_1's charges, and the stationary point at zero charges;
+- the final loss is the polish's objective, and the two gate readers agree;
+- the learned sources' readings on constructed charges and polarisabilities;
+- the driver end to end with the gate in the summary;
+- the model step's per-frame charges;
+- the regression on scaled and sign-flipped learned charges;
+- L1.2 and L1.3 with the gate and the convergence control.

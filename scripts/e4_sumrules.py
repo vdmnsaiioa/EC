@@ -54,6 +54,7 @@ COULOMB = KCALMOL_PER_HARTREE / BOHR_PER_ANGSTROM   # e^2 / (4 pi eps0 A) in kca
 BETA_E2 = COULOMB / (KB_KCAL * T_K)             # e^2 / (A k_B T) at 300 K: 557.0
 EPS_INF, C2 = 1.6885, 0.274                     # MB-pol's eps_inf (job 2) and its chi(k) = chi(0+)(1 + c2 k^2), A^2 (job 3)
 MASSES = np.array([15.999, 1.008, 1.008])       # O, H, H
+DEBYE_PER_E_ANGSTROM = 4.803204                 # e A -> D
 SPLITS = ("train", "valid", "test")
 SIZES = (64, 128, 256, 512, 1024)
 SHELLS = {"100": [(1, 0, 0), (0, 1, 0), (0, 0, 1)],
@@ -64,6 +65,12 @@ K_FIT = 0.46                                    # S0.1: the shells with k <= 0.4
 BANDS = {"S0.1": (0.48, 0.68), "S0.2": (20.0, np.inf), "S0.3": (1.45, 1.95), "S0.4": (0.90, 1.10),
          "S0.5": (0.7, 1.4)}                    # S0.5: registered 12 Nov, 14:48 CET (the pre-registration's section 6)
 S04_MODEL = "C"                                 # S0.4 reads arm C's read-out (model_C_n<n>.npz)
+# job 6 (v0.0.30; notes/e4-job6-preregistration.md): M_1u's learned charges, one model file per seed (model_M_1u_s<seed>),
+# on the first shells of 128 and 256; each band holds on at least JOB6_MIN_SEEDS seeds that pass the gate (L1.1, read
+# from the training jsons in --gate_dir), in band at both shells.  L1.2 also needs the learned scale converged: the
+# control M_1uc (three times the unit) within JOB6_CONVERGED of M_1u's gated seed mean of |b_T| at both shells
+JOB6_BANDS = {"L1.2": (1.22, 1.40), "L1.3": (1.45, 2.30)}       # |b_T| (sqrt(eps_inf(k)) = 1.31-1.32); r (field-blind)
+JOB6_PREFIX, JOB6_CONTROL, JOB6_SIZES, JOB6_MIN_SEEDS, JOB6_CONVERGED = "M_1u_s", "M_1uc_s", (128, 256), 3, 0.05
 
 
 # ---------------------------------------------------------------- the frames ----------------------------------------
@@ -256,6 +263,10 @@ def run_model(a):
     from sseft.units import bohr_to_ang
     os.makedirs(a.out, exist_ok=True)
     cfg = E4.load_config(a.config)
+    if getattr(a, "params", None):
+        return run_model_learned(a, cfg)
+    if not a.readout:
+        raise SystemExit("the model step needs --readout (a rung with a response) or --params (learned charges)")
     with open(a.readout, "rb") as fh:
         cached = pickle.load(fh)
     K, om = int(cfg["model"]["K"]), float(cfg["model"]["omega0"])
@@ -306,6 +317,49 @@ def run_model(a):
         print(f"n {n}: {len(structs)} frames into {path}  [{time.time() - t0:.0f} s]", flush=True)
 
 
+def run_model_learned(a, cfg):
+    """the model step for a field-blind rung with learned charges (v0.0.30, job 6: M_1u, M_16u): a trained run's
+    parameters (--params), and on every frame its learned charges at the atoms -- the polarisation such a rung has. They
+    are stored per frame as site charges (O, H, H, M; nothing at the M-sites) with zero point dipoles, so that the read
+    regresses MB-pol's polarisation on them as on any candidate."""
+    import pickle
+    import jax
+    import e4_water as E4
+    from sseft import model as M, structure as S, water as W
+    with open(a.params, "rb") as fh:
+        params = pickle.load(fh)
+    K, om = int(cfg["model"]["K"]), float(cfg["model"]["omega0"])
+    for n in a.sizes:
+        fr = load_frames(a.data, n)
+        if fr is None:
+            print(f"n {n}: no data set", flush=True)
+            continue
+        structs = []
+        for split in SPLITS:
+            p = os.path.join(a.data, f"{split}_n{n}.npz")
+            if os.path.exists(p):
+                structs += W.e4_structures(p, pins=True, K=K, omega0=om)
+        r, _ = E4.rungs_for(a.rung, cfg, structs[0].cell)
+        if r.band_fields >= 0 or not r.charges or r.pin_q:
+            raise ValueError(f"{a.rung} is not a field-blind rung with learned charges: use --readout")
+        f_q = jax.jit(lambda p, b: M.energy_single(p, r, b)[1]["q"])
+        qs = []
+        t0 = time.time()
+        for st in structs:
+            b = {k: v[0] for k, v in S.pad_batch([st], n_freq=r.K).items()}
+            q = np.asarray(f_q(params, b))[:st.n_atoms].reshape(n, 3)
+            qs.append(np.concatenate([q, np.zeros((n, 1))], axis=1).ravel())
+        q = np.array(qs)                                                  # (F, 4n) e
+        zero = np.zeros(q.shape + (3,))
+        meta = {"n": n, "label": a.label, "config": a.config, "params": a.params, "rung": a.rung, "field_blind": True,
+                "time": time.time() - t0}
+        path = os.path.join(a.out, f"model_{a.label}_n{n}.npz")
+        np.savez(path, q=q, mu_full=zero, mu_ind=zero, meta=np.array(json.dumps(meta)))
+        q_atoms = q.reshape(len(q), n, 4)[:, :, :3]
+        print(f"n {n}: {len(structs)} frames of learned charges into {path} (|q| rms {np.sqrt(np.mean(q_atoms ** 2)):.3f} "
+              f"e on the atoms)  [{time.time() - t0:.0f} s]", flush=True)
+
+
 # ---------------------------------------------------------------- read ----------------------------------------------
 def load_mbpol(out, n, F):
     """MB-pol's sites of the n-molecule frames from the part files: xyz (F, 4n, 3), q (F, 4n), mu (F, 4n, 3), meta."""
@@ -337,8 +391,10 @@ def read_size(fr, mb, models, block=BLOCK):
     cands = {"perm": (xyz, q, np.zeros_like(mu))}
     sites = site_positions(pos, fr["site_gamma"])
     for label, md in models.items():
-        cands[label] = (sites, md["q"], md["mu_full"][ok])
-        cands[label + "_o0"] = (sites, md["q"], md["mu_ind"][ok])         # its order-0 sector's dipoles alone
+        q_m = md["q"][ok] if np.ndim(md["q"]) == 2 else md["q"]           # learned charges: per frame (v0.0.30)
+        cands[label] = (sites, q_m, md["mu_full"][ok])
+        if not md.get("field_blind"):
+            cands[label + "_o0"] = (sites, q_m, md["mu_ind"][ok])         # its order-0 sector's dipoles alone
     out = {"n": fr["n"], "frames": int(ok.sum()), "blocks": int(len(np.unique(ids))), "volume": float(V), "shells": {}}
     for shell in SHELLS:
         kv = kvectors(fr["cell"], shell)
@@ -380,6 +436,16 @@ def read_size(fr, mb, models, block=BLOCK):
                                                      if v_eta(t) > 1e-9 * C * t["TT"] / t["nk"]
                                                      else float("nan"))}         # nan: Y is P itself
         out["shells"][shell] = row
+    # every candidate's molecular dipoles about the centres of mass (v0.0.30): |mu| in D, and the share pointing to the
+    # molecule's H side (learned charges carry an overall sign that energies and forces of neutral molecules cannot fix)
+    P3 = pos.reshape(len(pos), -1, 3, 3)
+    side = 0.5 * (P3[:, :, 1] + P3[:, :, 2]) - P3[:, :, 0]
+    out["dipoles"] = {}
+    for lab, (cx, cq, cm) in [("MB-pol", (xyz, q, mu))] + list(cands.items()):
+        dm = molecular_dipoles(cx, cq, cm, com)                                        # (F, n, 3) e A
+        mag = np.linalg.norm(dm, axis=-1) * DEBYE_PER_E_ANGSTROM
+        out["dipoles"][lab] = {"mean_debye": float(mag.mean()), "sd_debye": float(mag.std()),
+                               "to_H_side": float(np.mean(np.einsum("fmx,fmx->fm", dm, side) > 0))}
     # the static constant by the tin-foil formula, eps_s = eps_inf + 4 pi beta <M^2> / 3V, M the cell's total dipole
     M = molecular_dipoles(xyz, q, mu, com).sum(axis=1)
     mom = {"M2": np.sum(M ** 2, axis=1), "Mx": M[:, 0], "My": M[:, 1], "Mz": M[:, 2], "one": np.ones(len(M))}
@@ -458,6 +524,73 @@ def evaluate(sizes):
     return out
 
 
+def job6_gate(gate_dir, rung="M_1u", reference="M_inf"):
+    """L1.1 from the training jsons (scripts/e4_water.py's final_loss; the same rule as its gate_status, without JAX):
+    {seed: passes}, a seed passing when the rung's final training loss is at or below the reference rung's."""
+    loss = {}
+    for p in glob.glob(os.path.join(gate_dir or "", "*_seed*.json")):
+        with open(p) as fh:
+            r = json.load(fh)
+        fl = r.get("training", {}).get("final_loss")
+        if fl is not None:
+            loss[(r["rung"], int(r["seed"]))] = float(fl["total"])
+    return {s: loss[(rung, s)] <= loss[(reference, s)] for (name, s) in sorted(loss)
+            if name == rung and (reference, s) in loss}
+
+
+def _job6_seeds(sizes, prefix):
+    return sorted({int(lab[len(prefix):]) for n in JOB6_SIZES if n in sizes
+                   for lab in sizes[n]["shells"]["100"]["candidates"] if re.fullmatch(re.escape(prefix) + r"\d+", lab)})
+
+
+def _job6_bT(sizes, prefix, seeds, n):
+    """the mean |b_T| over seeds at the first shell of n, or None when a seed's file is missing there."""
+    c = sizes.get(n, {}).get("shells", {}).get("100", {}).get("candidates", {})
+    v = [abs(c[f"{prefix}{s}"]["b_T"][0]) for s in seeds if f"{prefix}{s}" in c]
+    return float(np.mean(v)) if v and len(v) == len(seeds) else None
+
+
+def evaluate_job6(sizes, gate, gate_control=None):
+    """L1.2 and L1.3 (job 6) from read_size's readings: for every seed's M_1u file, |b_T| and r on the first shells of
+    128 and 256. A band holds when at least JOB6_MIN_SEEDS seeds pass the gate (gate: {seed: passes}) and are in it at
+    both shells. Seeds without a gate verdict are read and reported but not counted. L1.2 also needs the learned scale
+    converged ("converged"): at both shells the control's mean |b_T| over its gated seeds (gate_control) within
+    JOB6_CONVERGED of M_1u's over its own, each with at least JOB6_MIN_SEEDS seeds; None when the control is missing."""
+    seeds = _job6_seeds(sizes, JOB6_PREFIX)
+    if not seeds:
+        return {}
+    gated = [s for s in seeds if gate.get(s)]
+    ctl = [s for s in _job6_seeds(sizes, JOB6_CONTROL) if (gate_control or {}).get(s)]
+    converged, means = None, {}
+    if len(gated) >= JOB6_MIN_SEEDS and len(ctl) >= JOB6_MIN_SEEDS:
+        converged = True
+        for n in JOB6_SIZES:
+            a, b = _job6_bT(sizes, JOB6_PREFIX, gated, n), _job6_bT(sizes, JOB6_CONTROL, ctl, n)
+            means[f"n{n} (100)"] = (a, b)
+            converged &= a is not None and b is not None and abs(b - a) <= JOB6_CONVERGED * a
+    out = {}
+    for key, what in (("L1.2", "b_T"), ("L1.3", "r")):
+        lo, hi = JOB6_BANDS[key]
+        values, ok = {}, []
+        for s in seeds:
+            inside = True
+            for n in JOB6_SIZES:
+                cand = sizes.get(n, {}).get("shells", {}).get("100", {}).get("candidates", {}).get(f"{JOB6_PREFIX}{s}")
+                if cand is None:
+                    inside = False
+                    continue
+                v = (abs(cand[what][0]), cand[what][1]) if what == "b_T" else cand[what]
+                values[f"n{n} (100), seed {s}"] = v
+                inside &= bool(lo <= v[0] <= hi)
+            if inside and gate.get(s):
+                ok.append(s)
+        out[key] = {"values": values, "band": [lo, hi], "gate": {str(s): gate.get(s) for s in seeds},
+                    "seeds_in_band": ok, "holds": len(ok) >= JOB6_MIN_SEEDS}
+    out["L1.2"].update(converged=converged, control_means=means,
+                       holds=bool(out["L1.2"]["holds"] and converged is True))
+    return out
+
+
 def tie_reading(c_iso, tie):
     """R10's tie read on a frozen form's order-0 polarisabilities (notes/v2-one-field-proposal.md; not registered).
     c_iso: {n: (F, 3n) tr C_i / 3 in bohr^3}; tie: the model file's meta["tie"] (MB-pol's long-range c6 per site, the
@@ -501,22 +634,27 @@ def run_read(a):
         for p in sorted(glob.glob(os.path.join(a.out, f"model_*_n{n}.npz"))):
             label = os.path.basename(p)[len("model_"):-len(f"_n{n}.npz")]
             d = np.load(p, allow_pickle=False)
-            models[label] = {"q": d["q"], "mu_full": d["mu_full"], "mu_ind": d["mu_ind"]}
+            meta = json.loads(str(d["meta"])) if "meta" in d.files else {}
+            models[label] = {"q": d["q"], "mu_full": d["mu_full"], "mu_ind": d["mu_ind"],
+                             "field_blind": bool(meta.get("field_blind"))}
             if "c_iso" in d.files:                              # the tie reading (model files from v0.0.29's S1 patch on)
-                meta = json.loads(str(d["meta"]))
                 ties.setdefault(label, {"c_iso": {}, "tie": meta.get("tie")})["c_iso"][n] = d["c_iso"]
         sizes[n] = read_size(fr, mb, models, a.block)
         notes[n] = [m.get("dynamics_settings_rel_rms") for m in mb["meta"] if "dynamics_settings_rel_rms" in m]
     if not sizes:
         raise SystemExit("nothing to read")
     bands = evaluate(sizes)
+    gd = getattr(a, "gate_dir", None)
+    bands.update(evaluate_job6(sizes, job6_gate(gd), job6_gate(gd, rung="M_1uc")))     # job 6 (v0.0.30), when its files exist
     pm = lambda v, d=3: f"{v[0]:.{d}f} +- {v[1]:.{d}f}"
     print(f"E4, S0: the polarisation sum rules on MB-pol's trajectories (notes/e4-s0-preregistration.md), {T_K:g} K, "
           f"blocks of {a.block} frames")
     for name, b in bands.items():
         lo, hi = b["band"]
         band = f"[{lo:g}, {hi:g}]" if hi is not None else f">= {lo:g}"
-        print(f"  {name}: {'holds' if b['holds'] else 'FAILS'} (band {band})")
+        verdict = "holds" if b["holds"] else ("FAILS" if b.get("converged", True) else
+                                              ("NOT CONVERGED" if b["converged"] is False else "not read (no control)"))
+        print(f"  {name}: {verdict} (band {band})")
         if "value" in b:
             print(f"      L(k -> 0) = A = {b['value']:.3f} +- {b['error']:.3f} (B {b['slope_B']:+.2f} A^2; "
                   f"{b['points']} shells, chi2/dof {b['chi2_dof']:.2f})")
@@ -526,11 +664,25 @@ def run_read(a):
                 p = b["parts"][k]
                 extra = f"   (r - eps_inf(k) {pm(p['excess'])}; v_eta {pm(p['v_eta'])})"
             print(f"      {k:24s} {pm(v, 3 if name != 'S0.2' else 1)}{extra}")
+        if "gate" in b:
+            print(f"      the gate (L1.1, from {getattr(a, 'gate_dir', None)}): "
+                  + ", ".join(f"seed {s} {'passes' if g else ('fails' if g is not None else 'not read')}"
+                              for s, g in b["gate"].items())
+                  + f"; in the band at both shells and through the gate: seeds {b['seeds_in_band'] or 'none'} "
+                    f"(at least {JOB6_MIN_SEEDS} needed)")
+        if b.get("control_means"):
+            print("      the control M_1uc (convergence of the learned scale, within "
+                  f"{100 * JOB6_CONVERGED:.0f} %): mean |b_T| M_1u against M_1uc "
+                  + ", ".join(f"{k} {x:.3f} against {y:.3f}" if x is not None and y is not None else f"{k} missing"
+                              for k, (x, y) in b["control_means"].items()))
     print("\n  Beside them, not registered: every shell")
     for n, rd in sizes.items():
         print(f"  n {n} ({rd['frames']} frames, {rd['blocks']} blocks; the dynamics' settings move the induced "
               f"dipoles by {', '.join(f'{100 * x:.3f} %' for x in notes[n]) or 'not checked'}): eps_s by the tin-foil "
               f"formula {pm(rd['eps_s_tinfoil'], 1)}")
+        print("    molecular dipoles about the centres of mass, mean +- sd (share pointing to the H side): "
+              + "; ".join(f"{lab} {v['mean_debye']:.3f} +- {v['sd_debye']:.3f} D ({100 * v['to_H_side']:.0f} %)"
+                          for lab, v in rd["dipoles"].items()))
         for sh, row in rd["shells"].items():
             c = row["candidates"]
             print(f"    ({sh}) k {row['k']:.4f}: L {pm(row['L'])}, T {pm(row['T'], 2)}, T/L {pm(row['T_over_L'], 1)}; "
@@ -598,7 +750,9 @@ def main():
     m.add_argument("--part", default=None, help="i/k: the i-th of k contiguous shares of each size's frames")
     m = sub.choices["model"]
     m.add_argument("--config", required=True)
-    m.add_argument("--readout", required=True, help="a matched read-out (scripts/e4_water.py matched's pickle)")
+    m.add_argument("--readout", default=None, help="a matched read-out (scripts/e4_water.py matched's pickle)")
+    m.add_argument("--params", default=None, help="v0.0.30: a trained field-blind rung's parameters (learned charges, "
+                                                  "e.g. job 6's M_1u), in place of --readout")
     m.add_argument("--rung", default="M_16C2pm_us")
     m.add_argument("--label", default="C")
     m.add_argument("--sizes", type=int, nargs="*", default=[64, 128, 256])
@@ -606,6 +760,7 @@ def main():
                    help="the mutual response's solve (default: the config's model's)")
     m = sub.choices["read"]
     m.add_argument("--json", default="results/e4_s0/s0.json")
+    m.add_argument("--gate_dir", default="results/e4_job6", help="job 6's training jsons, for its gate (L1.1)")
     m.add_argument("--block", type=int, default=BLOCK)
     a = ap.parse_args()
     {"mbpol": run_mbpol, "model": run_model, "read": run_read}[a.cmd](a)
