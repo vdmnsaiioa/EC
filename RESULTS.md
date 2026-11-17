@@ -1798,3 +1798,34 @@ model step.
 - the model step's per-frame charges;
 - the regression on scaled and sign-flipped learned charges;
 - L1.2 and L1.3 with the gate and the convergence control.
+
+## v0.0.30, read 17 Nov — job 6: the learned charges do not converge, and buy nothing resolved (`notes/e4-job6-results.md`)
+
+**The job ran** as sixteen tasks at 585d655: M_∞, M_1u (charges in units of 0.05 e), M_1uc (0.15 e) and M_16u, seeds
+0–3.
+
+| | band | Niflheim | |
+|---|---|---|---|
+| L1.1: the gate | at least 3 of 4 seeds | seeds 1–3 pass (−19 %, −20 %, −0.3 %), seed 0 fails (+20 %) | holds |
+| L1.2: \|b_T\|, converged | 1.22–1.40 | M_1u 3.32–7.40 (gated mean 4.90), M_1uc 2.46–3.25 (2.77): 1.77 times apart | not converged |
+| L1.3: r | 1.45–2.30 | 1.79–2.05, every seed | holds |
+
+- **The learned charges are small and nearly uniform.**
+  - M_1u: 0.37–0.81 D. M_1uc: 0.83–1.10 D.
+  - MB-pol's permanent dipole is 1.864 D, and the lemma's scale about 2.07 D.
+  - The sign came out flipped on 2 of 4 seeds in each rung.
+- **|b_T| times the learned dipole** is 2.68–2.71 D on every seed, as for MB-pol's permanent charges. So L1.2 reads only
+  the scale.
+- **The scale follows the seed (a factor of 2.2 at one unit) and the unit** (three times the unit gave 1.2–2.8 times the
+  charges), not Adam's step budget.
+- **Bulk forces:** M_1u is 3–4 % below M_∞ (0.865 against 0.898 kcal/mol/Å at 64 molecules).
+  - That is within the seed spreads, 0.8 standard errors.
+  - M_1uc's larger charges bought nothing.
+  - The dagger, with MB-pol's charges and c6 pinned, was 20 % below M_∞ in job 1, at 4.4 standard errors.
+- **M_16u's polarisabilities never left their start** (C₆ = 0), so M_16u is M_1u.
+- **So with job 1's training, our architecture does not learn its charges,** and the lemma is not tested.
+- **Open:** the optimisation, or 64-molecule cells that barely constrain the scale, since E₀ reaches 12 Å, the whole
+  cell.
+- **Proposed next, not registered: job 7.**
+  - A scan of pinned O/H charges at c = 0.4–1.45 times the permanent dipole, plus MB-pol's site charges without c6.
+  - Learned charges started at 0.5, 1 and 1.5 times the monomer's dipole.

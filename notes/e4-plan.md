@@ -482,4 +482,19 @@ code is still open: CP2K, GPAW, VASP or QE.
        for MB-pol's permanent charges.*
      - *L1.3: r in the field-blind class.*
      - *Stage 2 is learned charges with the response. Then MACE and MACE-LES join the same readers.*
+     - *Job 6 read 17 Nov (`e4-job6-results.md`).*
+       - *L1.1 holds on 3 of 4 seeds, narrowly.*
+       - *L1.2 is not converged.*
+         - *The learned charges stop at 20–59 % of MB-pol's permanent dipole.*
+         - *Their scale follows the seed and the unit.*
+         - *|b_T| × the learned dipole = 2.70 D, so L1.2 only reads that scale.*
+       - *L1.3 holds.*
+       - *Learned charges buy 3–4 % in forces over M_∞, within the seed spreads. The pinned dagger (with c6) bought 20 %.*
+       - *M_16u's dispersion never left its start.*
+       - *So with job 1's training our architecture does not learn its charges. Open: the optimisation, or training
+         cells that barely constrain the scale.*
+       - *Proposed: job 7.*
+         - *A scan of pinned O/H charges at c = 0.4–1.45 times the permanent dipole, without c6 (the lemma: 1.1), plus
+           MB-pol's site charges without c6.*
+         - *Learned charges started at 0.5, 1 and 1.5 times the monomer's dipole.*
 7. **The L₀ sweep** (Form II).

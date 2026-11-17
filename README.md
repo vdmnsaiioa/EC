@@ -566,6 +566,17 @@ python scripts/e4_water.py summary --out_dir results/e4_job6         # L1.1, the
 python scripts/e4_sumrules.py read --gate_dir results/e4_job6        # L1.2 and L1.3 beside S0's bands
 ```
 
+Read 17 Nov (`notes/e4-job6-results.md`):
+
+- **L1.1 holds** on 3 of 4 seeds, narrowly.
+- **L1.2 is not converged.**
+  - The learned charges stop at 0.37–0.81 D (M_1u) and 0.83–1.10 D (M_1uc), against MB-pol's permanent 1.864 D.
+  - Their scale follows the seed and the unit.
+  - Their 3–4 % in forces over M_∞ is within the seed spreads. The pinned dagger bought 20 %, with c6.
+- **L1.3 holds.**
+- **M_16u's dispersion never left its start.**
+- **Proposed next:** a scan of pinned charges' scale without c6, and learned charges started from three scales.
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's
