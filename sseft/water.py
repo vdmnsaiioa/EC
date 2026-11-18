@@ -311,13 +311,25 @@ class MBPolTruth:
                 "site_charges": self.site_charges.tolist(), "site_alpha": self.site_alpha.tolist()}
 
 
+def oh_equivalent_charges(site_q, gamma):
+    """(3,) e on O, H, H: a rigid site model's charges with its virtual site's charge q_M, at r_O + gamma/2 (r_H1 + r_H2
+    - 2 r_O), moved onto the atoms by the site's weights (1 - gamma on O, gamma/2 on each H).  The molecule's charge and
+    its dipole are the site model's at every geometry; its quadrupole is not (v0.0.31; E4 job 7's pinned O/H charges).
+    For MB-pol (O 0, H +0.5777, M -1.1553 e, gamma 0.4267): O -0.6623, H +0.3312 e."""
+    q = np.asarray(site_q, float)
+    return np.array([q[0] + (1.0 - gamma) * q[3], q[1] + 0.5 * gamma * q[3], q[2] + 0.5 * gamma * q[3]])
+
+
 def pin_rigid_site_model(structs, site_q, gamma, K=8, omega0=0.3, alpha=True):
     """pin a rigid water site model on water structures (O, H, H per molecule; open or periodic), as
     e4_structures(pins=True) does for E4's cells: the atoms' charges site_q[:3] (O, H, H), one virtual site per molecule
     at r_O + gamma/2 (r_H1 + r_H2 - 2 r_O) with charge site_q[3], and -- alpha=True -- MB-pol's dispersion pins
     (mbpol_dispersion_pins on the grid of K and omega0, the rung's).  Every molecule carries the rigid monomer's charges,
-    E3's convention for rigid monomers (pin_site_model's rigid=True)."""
+    E3's convention for rigid monomers (pin_site_model's rigid=True).  v0.0.31: also the atoms' pinned charges "q" (the
+    channel of Rung.pin_q without a site model), the site model's with the virtual site's charge on the atoms
+    (oh_equivalent_charges), unless the structure already carries pinned atom charges."""
     site_q = np.asarray(site_q, float)
+    q_oh = oh_equivalent_charges(site_q, gamma)
     for s in structs:
         n = s.n_atoms // 3
         w = np.zeros((n, 3 * n))
@@ -325,6 +337,8 @@ def pin_rigid_site_model(structs, site_q, gamma, K=8, omega0=0.3, alpha=True):
             w[k, 3 * k:3 * k + 3] = [1 - gamma, 0.5 * gamma, 0.5 * gamma]
         pins = {"q_site": np.tile(site_q[:3], n), "vsite_w": w, "vsite_q": np.full(n, float(site_q[3])),
                 "vsite_frag": np.arange(n)}
+        if "q" not in s.pinned:
+            pins["q"] = np.tile(q_oh, n)
         if alpha:
             pins["alpha"] = mbpol_dispersion_pins(s.numbers, K, omega0)
         s.pinned = {**s.pinned, **pins}

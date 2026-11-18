@@ -94,6 +94,11 @@ class Rung:
     alpha_ref0: float = 1.0                # v0.0.30: the learned polarisabilities' species offset inside the softplus at
     # initialisation (heads.init_heads): 1 starts them at 1.31 bohr^3 (job 1's M_16, a C6 4-49 times MB-pol's); -6 at
     # 2.5e-3 bohr^3, where softplus is e^x and every step changes alpha by a fixed fraction
+    q_scale: float = 1.0                   # v0.0.31: the pinned atom charges (pin_q without a site model) times q_scale --
+    # E4 job 7's scan of a field-blind source's scale (notes/e4-job7-preregistration.md); 1 is the pin as before
+    q_ref_start: tuple = ()                # v0.0.31: learned charges started at their species' charges, ((Z, q in e), ...):
+    # the species offsets set to q / q_unit and the charge head's last layer to zero, so that every atom starts at its
+    # species' charge exactly (a neutral start, which the neutrality shift leaves alone) -- E4 job 7's warm start
     l1: float = ang_to_bohr(1.5)           # band edge
     lA: float = ang_to_bohr(4.0)           # envelope of the analytic kernel (M_A)
     NA: int = 4                            # powers of q^2 in M_A
@@ -135,9 +140,19 @@ RUNGS = {
 def init_params(key, rung: Rung, energy_scale=1.0):
     if rung.bf_mutual != 0 and (rung.band_fields < 0 or rung.readout != "pair" or rung.bf_mutual < -1):
         raise ValueError("bf_mutual (-1, or a series order >= 1) needs the pair band-field read-out")
+    if rung.q_scale != 1.0 and not (rung.charges and rung.pin_q and not rung.msites):
+        raise ValueError("q_scale scales pinned atom charges (pin_q without a site model)")
+    if rung.q_ref_start and not (rung.charges and not rung.pin_q and not rung.msites):
+        raise ValueError("q_ref_start starts learned charges (charges, not pinned)")
     k = jax.random.split(key, 4)
     p = {"e0": E0.init_e0(k[0], rung.e0), "heads": H.init_heads(k[1], rung.e0, rung.K, rung.one_oscillator, energy_scale,
                                                                 alpha_ref0=rung.alpha_ref0)}
+    if rung.q_ref_start:                                       # v0.0.31: the warm start (E4 job 7)
+        h = p["heads"]
+        for z, q in rung.q_ref_start:
+            h["q_ref"] = h["q_ref"].at[int(z)].set(float(q) / rung.q_unit)
+        last = h["charge"][-1]
+        h["charge"] = list(h["charge"][:-1]) + [{"w": jnp.zeros_like(last["w"]), "b": jnp.zeros_like(last["b"])}]
     if rung.analytic:
         p["A_coeffs"] = jnp.zeros(rung.NA + 1).at[0].set(1e-3)
     if rung.bf_species and (rung.band_fields < 0 or rung.readout != "pair"):
@@ -309,7 +324,7 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
         if rung.msites:
             q = b["pin_q_site"]
         elif rung.pin_q:
-            q = b["pin_q"]
+            q = b["pin_q"] if rung.q_scale == 1.0 else rung.q_scale * b["pin_q"]          # v0.0.31: job 7's scan
         else:
             q = H.charges(hp, s, Z, mask, b["total_charge"], unit=rung.q_unit)
             if rung.frag_neutral and "frag_mask" in b:

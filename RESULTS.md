@@ -1829,3 +1829,61 @@ model step.
 - **Proposed next, not registered: job 7.**
   - A scan of pinned O/H charges at c = 0.4–1.45 times the permanent dipole, plus MB-pol's site charges without c6.
   - Learned charges started at 0.5, 1 and 1.5 times the monomer's dipole.
+
+## v0.0.31, 19 Nov — job 7 pre-registered: where the data put a field-blind charge scale, and whether learned charges reach it (`notes/e4-job7-preregistration.md`)
+
+**What changes, before any run:**
+
+- **`water.oh_equivalent_charges`:** MB-pol's site model with its M-site's charge on the atoms, O −0.6623 and H
+  +0.3312 e. It has the same charge and dipole (1.864 D) at every geometry. `pin_rigid_site_model` pins it as the atoms'
+  charges.
+- **`Rung.q_scale`:** pinned atom charges times c. The scan M_1q040 … M_1q145 has c = 0.4, 0.7, 1.0, 1.1 (the lemma's)
+  and 1.45 (b_T = 1), with no c6 and no response.
+- **`Rung.q_ref_start`:** learned charges started exactly at given species charges, with the head's last layer at zero.
+  The warm starts M_1w050, M_1w100 and M_1w150 start at 0.5, 1 and 1.5 times the O/H charges, in units of 0.15 e.
+- **M_1pm**, MB-pol's site charges without c6, beside the dagger M_16pm.
+- **`scripts/e4_job7.py`** reads J7.1–J7.5 from the training jsons; `scripts/e4_sumrules.py read --job7_dir` reads
+  J7.6.
+
+**Registered**, on rigid forces over the unseen frames (seed means of seeds 0 and 1; M_∞ is job 6's four seeds):
+
+| | reading | band |
+|---|---|---|
+| J7.1 | M_1pm against the dagger | within ±7 % at every size |
+| J7.2 | the scan's lowest | at c ≥ 1.0 at every size |
+| J7.3 | the scan's lowest against M_∞ | at least 10 % below at every size |
+| J7.4 | the six warm-started runs' learned dipoles; their final losses | within ±15 % of their mean; at or below M_∞'s largest |
+| J7.5 | the warm starts' mean forces against the scan's lowest | at most 7 % above; read when J7.3 holds |
+| J7.6 | the warm starts' \|b_T\| on S0's first shells of 128 and 256 | 1.22–1.40 on at least 4 of 6; read when J7.4 holds |
+
+- **Predicted:** all hold. The dagger's gain is its charges', the data put the scale at or above the permanent dipole,
+  and warm-started learned charges converge there, screened by √ε_∞ as the lemma says.
+- **Not taken:** job 6's registered branch, a longer schedule. Job 6's scale followed the seed and the unit, not the
+  step budget.
+
+**The synthetic check** (pre-registration §8) used job 6's teacher, MB-pol's site charges alone, for 600 steps.
+
+- Learned charges in units of 0.15 e, started at 0.5 and 1.5 times the O/H charges, moved to 0.95 and 1.10 of the
+  teacher's dipole.
+- They trained to a final loss of 1.6–1.8, against M_∞'s 6.95 and job 6's start near zero, 5.53.
+- The pinned O/H charges at c = 1 reached 1.09. The learned charges realised 81–85 % of their gain in rigid-force rmse.
+
+```sh
+mkdir -p results/e4_job7 logs logs_error && sbatch run_e4_job7.sbatch    # 22 GPU tasks
+python scripts/e4_job7.py --out_dir results/e4_job7 --reference_dir results/e4_job6
+python scripts/e4_sumrules.py read --gate_dir results/e4_job6 --job7_dir results/e4_job7
+python scripts/e4_water.py summary --out_dir results/e4_job7
+```
+
+**Tests:** `tests/test_job7.py`, 8 tests:
+
+- the O/H charges' charge and dipole;
+- the scan's Coulomb band, c² times c = 1's;
+- the warm start, exact for any seed;
+- the rungs, the config and the readers agree;
+- the driver's records;
+- J7.1–J7.5 on constructed jsons;
+- J7.6's band and its condition;
+- the S0 read printing J7.6.
+
+With job 6's, S0's, the driver's, the MD's and the configs' suites, 114 tests pass and 1 is skipped.

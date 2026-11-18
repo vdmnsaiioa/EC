@@ -497,4 +497,7 @@ code is still open: CP2K, GPAW, VASP or QE.
          - *A scan of pinned O/H charges at c = 0.4–1.45 times the permanent dipole, without c6 (the lemma: 1.1), plus
            MB-pol's site charges without c6.*
          - *Learned charges started at 0.5, 1 and 1.5 times the monomer's dipole.*
+     - *Job 7 registered 19 Nov (`e4-job7-preregistration.md`, v0.0.31): the scan of pinned O/H charges at c = 0.4,
+       0.7, 1.0, 1.1, 1.45 without c6; M_1pm beside the dagger; learned charges warm-started at 0.5, 1 and 1.5 times
+       the O/H charges. J7.1–J7.6, all predicted to hold. 22 tasks.*
 7. **The L₀ sweep** (Form II).

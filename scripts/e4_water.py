@@ -98,6 +98,39 @@ Q_UNIT, Q_UNIT_CONTROL, ALPHA_REF0 = 0.05, 0.15, -6.0            # e; e; softplu
 E3.RUNGS.setdefault("M_1u", M.with_rung(E3.RUNGS["M_1"], name="M_1u", q_unit=Q_UNIT))
 E3.RUNGS.setdefault("M_1uc", M.with_rung(E3.RUNGS["M_1"], name="M_1uc", q_unit=Q_UNIT_CONTROL))
 E3.RUNGS.setdefault("M_16u", M.with_rung(E3.RUNGS["M_16"], name="M_16u", q_unit=Q_UNIT, alpha_ref0=ALPHA_REF0))
+# job 7 (v0.0.31; notes/e4-job7-preregistration.md): where E4's data put a field-blind charge scale, and whether learned
+# charges reach it.  The scan: O/H charges carrying c times MB-pol's permanent dipole -- its site model with the M-site's
+# charge on the atoms (water.oh_equivalent_charges, the pins' "q") -- pinned, without c6 or response (Rung.q_scale), E_0
+# trained around them; beside them M_1pm, MB-pol's own site charges without c6 (the dagger M_16pm less its dispersion
+# band).  The warm starts: learned charges started at c0 times the same O/H charges (Rung.q_ref_start, from the training
+# cells' pins: warm_started), in units of Q_UNIT_WARM (fixed by the synthetic check, the pre-registration's section 8)
+SCAN_C, WARM_C, Q_UNIT_WARM = (0.4, 0.7, 1.0, 1.1, 1.45), (0.5, 1.0, 1.5), 0.15
+
+
+def scan_rung(c):
+    return f"M_1q{round(100 * c):03d}"
+
+
+def warm_rung(c):
+    return f"M_1w{round(100 * c):03d}"
+
+
+for _c in SCAN_C:
+    E3.RUNGS.setdefault(scan_rung(_c), M.with_rung(E3.RUNGS["M_1p"], name=scan_rung(_c), q_scale=_c))
+for _c in WARM_C:
+    E3.RUNGS.setdefault(warm_rung(_c), M.with_rung(E3.RUNGS["M_1"], name=warm_rung(_c), q_unit=Q_UNIT_WARM))
+WARM = {warm_rung(c): c for c in WARM_C}
+
+
+def warm_started(name, rung, structs):
+    """job 7's warm start: a WARM rung's learned charges started at WARM[name] times the O/H charges pinned on the
+    cells (pin_rigid_site_model's "q": MB-pol's site model with the M-site's charge on the atoms), O and H by species;
+    any other rung as it is."""
+    if name not in WARM:
+        return rung
+    q = np.asarray(structs[0].pinned["q"], float)[:3]
+    c = WARM[name]
+    return replace(rung, q_ref_start=((8, c * float(q[0])), (1, c * 0.5 * float(q[1] + q[2]))))
 
 DEFAULTS = {
     "data": {"dir": "data/e4", "train_size": 64, "eval_sizes": [64, 128, 256], "probes": "data/e4/probes_mbpol.npz",
@@ -190,6 +223,10 @@ def model_record(name, cfg, rung):
         rec["charge_unit_e"] = float(rung.q_unit)                    # v0.0.30
     if rung.alpha_ref0 != 1.0:
         rec["polarisability_softplus_start"] = float(rung.alpha_ref0)
+    if rung.charges and rung.pin_q and not rung.msites:
+        rec["pinned_charge_scale"] = float(rung.q_scale)               # v0.0.31, job 7's scan
+    if rung.q_ref_start:
+        rec["charge_start_e"] = {str(int(z)): float(q) for z, q in rung.q_ref_start}
     return rec
 
 
@@ -1386,6 +1423,7 @@ def run_train(a):
               f"orders >= 1 then calibrated on its calibration cells, {json.dumps(kq)}", flush=True)
     for name in rungs:
         rung, rung_open = rungs_for(name, cfg, train[0].cell)
+        rung, rung_open = warm_started(name, rung, train), warm_started(name, rung_open, train)      # job 7
         readout, match = None, None
         if rung.band_fields >= 0:
             liquid = liquid_block(rung, response, lq) if lq else None
@@ -1504,7 +1542,7 @@ def run_summary(a):
             print("  far-field probes, non-additive rmse / rms: " + ", ".join(
                 f"{d} A {ms([100 * b[d]['nonadditive_rmse'] / b[d]['nonadditive_rms'] for b in by])} %" for d in by[0]))
         fl = [r["training"]["final_loss"]["total"] for r in rs if r.get("training", {}).get("final_loss")]
-        if fl and name != "M_inf":
+        if fl and name != "M_inf" and name in E3.RUNGS and learns_sources(E3.RUNGS[name]):
             g = gate_status(a.out_dir, name)
             if g:
                 print(f"  the gate (final training loss at or below M_inf's, seed by seed): "

@@ -71,6 +71,10 @@ S04_MODEL = "C"                                 # S0.4 reads arm C's read-out (m
 # control M_1uc (three times the unit) within JOB6_CONVERGED of M_1u's gated seed mean of |b_T| at both shells
 JOB6_BANDS = {"L1.2": (1.22, 1.40), "L1.3": (1.45, 2.30)}       # |b_T| (sqrt(eps_inf(k)) = 1.31-1.32); r (field-blind)
 JOB6_PREFIX, JOB6_CONTROL, JOB6_SIZES, JOB6_MIN_SEEDS, JOB6_CONVERGED = "M_1u_s", "M_1uc_s", (128, 256), 3, 0.05
+# job 7 (v0.0.31; notes/e4-job7-preregistration.md): J7.6, the warm-started learned charges (model_M_1w<c0>_s<seed>) in
+# job 6's L1.2 band on the same shells, on at least JOB7_MIN_RUNS of the six runs; read when they converged (J7.4, from
+# the training jsons in --job7_dir: scripts/e4_job7.py's convergence)
+JOB7_PATTERN, JOB7_MIN_RUNS = r"M_1w\d{3}_s\d+", 4
 
 
 # ---------------------------------------------------------------- the frames ----------------------------------------
@@ -591,6 +595,35 @@ def evaluate_job6(sizes, gate, gate_control=None):
     return out
 
 
+def evaluate_job7(sizes, conv):
+    """J7.6 (job 7) from read_size's readings: every warm-started run's |b_T| on the first shells of 128 and 256 in
+    L1.2's band.  Holds when the runs converged (conv: scripts/e4_job7.py's convergence, J7.4, holds) and at least
+    JOB7_MIN_RUNS are in the band at both shells; not read when J7.4 does not hold.  {} without such files."""
+    labels = sorted({lab for n in JOB6_SIZES if n in sizes for lab in sizes[n]["shells"]["100"]["candidates"]
+                     if re.fullmatch(JOB7_PATTERN, lab)})
+    if not labels:
+        return {}
+    lo, hi = JOB6_BANDS["L1.2"]
+    values, ok = {}, []
+    for lab in labels:
+        inside = True
+        for n in JOB6_SIZES:
+            cand = sizes.get(n, {}).get("shells", {}).get("100", {}).get("candidates", {}).get(lab)
+            if cand is None:
+                inside = False
+                continue
+            v = (abs(cand["b_T"][0]), cand["b_T"][1])
+            values[f"n{n} (100), {lab}"] = v
+            inside &= bool(lo <= v[0] <= hi)
+        if inside:
+            ok.append(lab)
+    converged = (conv or {}).get("holds")
+    verdict = ("holds" if len(ok) >= JOB7_MIN_RUNS else "FAILS") if converged is True else \
+        ("not read (J7.4 does not hold)" if converged is False else "not read (J7.4 not read)")
+    return {"J7.6": {"values": values, "band": [lo, hi], "runs_in_band": ok, "converged": converged, "verdict": verdict,
+                     "holds": bool(converged is True and len(ok) >= JOB7_MIN_RUNS)}}
+
+
 def tie_reading(c_iso, tie):
     """R10's tie read on a frozen form's order-0 polarisabilities (notes/v2-one-field-proposal.md; not registered).
     c_iso: {n: (F, 3n) tr C_i / 3 in bohr^3}; tie: the model file's meta["tie"] (MB-pol's long-range c6 per site, the
@@ -646,14 +679,18 @@ def run_read(a):
     bands = evaluate(sizes)
     gd = getattr(a, "gate_dir", None)
     bands.update(evaluate_job6(sizes, job6_gate(gd), job6_gate(gd, rung="M_1uc")))     # job 6 (v0.0.30), when its files exist
+    j7 = getattr(a, "job7_dir", None)
+    if j7 is not None:                                                                    # job 7 (v0.0.31)
+        import e4_job7 as J7
+        bands.update(evaluate_job7(sizes, J7.convergence(J7.load_runs(j7), J7.load_runs(gd))))
     pm = lambda v, d=3: f"{v[0]:.{d}f} +- {v[1]:.{d}f}"
     print(f"E4, S0: the polarisation sum rules on MB-pol's trajectories (notes/e4-s0-preregistration.md), {T_K:g} K, "
           f"blocks of {a.block} frames")
     for name, b in bands.items():
         lo, hi = b["band"]
         band = f"[{lo:g}, {hi:g}]" if hi is not None else f">= {lo:g}"
-        verdict = "holds" if b["holds"] else ("FAILS" if b.get("converged", True) else
-                                              ("NOT CONVERGED" if b["converged"] is False else "not read (no control)"))
+        verdict = b.get("verdict") or ("holds" if b["holds"] else ("FAILS" if b.get("converged", True) else
+                                      ("NOT CONVERGED" if b["converged"] is False else "not read (no control)")))
         print(f"  {name}: {verdict} (band {band})")
         if "value" in b:
             print(f"      L(k -> 0) = A = {b['value']:.3f} +- {b['error']:.3f} (B {b['slope_B']:+.2f} A^2; "
@@ -670,6 +707,10 @@ def run_read(a):
                               for s, g in b["gate"].items())
                   + f"; in the band at both shells and through the gate: seeds {b['seeds_in_band'] or 'none'} "
                     f"(at least {JOB6_MIN_SEEDS} needed)")
+        if "runs_in_band" in b:
+            print(f"      in the band at both shells: {', '.join(b['runs_in_band']) or 'none'} (at least {JOB7_MIN_RUNS} "
+                  f"of the six needed; J7.4 from {getattr(a, 'job7_dir', None)}: "
+                  f"{ {True: 'holds', False: 'does not hold', None: 'not read'}[b['converged']] })")
         if b.get("control_means"):
             print("      the control M_1uc (convergence of the learned scale, within "
                   f"{100 * JOB6_CONVERGED:.0f} %): mean |b_T| M_1u against M_1uc "
@@ -761,6 +802,7 @@ def main():
     m = sub.choices["read"]
     m.add_argument("--json", default="results/e4_s0/s0.json")
     m.add_argument("--gate_dir", default="results/e4_job6", help="job 6's training jsons, for its gate (L1.1)")
+    m.add_argument("--job7_dir", default="results/e4_job7", help="v0.0.31: job 7's training jsons, for J7.4 (J7.6)")
     m.add_argument("--block", type=int, default=BLOCK)
     a = ap.parse_args()
     {"mbpol": run_mbpol, "model": run_model, "read": run_read}[a.cmd](a)

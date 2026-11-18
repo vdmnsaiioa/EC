@@ -577,6 +577,26 @@ Read 17 Nov (`notes/e4-job6-results.md`):
 - **M_16u's dispersion never left its start.**
 - **Proposed next:** a scan of pinned charges' scale without c6, and learned charges started from three scales.
 
+**Job 7** (`notes/e4-job7-preregistration.md`, v0.0.31) asks where E4's data put a field-blind charge scale, and whether
+learned charges reach it.
+
+- **The scan:** O/H charges carrying c times MB-pol's permanent dipole, pinned without c6 or response (`Rung.q_scale`),
+  at c = 0.4, 0.7, 1.0, 1.1 and 1.45. The charges are MB-pol's site model with its M-site's charge on the atoms
+  (`water.oh_equivalent_charges`).
+- **M_1pm:** MB-pol's site charges without c6, beside the dagger M_16pm. Together they split the dagger's gain between
+  its charges and its c6.
+- **The warm starts:** learned charges started at 0.5, 1 and 1.5 times those O/H charges (`Rung.q_ref_start`), in units
+  of 0.15 e.
+- **J7.1–J7.6:** the c6's share, where the scan is lowest and what it buys, whether the warm starts converge and buy as
+  much, and their |b_T| in job 6's L1.2 band.
+
+```sh
+sbatch run_e4_job7.sbatch                  # 22 GPU tasks: 11 rungs x seeds 0, 1, then the warm starts' charges on S0's frames
+python scripts/e4_job7.py --out_dir results/e4_job7 --reference_dir results/e4_job6    # J7.1-J7.5
+python scripts/e4_sumrules.py read --gate_dir results/e4_job6 --job7_dir results/e4_job7   # J7.6
+python scripts/e4_water.py summary --out_dir results/e4_job7
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's
