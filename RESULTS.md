@@ -1887,3 +1887,28 @@ python scripts/e4_water.py summary --out_dir results/e4_job7
 - the S0 read printing J7.6.
 
 With job 6's, S0's, the driver's, the MD's and the configs' suites, 114 tests pass and 1 is skipped.
+
+## v0.0.31, read 19 Nov — job 7: the data set a field-blind scale at the lemma's; the c6 band costs a fifth of the forces; warm starts do not converge (`notes/e4-job7-results.md`)
+
+**The job ran** as four tasks of 5–6 runs (22 runs, 8–14 minutes each).
+
+| | band | Niflheim | |
+|---|---|---|---|
+| J7.1 | M_1pm within ±7 % of the dagger | −22.3 % at every size | fails, low |
+| J7.2 | the scan's lowest at c ≥ 1.0 | c = 1.1 at every size | holds |
+| J7.3 | the scan's lowest ≥ 10 % below M_∞ | −34 to −35 % | holds |
+| J7.4 | the six warm starts within ±15 % | 1.21–2.56 D, −36 to +35 % | fails |
+| J7.5 | the warm starts ≤ 7 % above the scan's lowest | +16.8 % | fails |
+| J7.6 | read when J7.4 holds | — | not read |
+
+- **The scan:** forces 0.826 / 0.740 / 0.631 / 0.592 / 0.714 kcal/mol/Å at 64 molecules for c = 0.4 / 0.7 / 1.0 / 1.1 /
+  1.45, against M_∞'s 0.907. A parabola puts the minimum at c = 1.07–1.10 (forces) and 1.10 (training loss); the
+  lemma's scale is 1.10–1.11.
+- **The c6 band:** MB-pol's site charges without it (M_1pm) read 0.560 / 0.572 / 0.575, −38 % against M_∞; the dagger,
+  with it, −20 % as in job 1. The band, undamped at contact at the 0.75 Å edge, costs 0.16 kcal/mol/Å. E4's model D′
+  carries it; M_1pm is within 3.5–4 % of D′.
+- **The warm starts** moved 25–45 % of the way toward the scan's minimum from both sides and stopped. Started at the
+  monomer's dipole they end at 1.93 D and match the best pinned O/H charges (0.594 against 0.592 at 64).
+- **The O/H form** is 5–12 % above MB-pol's site charges: the M-site's quadrupole.
+- **Proposed next, not registered:** job 8, the dagger's c6 band at its own edge of 2.0 Å (31 % at contact, 99.4 % at
+  6 Å), and D′ without its c6 band and with the damped one.

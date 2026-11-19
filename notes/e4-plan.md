@@ -500,4 +500,13 @@ code is still open: CP2K, GPAW, VASP or QE.
      - *Job 7 registered 19 Nov (`e4-job7-preregistration.md`, v0.0.31): the scan of pinned O/H charges at c = 0.4,
        0.7, 1.0, 1.1, 1.45 without c6; M_1pm beside the dagger; learned charges warm-started at 0.5, 1 and 1.5 times
        the O/H charges. J7.1–J7.6, all predicted to hold. 22 tasks.*
+     - *Job 7 read 19 Nov (`e4-job7-results.md`), run as four tasks of 5–6 runs (8–14 minutes a run).*
+       - *J7.2 and J7.3 hold: the scan's forces are lowest at c = 1.1 (parabola: 1.07–1.10; the lemma: 1.10–1.11), 34 %
+         below M_∞. The data set the scale; job 6's failure was the optimisation.*
+       - *J7.1 fails low: M_1pm (no c6) is 22 % below the dagger, 38 % below M_∞. The c6 band, undamped at contact,
+         costs 0.16 kcal/mol/Å, and E4's model D′ carries it (M_1pm is within 3.5–4 % of D′).*
+       - *J7.4 and J7.5 fail: the warm starts move 25–45 % toward the minimum and stop. The start at the monomer's
+         dipole matches the best pinned O/H charges.*
+       - *The O/H form costs 5–12 % against MB-pol's sites: the M-site's quadrupole.*
+       - *Proposed: job 8, the c6 band at its own edge of 2.0 Å in the dagger and D′, and D′ without it.*
 7. **The L₀ sweep** (Form II).

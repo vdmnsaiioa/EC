@@ -597,6 +597,15 @@ python scripts/e4_sumrules.py read --gate_dir results/e4_job6 --job7_dir results
 python scripts/e4_water.py summary --out_dir results/e4_job7
 ```
 
+It ran as four tasks of 5–6 runs. Read 19 Nov (`notes/e4-job7-results.md`):
+
+- **J7.2 and J7.3 hold.** The scan is lowest at c = 1.1, the lemma's scale, 34 % below M_∞.
+- **J7.1 fails, low.** Without the c6 band MB-pol's charges buy 38 %, not the dagger's 20 %: the band, undamped at
+  contact, costs 0.16 kcal/mol/Å. E4's model carries it.
+- **J7.4 and J7.5 fail.** The warm starts move toward the minimum from both sides and stop short; the start at the
+  monomer's dipole matches the best pinned O/H charges.
+- **Proposed next:** the c6 band damped at its own edge, in the dagger and in D′.
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's
