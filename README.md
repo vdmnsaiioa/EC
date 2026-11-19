@@ -606,6 +606,20 @@ It ran as four tasks of 5–6 runs. Read 19 Nov (`notes/e4-job7-results.md`):
   monomer's dipole matches the best pinned O/H charges.
 - **Proposed next:** the c6 band damped at its own edge, in the dagger and in D′.
 
+**Job 8** (`notes/e4-job8-preregistration.md`, v0.0.32) gives the pinned c6 band its own edge (`Rung.disp_l`).
+
+- **The dagger** at 1.5, 2.0 and 2.5 Å, beside M_16pm and M_1pm.
+- **The field-term dagger** at 2.0 Å and without the band.
+- **D′** at 2.0 Å and without the band, on D′'s own read-out held from job 5 (`training.readout.held_from`).
+- **K8.1–K8.5** ask whether the band's cost is its contact, whether the field term had already repaired it, and whether
+  E4's model should take the damped band.
+
+```sh
+sbatch run_e4_job8.sbatch                  # 11 GPU tasks: the dagger family, the field-term dagger, D''s variants
+python scripts/e4_job8.py --out_dir results/e4_job8 --reference_dir results/e4_job5    # K8.1-K8.5, the model rule
+python scripts/e4_water.py summary --out_dir results/e4_job8
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

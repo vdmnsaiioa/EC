@@ -1912,3 +1912,48 @@ With job 6's, S0's, the driver's, the MD's and the configs' suites, 114 tests pa
 - **The O/H form** is 5–12 % above MB-pol's site charges: the M-site's quadrupole.
 - **Proposed next, not registered:** job 8, the dagger's c6 band at its own edge of 2.0 Å (31 % at contact, 99.4 % at
   6 Å), and D′ without its c6 band and with the damped one.
+
+## v0.0.32, 19 Nov — job 8 pre-registered: the pinned c6 band at contact (`notes/e4-job8-preregistration.md`)
+
+**What changes, before any run:**
+
+- **`Rung.disp_l`:** the dispersion bands' own edge. At 0.75 Å the band is the full C₆/r⁶ at contact (an O···H hydrogen
+  bond: −1.40 kcal/mol, 4.1 kcal/mol/Å). At 2.0 Å it keeps 6 % of that and 99.4 % of the tail at 6 Å.
+- **The rungs:**
+  - the dagger at 1.5, 2.0 and 2.5 Å;
+  - the field-term dagger at 2.0 Å and without the band (M_1pm_us);
+  - D′ at 2.0 Å and without the band.
+- **`training.readout.held_from` and `held_readout`:** D′'s variants hold D′'s read-out from job 5's cache. `rung_key`
+  reads cache keys written before the fields added since v0.0.29.
+- **`scripts/e4_job8.py`** reads K8.1–K8.5 and the model rule.
+
+**Registered** (rigid forces, unseen frames, four-seed means):
+
+| | reading | band |
+|---|---|---|
+| K8.1 | the dagger at 2.0 Å against M_1pm | within ±7 % |
+| K8.2 | M_1pm_us against M_16pm_us | within ±5 % |
+| K8.3 | M_1pm_us against M_1pm | within ±5 % |
+| K8.4 | D′ at 2.0 Å against D′ (job 5) | at most +2 % |
+| K8.5 | its ε_∞, far probes and T5 against D′'s | ±0.002; ±0.5 points |
+
+- **The model rule:** if K8.4 and K8.5 hold, D′ with its band at 2.0 Å becomes E4's model.
+- **K8.2 and K8.3 test whether the field term's gain on the dagger and the band's removal are one cause.** Each took the
+  dagger from 0.721 to 0.56. One cause predicts M_1pm_us near 0.56; two that add predict about 0.44.
+
+```sh
+mkdir -p results/e4_job8 logs logs_error && sbatch run_e4_job8.sbatch    # 11 GPU tasks, about 30 GPU hours
+python scripts/e4_job8.py --out_dir results/e4_job8 --reference_dir results/e4_job5
+python scripts/e4_water.py summary --out_dir results/e4_job8
+```
+
+**Tests:** `tests/test_job8.py`, 7 tests:
+
+- the band at its own edge, open and in a cell;
+- the rungs and configs;
+- `rung_key`;
+- the held read-out, in the driver and on its own;
+- K8.1–K8.5 and the rule.
+
+With the matching stages', job 6's and job 7's, S0's, the driver's, the MD's and the configs' suites, 140 tests
+pass and 2 are skipped.

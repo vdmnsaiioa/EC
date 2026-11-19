@@ -509,4 +509,10 @@ code is still open: CP2K, GPAW, VASP or QE.
          dipole matches the best pinned O/H charges.*
        - *The O/H form costs 5–12 % against MB-pol's sites: the M-site's quadrupole.*
        - *Proposed: job 8, the c6 band at its own edge of 2.0 Å in the dagger and D′, and D′ without it.*
+     - *Job 8 registered 19 Nov (`e4-job8-preregistration.md`, v0.0.32).*
+       - *The c6 band at its own edge (`Rung.disp_l`): the dagger at 1.5–2.5 Å, the field-term dagger and D′ at 2.0 Å
+         and without the band, D′'s read-out held from job 5.*
+       - *K8.1: the damped dagger within 7 % of M_1pm. K8.2–K8.3: whether the field term had already repaired the band
+         (one cause: M_1pm_us near 0.56; two: near 0.44). K8.4–K8.5 and the model rule: D′ takes the damped band if it
+         costs at most 2 % and leaves the infrared.*
 7. **The L₀ sweep** (Form II).

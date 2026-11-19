@@ -99,6 +99,9 @@ class Rung:
     q_ref_start: tuple = ()                # v0.0.31: learned charges started at their species' charges, ((Z, q in e), ...):
     # the species offsets set to q / q_unit and the charge head's last layer to zero, so that every atom starts at its
     # species' charge exactly (a neutral start, which the neutrality shift leaves alone) -- E4 job 7's warm start
+    disp_l: float = 0.0                    # v0.0.32: the dispersion bands' own edge (bohr; 0: l1).  At l1 = 0.75 A the c6
+    # band is the full C6/r^6 at contact, which E4 job 7 found to cost the dagger a fifth of its forces; a wider edge damps
+    # the contact and keeps the tail (2.0 A: 31 % of C6/r^6 at 2.8 A, 99.4 % at 6 A; notes/e4-job8-preregistration.md)
     l1: float = ang_to_bohr(1.5)           # band edge
     lA: float = ang_to_bohr(4.0)           # envelope of the analytic kernel (M_A)
     NA: int = 4                            # powers of q^2 in M_A
@@ -144,6 +147,9 @@ def init_params(key, rung: Rung, energy_scale=1.0):
         raise ValueError("q_scale scales pinned atom charges (pin_q without a site model)")
     if rung.q_ref_start and not (rung.charges and not rung.pin_q and not rung.msites):
         raise ValueError("q_ref_start starts learned charges (charges, not pinned)")
+    if rung.disp_l and (not rung.dispersion or rung.disp_l < rung.l1):
+        raise ValueError("disp_l is the dispersion bands' own edge: a dispersion rung, and no narrower than l1 (the "
+                         "reciprocal grid is the band edge's)")
     k = jax.random.split(key, 4)
     p = {"e0": E0.init_e0(k[0], rung.e0), "heads": H.init_heads(k[1], rung.e0, rung.K, rung.one_oscillator, energy_scale,
                                                                 alpha_ref0=rung.alpha_ref0)}
@@ -352,18 +358,19 @@ def _total_energy(params, rung: Rung, b, mask, subtract_atoms):
         if mu is not None: aux["mu"] = mu
     if rung.dispersion:
         omega, w = frequencies(rung)
+        l_d = rung.disp_l if rung.disp_l > 0 else rung.l1                    # v0.0.32: the dispersion bands' edge
         alpha = b["pin_alpha"][:, :rung.K] if rung.pin_alpha else H.polarisabilities(hp, s, Z, mask, omega, rung.one_oscillator)
         if rung.periodic:
-            Ed = PB.dispersion_band_pbc(alpha, w, pos, mask, b["cell"], rung.l1, n_max, b_max, chunk)
+            Ed = PB.dispersion_band_pbc(alpha, w, pos, mask, b["cell"], l_d, n_max, b_max, chunk)
         else:
-            Ed = B.dispersion_band(alpha, w, r, pmask, rung.l1)
+            Ed = B.dispersion_band(alpha, w, r, pmask, l_d)
         E = E + Ed; aux["E_disp"] = Ed; aux["alpha"] = alpha
         if rung.dispersion8:
             alpha2 = b["pin_alpha2"][:, :rung.K] if rung.pin_alpha2 else H.quad_polarisabilities(hp, s, Z, mask, omega, rung.one_oscillator)
             if rung.periodic:
-                E8 = PB.dispersion8_band_pbc(alpha, alpha2, w, pos, mask, b["cell"], rung.l1, n_max, b_max, chunk)
+                E8 = PB.dispersion8_band_pbc(alpha, alpha2, w, pos, mask, b["cell"], l_d, n_max, b_max, chunk)
             else:
-                E8 = B.dispersion8_band(alpha, alpha2, w, r, pmask, rung.l1)
+                E8 = B.dispersion8_band(alpha, alpha2, w, r, pmask, l_d)
             E = E + E8; aux["E_disp8"] = E8; aux["alpha2"] = alpha2
     if rung.analytic:
         sA = H.scalar_source(hp, s, mask)

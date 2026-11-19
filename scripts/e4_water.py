@@ -120,6 +120,26 @@ for _c in SCAN_C:
 for _c in WARM_C:
     E3.RUNGS.setdefault(warm_rung(_c), M.with_rung(E3.RUNGS["M_1"], name=warm_rung(_c), q_unit=Q_UNIT_WARM))
 WARM = {warm_rung(c): c for c in WARM_C}
+# job 8 (v0.0.32; notes/e4-job8-preregistration.md): the pinned c6 band at contact.  Job 7 found the dagger 22 % worse in
+# forces than M_1pm, its charges without the c6 band; at the run's edge, 0.75 A, the band is the full C6/r^6 at contact.
+# Here the band has its own edge (Rung.disp_l): the dagger at 1.5, 2.0 and 2.5 A; the field-term dagger M_16pm_us at
+# 2.0 A and without the band (M_1pm_us); and D' -- M_16C2pm_us with job 5's read-out, held (training.readout.held_from)
+# -- at 2.0 A and without the band.  M_16pm_us without the band against M_1pm tells whether the field term's gain on the
+# dagger (job 2: to 0.561 kcal/mol/A) and the band's removal (job 7: to 0.560) are one cause.
+DISP_EDGES = (1.5, 2.0, 2.5)
+
+
+def disp_rung(base, edge):
+    return f"{base}_d{round(10 * edge):02d}"
+
+
+for _l in DISP_EDGES:
+    E3.RUNGS.setdefault(disp_rung("M_16pm", _l), M.with_rung(E3.RUNGS["M_16pm"], name=disp_rung("M_16pm", _l),
+                                                              disp_l=ang_to_bohr(_l)))
+for _base, _no_band in (("M_16pm_us", "M_1pm_us"), ("M_16C2pm_us", "M_1C2pm_us")):
+    E3.RUNGS.setdefault(disp_rung(_base, 2.0), M.with_rung(E3.RUNGS[_base], name=disp_rung(_base, 2.0),
+                                                            disp_l=ang_to_bohr(2.0)))
+    E3.RUNGS.setdefault(_no_band, M.with_rung(E3.RUNGS[_base], name=_no_band, dispersion=False, pin_alpha=False))
 
 
 def warm_started(name, rung, structs):
@@ -156,7 +176,7 @@ DEFAULTS = {
         "lbfgs": {"steps": 50, "chunk_size": 12, "memory_size": 10, "max_linesearch_steps": 20},
         "loss": {"energy_weight": 100.0, "force_weight": 1.0, "forces": "rigid"},
         "readout": {"orders": "all", "solve_iterations": 4, "ridge": 1.0e-8, "ridge_selection": "groups",
-                    "solve_chunk": 64, "liquid": None, "finite_k": None},
+                    "solve_chunk": 64, "liquid": None, "finite_k": None, "held_from": None},
     },
     "probes": {"distances_angstrom": [8.0, 10.0, 12.0, 15.0], "train_per_distance": 2, "train_cores": 16,
                "train_core_sizes": [3, 4, 5], "test_per_distance": 10, "test_cores": 2, "seed": 400, "mc_steps": 300,
@@ -227,6 +247,8 @@ def model_record(name, cfg, rung):
         rec["pinned_charge_scale"] = float(rung.q_scale)               # v0.0.31, job 7's scan
     if rung.q_ref_start:
         rec["charge_start_e"] = {str(int(z)): float(q) for z, q in rung.q_ref_start}
+    if rung.disp_l > 0:
+        rec["dispersion_edge_angstrom"] = round(float(bohr_to_ang(rung.disp_l)), 12)   # v0.0.32, job 8
     return rec
 
 
@@ -472,6 +494,16 @@ def load_response(path, cfg):
     return out
 
 
+def liquid_tag(lq, response):
+    """the hash of job 2's liquid settings and MB-pol's response file: the matched read-outs' cache tag (_liq...)."""
+    return hashlib.sha256(json.dumps({**lq, "response": response["hash"]}, sort_keys=True).encode()).hexdigest()[:8]
+
+
+def k_tag(kq, resp_k):
+    """the hash of the finite-k settings and the finite-k response file: the cache tag (_k...)."""
+    return hashlib.sha256(json.dumps({**kq, "response_k": resp_k["hash"]}, sort_keys=True).encode()).hexdigest()[:8]
+
+
 def liquid_block(rung_cell, response, lq):
     """the calibration rows of job 2's matching (LIN.solve_readout's extra): every calibration cell's induced dipole M (3)
     and field response R (3, 3) against MB-pol's, with the dense response solve (64 molecules).  Weights: lq["weight"]
@@ -506,7 +538,7 @@ def liquid_block(rung_cell, response, lq):
         targets = [np.concatenate([mu.sum(0), R.sum(0).reshape(-1)]) for mu, R in zip(cal["mu"], cal["R"])]
     else:
         raise ValueError(f"liquid rows must be 'cells' or 'molecules', not {rows!r}")
-    tag = hashlib.sha256(json.dumps({**lq, "response": response["hash"]}, sort_keys=True).encode()).hexdigest()[:8]
+    tag = liquid_tag(lq, response)
     # lq["orders"] (v0.0.25): the read-out orders the second stage moves -- "zero" for the order-0 columns alone, as the
     # derivative counting asks of k = 0 data (notes/e4-job2-results.md section 4b); unset, the readout's own orders
     block = {"fn": fn, "batches": batches, "targets": targets, "weights": [w] * nf}
@@ -726,7 +758,7 @@ def k_stage(rung_cell, resp_k, kq):
     starting orders >= 1 and the far probes' rows held at the starting read-out's own predictions (LIN.solve_readout's
     anchor and hold) -- so that the orders >= 1 move from arm C's only where the finite-k rows need it.  Settings
     without "anchor" hash as before (arm D's cache is unchanged)."""
-    tag = hashlib.sha256(json.dumps({**kq, "response_k": resp_k["hash"]}, sort_keys=True).encode()).hexdigest()[:8]
+    tag = k_tag(kq, resp_k)
     anchor = bool(kq.get("anchor", False))
     if float(kq["weight"]) <= 0:
         return {"block": None, "hash": tag, "scale": {}, "anchor": anchor}
@@ -1175,6 +1207,44 @@ def matched(name, rung_open, probes, scale, cfg, out_dir, liquid=None, finite_k=
     return readout, match
 
 
+# Rung fields added since a cache was written (v0.0.30-v0.0.32), at their defaults: a cache key from before them is the
+# same rung written without them (rung_key)
+LATER_FIELDS = (("q_unit", 1.0), ("alpha_ref0", 1.0), ("q_scale", 1.0), ("q_ref_start", ()), ("disp_l", 0.0))
+
+
+def rung_key(rung):
+    """a rung's repr without the fields added since v0.0.29 when they are at their defaults: the key matched() wrote
+    for the same rung before them."""
+    key = repr(rung)
+    for f, default in LATER_FIELDS:
+        if getattr(rung, f) == default:
+            key = key.replace(f", {f}={default!r}", "")
+    return key
+
+
+def held_readout(held, cfg, cell_bohr, probes, scale, response=None, resp_k=None):
+    """v0.0.32 (job 8): a read-out matched before for another rung, held for this one -- training.readout.held_from
+    {rung, dir}.  The cache matched() wrote in dir for that rung, with this config's probes, liquid and finite-k
+    settings, is loaded and checked against the reference rung (its key, before or after the fields added since v0.0.29)
+    and the energy scale; nothing is matched.  Job 8 gives D''s variants D''s own read-out, so that a variant changes
+    the training and nothing else."""
+    tr = cfg["training"]["readout"]
+    lq, kq = tr.get("liquid"), tr.get("finite_k")
+    tag = ("" if not lq else "_liq" + liquid_tag(lq, response)) + ("" if not kq else "_k" + k_tag(kq, resp_k))
+    ref = held["rung"]
+    _, ref_open = rungs_for(ref, cfg, cell_bohr)
+    path = os.path.join(held["dir"], f"matched_{ref}_{probes['hash']}{tag}.pkl")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"held_from: no read-out matched for {ref} in {held['dir']} with these settings ({path})")
+    with open(path, "rb") as fh:
+        got = pickle.load(fh)
+    if got["rung"] not in (repr(ref_open) + tag, rung_key(ref_open) + tag) or got["scale"] != scale:
+        raise ValueError(f"{path} was matched for another rung, settings or energy scale than {ref} here")
+    print(f"  read-out held from {ref} ({path}): objective "
+          + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in got["match"]["objective"]), flush=True)
+    return got["readout"], {**got["match"], "held_from": {"rung": ref, "path": path}}
+
+
 # ---------------------------------------------------------------- the readings --------------------------------------
 def rigid_errors(err_kcal, pos_ang, cell_ang, n_mol):
     """per molecule: the net force error (kcal/mol/A), the torque error about the centroid (kcal/mol) and the
@@ -1426,9 +1496,13 @@ def run_train(a):
         rung, rung_open = warm_started(name, rung, train), warm_started(name, rung_open, train)      # job 7
         readout, match = None, None
         if rung.band_fields >= 0:
-            liquid = liquid_block(rung, response, lq) if lq else None
-            fk = k_stage(rung, resp_k, kq) if kq else None
-            readout, match = matched(name, rung_open, probes, scale, cfg, out_dir, liquid=liquid, finite_k=fk)
+            held = tr["readout"].get("held_from")
+            if held:                                                  # job 8: another rung's read-out, held
+                readout, match = held_readout(held, cfg, train[0].cell, probes, scale, response, resp_k)
+            else:
+                liquid = liquid_block(rung, response, lq) if lq else None
+                fk = k_stage(rung, resp_k, kq) if kq else None
+                readout, match = matched(name, rung_open, probes, scale, cfg, out_dir, liquid=liquid, finite_k=fk)
             if response is not None and len(response.get("heldout", {}).get("structures", [])):
                 t1 = time.time()
                 p0 = with_readout(M.init_params(jax.random.PRNGKey(0), rung_open, energy_scale=scale), readout)
