@@ -620,6 +620,17 @@ python scripts/e4_job8.py --out_dir results/e4_job8 --reference_dir results/e4_j
 python scripts/e4_water.py summary --out_dir results/e4_job8
 ```
 
+It ran as three tasks on 14-hour allocations. Read 20 Nov (`notes/e4-job8-results.md`):
+
+- **K8.1 holds.** The dagger with its band at 2.0 Å is 5 % above M_1pm, against 30 % at 0.75 Å: the band's cost was its
+  contact.
+- **K8.2 and K8.3 fail, low.** The field-term dagger without the band reads 0.481, between one cause (0.56) and two
+  (0.43–0.44): 55 % of the field term's gain was repairing the band.
+- **K8.4 and K8.5 hold, and the model rule fires.** **E4's model is now D′ with its c6 band at 2.0 Å**
+  (M_16C2pm_us_d20, `configs/e4_job8d.yaml`, D′'s read-out held from `results/e4_job5`): rigid forces 0.478 / 0.485 /
+  0.487 kcal/mol/Å, 12 % below D′ and 47 % below M_∞, with D′'s ε_∞, far probes and T5.
+- **The response now buys 1–2 % in bulk forces;** its case rests on the infrared.
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

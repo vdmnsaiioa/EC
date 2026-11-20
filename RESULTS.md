@@ -1957,3 +1957,31 @@ python scripts/e4_water.py summary --out_dir results/e4_job8
 
 With the matching stages', job 6's and job 7's, S0's, the driver's, the MD's and the configs' suites, 140 tests
 pass and 2 are skipped.
+
+## v0.0.32, read 20 Nov — job 8: the c6 band's cost was its contact; damped at 2.0 Å it takes 12 % off E4's model, which it becomes (`notes/e4-job8-results.md`)
+
+**The job ran** as three tasks on 14-hour allocations (D′'s variants in two, the dagger family's 32 runs in the third),
+not eleven.
+
+| | band | Niflheim | |
+|---|---|---|---|
+| K8.1 | the dagger at 2.0 Å within ±7 % of M_1pm | +5.1 to +5.5 % (0.584 against 0.554) | holds |
+| K8.2 | M_1pm_us within ±5 % of M_16pm_us | −14 % (0.481 against 0.561) | fails, low |
+| K8.3 | M_1pm_us within ±5 % of M_1pm | −13 % | fails, low |
+| K8.4 | D′ at 2.0 Å at most +2 % above D′ | −11.6 / −12.0 / −11.8 % (0.478 / 0.485 / 0.487) | holds |
+| K8.5 | ε_∞ ±0.002; far probes and T5 ±0.5 points | 1.6893; 2.23 / 1.98 / 2.66 %, 4.31 %: D′'s | holds |
+
+- **The model rule fires: E4's model is D′ with its c6 band at 2.0 Å** (M_16C2pm_us_d20, `configs/e4_job8d.yaml`, D′'s
+  read-out held from `results/e4_job5`). Rigid forces 0.478 / 0.485 / 0.487 kcal/mol/Å, 47 % below M_∞; energies
+  0.0215 / 0.0160 / 0.0081 kcal/mol per molecule; seed spread 0.004–0.007 against D′'s 0.024–0.026; the same infrared.
+- **The edge curve:** the dagger reads 0.722 / 0.657 / 0.584 / 0.568 at 0.75 / 1.5 / 2.0 / 2.5 Å, against 0.554 without
+  the band. The cost follows the band's weight at contact.
+- **The field term and the band overlap in part.** M_1pm_us reads 0.481, between one cause (0.56) and two independent
+  ones (0.43–0.44). 55 % of the field term's gain in job 2 was repairing the band; its own gain is −13 %. With the field
+  term the damped band costs nothing (M_16pm_us_d20 0.483).
+- **The response now buys 1–2 % in bulk forces** (against 3.6–4.3 % with the band at 0.75 Å). Its case rests on the
+  infrared.
+- **D′ without the band** (two seeds) reads 1.3–1.4 % below the damped band, not resolved; the c6 tail is not visible in
+  bulk forces or in the far probes, which read the non-additive error.
+- **Reproduced:** M_16pm_us matches job 2 to the printed digit; the dagger and M_1pm agree with job 7.
+- **Not read:** S1's MD ran the old D′ and dagger (band at 0.75 Å); E3's daggers carry the same band.

@@ -515,4 +515,14 @@ code is still open: CP2K, GPAW, VASP or QE.
        - *K8.1: the damped dagger within 7 % of M_1pm. K8.2–K8.3: whether the field term had already repaired the band
          (one cause: M_1pm_us near 0.56; two: near 0.44). K8.4–K8.5 and the model rule: D′ takes the damped band if it
          costs at most 2 % and leaves the infrared.*
+     - *Job 8 read 20 Nov (`e4-job8-results.md`), run as three tasks on 14-hour allocations.*
+       - *K8.1 holds: the dagger at 2.0 Å is 5 % above M_1pm (30 % at 0.75 Å). The band's cost was its contact.*
+       - *K8.2 and K8.3 fail low: M_1pm_us reads 0.481, between one cause (0.56) and two (0.43–0.44). 55 % of the field
+         term's gain was repairing the band; its own gain is −13 %. With the field term the damped band costs nothing.*
+       - *K8.4 and K8.5 hold; the model rule fires. **E4's model is D′ with its c6 band at 2.0 Å** (M_16C2pm_us_d20,
+         `configs/e4_job8d.yaml`, read-out held from job 5): 0.478 / 0.485 / 0.487 kcal/mol/Å, −12 % against D′,
+         −47 % against M_∞, the same infrared.*
+       - *The response now buys 1–2 % in bulk forces; its case rests on ε_∞, T5 and the far probes.*
+       - *Open, not decided: S1's MD ran the old D′ (band at 0.75 Å); E3's daggers carry the same band; the comparison's
+         pinned panel should take the damped band; the pressure reader, where the c6 tail should show.*
 7. **The L₀ sweep** (Form II).
