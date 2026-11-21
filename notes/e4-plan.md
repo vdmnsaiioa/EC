@@ -534,4 +534,15 @@ code is still open: CP2K, GPAW, VASP or QE.
        - *K9.3–K9.6 on the warm starts at ten times the charge head's learning rate: convergence, the profile's minimum
          (2.047 D), the scan's forces, the lemma's |b_T|. The start near zero beside them.*
        - *Two tasks of five runs, 3 h each.*
+     - *Job 9 read 21 Nov (`e4-job9-results.md`), run as the registered two tasks (20–23 minutes a run).*
+       - *K9.1 fails in neither band, K9.2 holds, K9.3 and K9.5 fail; K9.4 and K9.6 not read.*
+       - *With E₀ held, the objective's curvature along the charges' scale is 7,000–19,000 times the profile's: E₀
+         cancels a Coulomb contribution 40–100 times the residual. K9.1's slope read the offset from the valley's
+         bottom.*
+       - *The batch-averaged pull has the profile's sign in all four runs, buried 50–100 times under the noise the
+         stiffness makes. The charges crawl at the learning rate's pace; 50 L-BFGS steps move them further.*
+       - *Ten times the charge head's learning rate climbs the valley's walls: nearer the scale, forces 12–18 % worse,
+         the starts near zero fail the gate.*
+       - *Proposed: a long full-batch L-BFGS from the saved end states; or the charges' band damped at contact, with
+         its own scan (E3's rehearsal found that contact part essential for pinned charges with the response).*
 7. **The L₀ sweep** (Form II).

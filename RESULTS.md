@@ -2042,3 +2042,35 @@ python scripts/e4_water.py summary --out_dir results/e4_job9
 
 With job 6's, job 7's and job 8's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 166
 tests pass and 1 is skipped.
+
+## v0.0.33, read 21 Nov — job 9: the charges' scale lies in a valley ten thousand times steeper with E₀ held; a faster charge head climbs its walls (`notes/e4-job9-results.md`)
+
+**The job ran** as the registered two tasks of five runs (20–23 minutes a run, 1.8 h a task).
+
+| | band | Niflheim | |
+|---|---|---|---|
+| K9.1 | R in [0.5, 2] on 3 of 4 | +11.8, −0.74, −12.1, −9.0 | fails, neither band |
+| K9.2 | \|mean\| / sd ≤ 0.3 on 3 of 4 | 0.006–0.021 | holds |
+| K9.3 | the four at ten times within ±15 % | 1.31–2.23 D, −26 to +25 % | fails |
+| K9.4 | their mean within ±10 % of 2.047 D | 1.78 D, −13 % | not read |
+| K9.5 | their forces ≤ +7 % above the scan's lowest | +41 to +44 % | fails |
+| K9.6 | \|b_T\| in band on 3 of 4 | 1 of 4 | not read |
+
+- **The valley.** With E₀ held, the objective's curvature along the charges' scale is 0.6–3.0×10⁶, against the profile's
+  75–350, a ratio of 7,000–19,000. The charges' Coulomb band contributes 40–100 times the residual, and E₀ cancels it
+  only at the scale it was trained with. Every run sits at the valley's bottom (s = 1.000–1.002).
+- **So K9.1 read the end state's offset from that bottom** (10⁻⁵–10⁻³), not the profile's pull. Its measure assumed a
+  gentle curve.
+- **The pull is there on average.** Over Adam's second half the batch mean has the profile's sign in all four runs, at
+  0.4–1.3 of its size, each within about one standard error. Per batch it is buried 50–100 times under noise, and the
+  noise comes from the same stiffness.
+- **The paths crawl; they do not lock.** The charges moved toward the data's scale throughout, at the learning rate's
+  pace (16–17 % in the second half, against 19 % of the budget). L-BFGS's 50 full-batch steps moved all four further
+  the right way.
+- **Ten times the charge head's learning rate climbs the walls.** It ends nearer the scale (1.97 and 2.23 D from 1.5),
+  but forces are 12–18 % worse. Both starts near zero fail the gate. The synthetic check could not see this: there E₀
+  has nothing to cancel.
+- **Reproduced:** job 7's warm starts to the printed digit.
+- **Proposed next, not registered:**
+  - follow the valley: a long full-batch L-BFGS from the saved end states;
+  - make it shallower: the charges' band with its own edge, as `Rung.disp_l` for c6, with its own scan.

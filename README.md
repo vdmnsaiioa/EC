@@ -654,6 +654,18 @@ python scripts/e4_sumrules.py read --gate_dir results/e4_job6 --job7_dir results
 python scripts/e4_water.py summary --out_dir results/e4_job9
 ```
 
+It ran as the two registered tasks. Read 21 Nov (`notes/e4-job9-results.md`):
+
+- **K9.1 fails, in neither band; K9.2 holds.** With E₀ held, the charges' scale lies in a valley 7,000–19,000 times
+  steeper than the profile: E₀ cancels a Coulomb contribution 40–100 times the residual, exactly only at the scale it
+  was trained with. K9.1's slope read the end state's offset from the valley's bottom.
+- **The pull is there on average** (the profile's sign in all four runs), buried 50–100 times under the batch noise the
+  same stiffness makes. The charges crawl toward the data's scale at the learning rate's pace.
+- **K9.3 and K9.5 fail.** Ten times the charge head's learning rate ends nearer the scale and fits worse (forces +12 to
+  +18 %); from near zero it fails the gate.
+- **Proposed next:** follow the valley with a long full-batch L-BFGS, or make it shallower with the charges' band
+  damped at contact.
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's
