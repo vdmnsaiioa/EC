@@ -142,14 +142,32 @@ for _base, _no_band in (("M_16pm_us", "M_1pm_us"), ("M_16C2pm_us", "M_1C2pm_us")
     E3.RUNGS.setdefault(_no_band, M.with_rung(E3.RUNGS[_base], name=_no_band, dispersion=False, pin_alpha=False))
 
 
+# job 9 (v0.0.33; notes/e4-job9-preregistration.md): why job 7's learned charges stopped short of the data's scale, and
+# whether the charge head's own learning rate (train.fit's charge_lr_scale) gets them there.  M_1x050 and M_1x150 are
+# job 7's warm starts M_1w050 and M_1w150 with the charge head (its layers and species offsets) at CHARGE_LR_X times
+# the rest's learning rate; M_1x000 the same started near zero (job 6's M_1uc, unit 0.15 e).  Job 7's M_1w050 and
+# M_1w150 run again beside them; every run of the job is traced (training.trace: charge_diagnostics)
+CHARGE_LR_X, X_C = 10.0, (0.0, 0.5, 1.5)
+
+
+def x_rung(c):
+    return f"M_1x{round(100 * c):03d}"
+
+
+for _c in X_C:
+    E3.RUNGS.setdefault(x_rung(_c), M.with_rung(E3.RUNGS["M_1"], name=x_rung(_c), q_unit=Q_UNIT_WARM))
+CHARGE_LR = {x_rung(c): CHARGE_LR_X for c in X_C}
+STARTS = {**WARM, **{x_rung(c): c for c in X_C if c > 0}}          # every warm-started rung: its start c0
+
+
 def warm_started(name, rung, structs):
-    """job 7's warm start: a WARM rung's learned charges started at WARM[name] times the O/H charges pinned on the
-    cells (pin_rigid_site_model's "q": MB-pol's site model with the M-site's charge on the atoms), O and H by species;
-    any other rung as it is."""
-    if name not in WARM:
+    """job 7's warm start: a warm-started rung's (STARTS: job 7's WARM, job 9's M_1x050 and M_1x150) learned charges
+    started at STARTS[name] times the O/H charges pinned on the cells (pin_rigid_site_model's "q": MB-pol's site model
+    with the M-site's charge on the atoms), O and H by species; any other rung as it is."""
+    if name not in STARTS:
         return rung
     q = np.asarray(structs[0].pinned["q"], float)[:3]
-    c = WARM[name]
+    c = STARTS[name]
     return replace(rung, q_ref_start=((8, c * float(q[0])), (1, c * 0.5 * float(q[1] + q[2]))))
 
 DEFAULTS = {
@@ -177,6 +195,9 @@ DEFAULTS = {
         "loss": {"energy_weight": 100.0, "force_weight": 1.0, "forces": "rigid"},
         "readout": {"orders": "all", "solve_iterations": 4, "ridge": 1.0e-8, "ridge_selection": "groups",
                     "solve_chunk": 64, "liquid": None, "finite_k": None, "held_from": None},
+        # v0.0.33 (job 9): the learned charges traced through training (charge_diagnostics); None: off.
+        # {every: the trace's interval in Adam steps, frames: the training frames it reads}
+        "trace": None,
     },
     "probes": {"distances_angstrom": [8.0, 10.0, 12.0, 15.0], "train_per_distance": 2, "train_cores": 16,
                "train_core_sizes": [3, 4, 5], "test_per_distance": 10, "test_cores": 2, "seed": 400, "mc_steps": 300,
@@ -1272,24 +1293,68 @@ def learns_sources(rung):
     return (rung.charges and not rung.pin_q and not rung.msites) or (rung.dispersion and not rung.pin_alpha)
 
 
+_AUX_FNS = {}
+MASSES = np.array([15.999, 1.008, 1.008])
+
+
+def aux_fn(rung):
+    """the rung's per-atom sources on one structure (model.energy_single's aux), compiled once per rung."""
+    key = repr(rung)
+    if key not in _AUX_FNS:
+        _AUX_FNS[key] = jax.jit(lambda p, b: M.energy_single(p, rung, b)[1])
+    return _AUX_FNS[key]
+
+
+def whole_molecules(b, n):
+    """a padded structure's rigid waters made whole across the cell, (molecules, 3, 3) bohr."""
+    return np.asarray(PB.make_whole(b["positions"], b["atom_frag"], b["frag_atoms"], b["cell"]))[:n].reshape(-1, 3, 3)
+
+
+def molecular_dipoles(q, pos):
+    """every molecule's dipole about its centre of mass (e bohr) from its atoms' charges (molecules, 3)."""
+    com = np.einsum("mav,a->mv", pos, MASSES) / MASSES.sum()
+    return np.einsum("ma,mav->mv", q, pos - com[:, None, :])
+
+
+def charge_tracer(rung, structs):
+    """v0.0.33 (E4 job 9): a reading of a rung's learned charges on a few fixed frames, for train.fit's trace_fn: the
+    molecules' mean |dipole| (D), the species' mean charges (e) and the share of dipoles to the H side.  The frames are
+    padded and made whole once; each call evaluates the charges only."""
+    f = aux_fn(rung)
+    frames = []
+    for st in structs:
+        b = {k: v[0] for k, v in S.pad_batch([st], n_freq=rung.K).items()}
+        frames.append((b, whole_molecules(b, st.n_atoms), st.n_atoms))
+
+    def reading(params):
+        qs, dips, side = [], [], []
+        for b, pos, n in frames:
+            q = np.asarray(f(params, b)["q"])[:n].reshape(-1, 3)
+            mu = molecular_dipoles(q, pos)
+            qs.append(q); dips.append(np.linalg.norm(mu, axis=1) * DEBYE_PER_E_BOHR)
+            side.append(np.einsum("mv,mv->m", mu, 0.5 * (pos[:, 1] + pos[:, 2]) - pos[:, 0]) > 0)
+        q = np.concatenate(qs)
+        return {"dipole_debye": float(np.concatenate(dips).mean()), "q_O": float(q[:, 0].mean()),
+                "q_H": float(q[:, 1:].mean()), "to_H_side": float(np.concatenate(side).mean())}
+    return reading
+
+
 def learned_sources(params, rung, structs):
     """what a rung's learned sources are on frames of one size (v0.0.30, job 6): per species the charges' mean and sd
     (e); every molecule's dipole about its centre of mass, |mu| mean and sd (D), and the share of molecules whose
     dipole points to their H side (the charges' overall sign, which energies and forces of neutral molecules cannot
     fix); and with learned polarisabilities the band's C6 per species pair and per molecule pair (au), from the species'
     mean alpha(i omega_k), against MB-pol's long-range c6."""
-    f = jax.jit(lambda p, b: M.energy_single(p, rung, b)[1])
-    masses = np.array([15.999, 1.008, 1.008])
+    f = aux_fn(rung)
     qs, mus, side, alphas = [], [], [], []
     for st in structs:
         b = {k: v[0] for k, v in S.pad_batch([st], n_freq=rung.K).items()}
         aux = f(params, b)
         n = st.n_atoms
-        pos = np.asarray(PB.make_whole(b["positions"], b["atom_frag"], b["frag_atoms"], b["cell"]))[:n].reshape(-1, 3, 3)
         if "q" in aux and rung.charges and not rung.pin_q:
+            pos = whole_molecules(b, n)
             q = np.asarray(aux["q"])[:n].reshape(-1, 3)
-            com = np.einsum("mav,a->mv", pos, masses) / masses.sum()
-            mu = np.einsum("ma,mav->mv", q, pos - com[:, None, :])
+            mu = molecular_dipoles(q, pos)
             qs.append(q); mus.append(mu)
             side.append(np.einsum("mv,mv->m", mu, 0.5 * (pos[:, 1] + pos[:, 2]) - pos[:, 0]) > 0)
         if "alpha" in aux and rung.dispersion and not rung.pin_alpha:
@@ -1426,6 +1491,82 @@ def final_loss(params, rung, structs, scale, w_energy, w_force, chunk, force_mod
     return {"total": float(w_energy * le + w_force * lf), "energy": float(le), "forces": float(lf)}
 
 
+def learns_charges(rung):
+    """a rung whose charges are learned (not pinned, no site model)."""
+    return rung.charges and not rung.pin_q and not rung.msites
+
+
+SCALE_GRID = (0.5, 0.75, 0.9, 0.99, 1.0, 1.01, 1.1, 1.25, 1.5)
+PULL_WINDOW = 100
+
+
+def scale_curves(states, rung, structs, scale, w_energy, w_force, chunk, force_mode, grid=SCALE_GRID):
+    """v0.0.33 (job 9): the training objective on every training frame with the learned charges times s
+    (model.scale_learned_charges) and everything else held, for each state's parameters: its values on the grid, the
+    slope dL/ds at s = 1 (central, from 0.99 and 1.01) and the minimum of the quartic through the grid (exact for a
+    rung whose energy is E_0 plus the Coulomb band: the energy is quadratic in s, the objective quartic).  One
+    compilation for all states and s (the parameters enter as an argument)."""
+    sums = jax.jit(T.make_loss_sums(rung, scale, w_force, force_mode))
+    data = S.pad_batch(structs, n_freq=rung.K)
+    chunks = [{k: v[i:i + chunk] for k, v in data.items()} for i in range(0, len(structs), chunk)]
+    out = {}
+    for label, p in states.items():
+        L = []
+        for x in grid:
+            ps = M.scale_learned_charges(p, x)
+            tot = np.zeros(4)
+            for c in chunks:
+                tot += np.array([float(v) for v in sums(ps, c)])
+            L.append(float(w_energy * tot[0] / max(tot[1], 1.0) + w_force * tot[2] / max(tot[3], 1.0)))
+        g = list(grid)
+        fine = np.linspace(min(g), max(g), 2001)
+        quartic = np.polyval(np.polyfit(g, L, 4), fine)
+        out[label] = {"s": g, "loss": L, "slope": (L[g.index(1.01)] - L[g.index(0.99)]) / 0.02,
+                      "s_min": float(fine[np.argmin(quartic)])}
+    return out
+
+
+def charge_diagnostics(params, info, rung, structs, scale, w_energy, w_force, chunk, force_mode, tracer):
+    """v0.0.33 (job 9), a learned-charge run's diagnostics: the trace of its charges through Adam (train.fit's
+    trace_fn, here charge_tracer), the pull on their overall scale on every Adam batch (its mean and sd in windows of
+    PULL_WINDOW steps, and over Adam's second half with |mean| / sd), and the objective along their scale with the rest
+    held (scale_curves) at the end of Adam and at the end of training, with the charges there."""
+    g = np.asarray(info.get("scale_gradient", np.zeros(0)), float)
+    half = g[len(g) // 2:]
+    w = [g[i:i + PULL_WINDOW] for i in range(0, len(g), PULL_WINDOW)]
+    pull = {"window": PULL_WINDOW, "mean": [float(np.mean(x)) for x in w], "sd": [float(np.std(x)) for x in w],
+            "second_half": {"steps": [len(g) - len(half), len(g)], "mean": float(np.mean(half)) if len(half) else None,
+                            "sd": float(np.std(half)) if len(half) else None,
+                            "snr": float(abs(np.mean(half)) / np.std(half)) if len(half) > 1 and np.std(half) > 0
+                            else None},
+            "steps": [float(x) for x in g]}
+    states = {"adam": info["params_adam"], "final": params} if "params_adam" in info else {"final": params}
+    curves = scale_curves(states, rung, structs, scale, w_energy, w_force, chunk, force_mode)
+    trace = [{"step": int(st), **v} for st, v in info.get("trace", [])]
+    if trace and "adam" in curves:
+        curves["adam"]["charges"] = {k: v for k, v in trace[-1].items() if k != "step"}
+    curves["final"]["charges"] = tracer(params)
+    return {"frames": None, "trace": trace, "pull": pull, "scale_curve": curves}
+
+
+def charges_lines(name, seed, d):
+    """the job 9 diagnostics as printed by train."""
+    tr = d["trace"]
+    pick = [v for v in tr if v["step"] % 500 == 0 or v is tr[-1]]
+    lines = [f"  {name} seed {seed}: the learned dipole through Adam (D, on the traced frames): "
+             + ", ".join(f"{v['dipole_debye']:.3f} at {v['step']}" for v in pick)]
+    h = d["pull"]["second_half"]
+    if h["mean"] is not None:
+        lines.append(f"  {name} seed {seed}: the pull on the charges' scale over Adam's steps {h['steps'][0]}-"
+                     f"{h['steps'][1]}: {h['mean']:+.4e} +- {h['sd']:.4e} per batch"
+                     + (f" (|mean| / sd {h['snr']:.3f})" if h["snr"] is not None else ""))
+    for label, v in d["scale_curve"].items():
+        lines.append(f"  {name} seed {seed}: the objective along the charges' scale, the rest held ({label}): slope "
+                     f"{v['slope']:+.4e} at s = 1 (dipole {v['charges']['dipole_debye']:.3f} D), its minimum at "
+                     f"s = {v['s_min']:.3f}; " + ", ".join(f"{x:g}: {y:.4e}" for x, y in zip(v["s"], v["loss"])))
+    return lines
+
+
 def gate_status(out_dir, rung, reference="M_inf"):
     """job 6's gate (notes/e4-job6-preregistration.md): seed by seed, whether a rung's final training loss is at or
     below the reference rung's, from the jsons in out_dir. {seed: (passes, loss, reference loss)}; a seed without
@@ -1516,10 +1657,21 @@ def run_train(a):
                                                                  (v["eps_inf_model"], v["eps_inf_truth"]))
                     print(f"  {name}: finite k (held out) {k_line(match['k_before_training'])} on the matched read-out, "
                           f"before training  [{time.time() - t1:.0f} s]", flush=True)
+        extra, tracer = {}, None
+        if CHARGE_LR.get(name, 1.0) != 1.0:                           # job 9: the charge head's own learning rate
+            extra["charge_lr_scale"] = float(CHARGE_LR[name])
+        trc = tr.get("trace")
+        if trc and learns_charges(rung):                              # job 9: the charges traced
+            tracer = charge_tracer(rung, train[:int(trc["frames"])])
+            extra.update(trace_every=int(trc["every"]), trace_fn=tracer, scale_gradient=True, snapshot_adam=True)
         for seed in seeds:
             t0 = time.time()
             print(f"{name} seed {seed}: training on {len(train)} cells (n_max {rung.ewald_n_max}, solver "
-                  f"{rung.bf_solver if rung.bf_mutual else '-'}, forces {tr['loss']['forces']})", flush=True)
+                  f"{rung.bf_solver if rung.bf_mutual else '-'}, forces {tr['loss']['forces']})"
+                  + (f", the charge head's learning rate {extra['charge_lr_scale']:g} times the rest's"
+                     if "charge_lr_scale" in extra else "")
+                  + (f", the charges traced every {extra['trace_every']} steps on {int(trc['frames'])} frames"
+                     if tracer is not None else ""), flush=True)
             ad, lb, ls = tr["adam"], tr["lbfgs"], tr["loss"]
             params, info = T.fit(rung, train, seed=seed, steps=int(ad["steps"]), lr=float(ad["learning_rate"]),
                                  w_energy=float(ls["energy_weight"]), w_force=float(ls["force_weight"]),
@@ -1528,12 +1680,21 @@ def run_train(a):
                                  adam_b2=float(ad["beta2"]), adam_eps=float(ad["epsilon"]), scale=scale,
                                  lbfgs_memory=int(lb["memory_size"]),
                                  lbfgs_max_linesearch_steps=int(lb["max_linesearch_steps"]), readout_init=readout,
-                                 force_mode=ls["forces"], verbose=True)
+                                 force_mode=ls["forces"], verbose=True, **extra)
             t_train = time.time() - t0
             fl = final_loss(params, rung, train, scale, float(ls["energy_weight"]), float(ls["force_weight"]), chunk,
                             ls["forces"])
             print(f"  {name} seed {seed}: final training loss {fl['total']:.4e} (energy {fl['energy']:.3e}, forces "
                   f"{fl['forces']:.3e}) on all {len(train)} cells", flush=True)
+            diag = None
+            if tracer is not None:
+                t1 = time.time()
+                diag = charge_diagnostics(params, info, rung, train, scale, float(ls["energy_weight"]),
+                                          float(ls["force_weight"]), chunk, ls["forces"], tracer)
+                diag["frames"] = int(trc["frames"])
+                for line in charges_lines(name, seed, diag):
+                    print(line, flush=True)
+                print(f"  {name} seed {seed}: the charges' diagnostics  [{time.time() - t1:.0f} s]", flush=True)
             stem = os.path.join(out_dir, f"{name}_seed{seed}")
             with open(stem + ".params.pkl", "wb") as fh:
                 pickle.dump(jax.tree_util.tree_map(np.asarray, params), fh)
@@ -1577,6 +1738,8 @@ def run_train(a):
                       "matching": match, "training": {"time": t_train, "history": info["history"],
                                                       "options": info["training_options"], "final_loss": fl},
                       "readings": rd}
+            if diag is not None:
+                result["training"]["charges"] = diag                  # job 9 (v0.0.33)
             with open(stem + ".json", "w") as fh:
                 json.dump(result, fh, indent=1)
             print(f"  {summary_line(name, seed, rd)}  [{time.time() - t0:.0f} s in all; {stem}.json]", flush=True)

@@ -137,7 +137,8 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         lbfgs_memory=10, lbfgs_scale_init_precond=True, lbfgs_max_linesearch_steps=20,
         lbfgs_readout_only=False, readout_orders="zero", readout_solve_iterations=1, readout_ridge_selection="fixed",
         readout_solve_weights=None, readout_solve_groups=None, lbfgs_freeze_readout=False, readout_first=False,
-        readout_solve_subset=None, readout_solve_w_force=None, readout_init=None, force_mode="atomic"):
+        readout_solve_subset=None, readout_solve_w_force=None, readout_init=None, force_mode="atomic",
+        charge_lr_scale=1.0, trace_every=0, trace_fn=None, scale_gradient=False, snapshot_adam=False):
     """train one model; returns (params, info).  The band-field read-out (when the rung has one) is held at its
     zero initialisation during the Adam stage unless readout_adam=True, and switched on in the L-BFGS polish: a
     quadratic read-out in the band field spans four orders of magnitude in |E|^2 across a training set with near and
@@ -165,7 +166,15 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     readout_init (v0.0.21, E4): the read-out's parameters matched elsewhere -- on structures of another kind, e.g. the
     open far-field probes of a model trained on periodic cells (scripts/e4_water.py) -- put in place of its
     initialisation and held through Adam and the polish (no solve here; the polish may then be skipped).
-    force_mode: "atomic" (every force component) or "rigid" (each fragment's net force and torque: rigid_force_sums)."""
+    force_mode: "atomic" (every force component) or "rigid" (each fragment's net force and torque: rigid_force_sums).
+
+    v0.0.33 (E4 job 9), for rungs with learned charges: charge_lr_scale, the charge head's own learning rate (its layers
+    and species offsets, model.charge_labels) as a multiple of lr, on the same cosine schedule; 1 is the single Adam as
+    before.  The charges' diagnostics: trace_fn(params) (any host-side reading, e.g. the learned dipole) at every
+    trace_every-th Adam step from the start and after the last (info["trace"]: [(step, reading), ...]);
+    scale_gradient, every Adam step's pull on the charges' overall scale on its batch (model.charge_scale_slope,
+    info["scale_gradient"]); snapshot_adam, the parameters at the end of Adam, before any solve or polish
+    (info["params_adam"]).  None of them changes the training."""
     _integer_option("seed", seed)
     _integer_option("steps", steps)
     _integer_option("lbfgs_steps", lbfgs_steps)
@@ -217,6 +226,15 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     if readout_first and (readout_adam or not lbfgs_freeze_readout or readout_solve_subset is None):
         raise ValueError("readout_first solves the read-out on readout_solve_subset before Adam and keeps it: it needs "
                          "the read-out frozen in Adam and in the polish (lbfgs_freeze_readout)")
+    _finite_option("charge_lr_scale", charge_lr_scale, positive=True)
+    _integer_option("trace_every", trace_every)
+    if (trace_every > 0) != (trace_fn is not None):
+        raise ValueError("trace_every > 0 and trace_fn go together")
+    for name, value in (("scale_gradient", scale_gradient), ("snapshot_adam", snapshot_adam)):
+        if not isinstance(value, (bool, np.bool_)):
+            raise ValueError(f"{name} must be a boolean")
+    if (charge_lr_scale != 1.0 or scale_gradient) and not (rung.charges and not rung.pin_q and not rung.msites):
+        raise ValueError("charge_lr_scale and scale_gradient act on learned charges: a rung whose charges are learned")
     if len(structures) == 0:
         raise ValueError("training structures must not be empty")
     if force_mode not in FORCE_MODES:
@@ -251,7 +269,12 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     n_data = len(structures)
     batch_size = n_data if batch_size is None else batch_size
     sched = optax.cosine_decay_schedule(lr, max(steps, 1), alpha=lr_final_ratio)
-    opt = optax.adam(sched, b1=adam_b1, b2=adam_b2, eps=adam_eps, eps_root=adam_eps_root)
+    adam = lambda sch: optax.adam(sch, b1=adam_b1, b2=adam_b2, eps=adam_eps, eps_root=adam_eps_root)
+    if charge_lr_scale != 1.0:                                    # v0.0.33: the charge head's own learning rate
+        sched_q = optax.cosine_decay_schedule(lr * charge_lr_scale, max(steps, 1), alpha=lr_final_ratio)
+        opt = optax.multi_transform({"charge": adam(sched_q), "rest": adam(sched)}, M.charge_labels)
+    else:
+        opt = adam(sched)
     if gradient_clip_norm is not None:
         opt = optax.chain(optax.clip_by_global_norm(gradient_clip_norm), opt)
     state = opt.init(params)
@@ -261,12 +284,13 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         (l, parts), g = jax.value_and_grad(loss_fn, has_aux=True)(params, batch)
         if freeze_readout:
             g = {**g, "readout": jax.tree_util.tree_map(jnp.zeros_like, g["readout"])}
+        gs = M.charge_scale_slope(params, g) if scale_gradient else jnp.zeros(())
         upd, state = opt.update(g, state, params)
         if freeze_readout:
             upd = {**upd, "readout": jax.tree_util.tree_map(jnp.zeros_like, upd["readout"])}
-        return optax.apply_updates(params, upd), state, l, parts
+        return optax.apply_updates(params, upd), state, l, parts, gs
 
-    t0 = time.time(); hist = []
+    t0 = time.time(); hist = []; trace = []; pulls = []
     solve = None
 
     def run_solve(params):
@@ -308,11 +332,23 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     for it in range(steps):
         idx = rng.choice(n_data, size=min(batch_size, n_data), replace=False) if batch_size < n_data else np.arange(n_data)
         batch = {k: v[idx] for k, v in data.items()}
-        params, state, l, parts = step(params, state, batch)
+        if trace_every > 0 and it % trace_every == 0:
+            trace.append((it, trace_fn(params)))
+        params, state, l, parts, gs = step(params, state, batch)
+        if scale_gradient:
+            pulls.append(gs)                                      # on the device: no synchronisation per step
         if it % max(steps // 10, 1) == 0 or it == steps - 1:
             hist.append((it, float(l), float(parts[0]), float(parts[1])))
             if verbose:
                 print(f"    step {it:5d}  loss {float(l):.3e}  (E {float(parts[0]):.2e}, F {float(parts[1]):.2e})  [{time.time() - t0:.0f} s]", flush=True)
+    extra_info = {}
+    if trace_every > 0:
+        trace.append((steps, trace_fn(params)))
+        extra_info["trace"] = trace
+    if scale_gradient:
+        extra_info["scale_gradient"] = np.asarray(jnp.stack(pulls)) if pulls else np.zeros(0)
+    if snapshot_adam:
+        extra_info["params_adam"] = params
     if linear_solve and not readout_first:
         # the read-out's output layers are linear in the energies and forces: set them to the weighted least-squares
         # optimum of the objective given the Adam-trained rest of the model (sseft.linear), then polish everything
@@ -339,6 +375,10 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         options["readout_init"] = True                       # matched elsewhere and held (lbfgs_freeze_readout below)
     if force_mode != "atomic":
         options["force_mode"] = force_mode
+    if charge_lr_scale != 1.0:
+        options["charge_lr_scale"] = float(charge_lr_scale)
+    if trace_every > 0:
+        options["trace_every"] = int(trace_every)
     if (readout_orders, readout_solve_iterations, readout_ridge_selection, lbfgs_freeze_readout, readout_first) != \
             ("zero", 1, "fixed", False, False) or readout_solve_weights is not None or readout_solve_subset is not None \
             or readout_solve_w_force is not None:
@@ -352,7 +392,7 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         if solve is not None and hasattr(solve, "ridge"):
             options["readout_solve_ridge"] = [float(r) for r in solve.ridge]
     return params, {"scale": scale, "history": hist, "time": time.time() - t0, "readout_solve": solve,
-                    "training_options": options}
+                    "training_options": options, **extra_info}
 
 
 def polish_lbfgs(params, f, steps, verbose=False, learning_rate=None, memory_size=10,

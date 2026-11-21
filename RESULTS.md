@@ -1985,3 +1985,60 @@ not eleven.
   bulk forces or in the far probes, which read the non-additive error.
 - **Reproduced:** M_16pm_us matches job 2 to the printed digit; the dagger and M_1pm agree with job 7.
 - **Not read:** S1's MD ran the old D′ and dagger (band at 0.75 Å); E3's daggers carry the same band.
+
+## v0.0.33, 21 Nov — job 9 pre-registered: why the learned charges stop short, and the charge head's own learning rate (`notes/e4-job9-preregistration.md`)
+
+**Why:** job 7's learned charges moved 25–45 % of the way to the data's scale and stopped. Where they stopped, the
+profile (job 7's scan) is steep. Two hypotheses:
+
+- **H_N, noise:** the pull is there, buried in batch noise, and the schedule's decay froze the charges.
+- **H_L, lock-in:** E₀, which reaches the whole training cell, built a basin around the charges it had.
+
+**What changes, before any run:**
+
+- **`train.fit(charge_lr_scale=k)`:** the charge head (its layers and species offsets, `model.charge_labels`) at k times
+  the learning rate; the rest of the model's updates the default's, digit for digit.
+- **The diagnostics,** which change nothing in the training:
+  - `trace_fn`, `scale_gradient` and `snapshot_adam` in `train.fit`;
+  - `model.scale_learned_charges` and `model.charge_scale_slope`, the charges' overall scale and the pull on it;
+  - `e4_water.charge_tracer` and `charge_diagnostics`, with `training.trace` in the config: the learned dipole through
+    Adam, the pull on every batch, and the objective along the scale with the rest held at the end of Adam and of
+    training.
+- **The rungs:** M_1x050, M_1x150 and M_1x000, job 7's warm starts and a start near zero at ten times the charge head's
+  learning rate (`e4_water.CHARGE_LR`). Job 7's M_1w050 and M_1w150 run again beside them, traced.
+- **`scripts/e4_job9.py`** reads K9.1–K9.5; `scripts/e4_sumrules.py read --job9_dir` reads K9.6.
+
+**Registered** (the profile: job 7's scan, parabola minimum c* = 1.098, 2.047 D):
+
+| | reading | band |
+|---|---|---|
+| K9.1 | job 7's warm starts again: R, the slope along the charges' scale with the rest held over the profile's | [0.5, 2] on 3 of 4 (H_N); \|R\| ≤ 0.25 on 3 of 4 is H_L |
+| K9.2 | the same: the pull's \|mean\| / sd over Adam's second half | ≤ 0.3 on 3 of 4 |
+| K9.3 | the warm starts at ten times: their dipoles | within ±15 % of their mean; the gate |
+| K9.4 | their mean against c* | within ±10 % |
+| K9.5 | their forces against the scan's lowest | at most +7 % |
+| K9.6 | their \|b_T\| on S0's first shells | 1.22–1.40 on 3 of 4 |
+
+**The synthetic check:** at ten times, the warm starts end at 1.01 and 1.03 of the teacher's dipole (job 7's learning
+rate: 0.95 and 1.10). The start near zero reaches 0.93, sign flipped. The final losses are not lower, so K9.5 reads the
+forces' cost.
+
+```sh
+mkdir -p results/e4_job9 logs logs_error && sbatch run_e4_job9.sbatch    # 2 GPU tasks of 5 runs, 3 h each
+python scripts/e4_job9.py --out_dir results/e4_job9 --job7_dir results/e4_job7 --job6_dir results/e4_job6
+python scripts/e4_sumrules.py read --gate_dir results/e4_job6 --job7_dir results/e4_job7 --job9_dir results/e4_job9
+python scripts/e4_water.py summary --out_dir results/e4_job9
+```
+
+**Tests:** `tests/test_job9.py`, 6 tests:
+
+- the charges' overall scale and the pull on it, against a central difference;
+- the charge head's own learning rate (ten times its first step, the rest's digit for digit), the diagnostics changing
+  nothing, and the refusals;
+- the rungs and config against job 7's;
+- the driver's records;
+- K9.1–K9.5 and their branches;
+- K9.6, and the S0 read printing it.
+
+With job 6's, job 7's and job 8's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 166
+tests pass and 1 is skipped.

@@ -75,6 +75,10 @@ JOB6_PREFIX, JOB6_CONTROL, JOB6_SIZES, JOB6_MIN_SEEDS, JOB6_CONVERGED = "M_1u_s"
 # job 6's L1.2 band on the same shells, on at least JOB7_MIN_RUNS of the six runs; read when they converged (J7.4, from
 # the training jsons in --job7_dir: scripts/e4_job7.py's convergence)
 JOB7_PATTERN, JOB7_MIN_RUNS = r"M_1w\d{3}_s\d+", 4
+# job 9 (v0.0.33; notes/e4-job9-preregistration.md): K9.6, the same reading for the warm starts at ten times the charge
+# head's learning rate (model_M_1x050_s<seed>, model_M_1x150_s<seed>), at least JOB9_MIN_RUNS of the four, read when they
+# converged (K9.3, scripts/e4_job9.py's convergence from the training jsons in --job9_dir)
+JOB9_PATTERN, JOB9_MIN_RUNS = r"M_1x(050|150)_s\d+", 3
 
 
 # ---------------------------------------------------------------- the frames ----------------------------------------
@@ -599,8 +603,18 @@ def evaluate_job7(sizes, conv):
     """J7.6 (job 7) from read_size's readings: every warm-started run's |b_T| on the first shells of 128 and 256 in
     L1.2's band.  Holds when the runs converged (conv: scripts/e4_job7.py's convergence, J7.4, holds) and at least
     JOB7_MIN_RUNS are in the band at both shells; not read when J7.4 does not hold.  {} without such files."""
+    return _learned_in_band(sizes, conv, "J7.6", JOB7_PATTERN, JOB7_MIN_RUNS, "J7.4", "six")
+
+
+def evaluate_job9(sizes, conv):
+    """K9.6 (job 9): J7.6's reading for the warm starts at ten times the charge head's learning rate, at least
+    JOB9_MIN_RUNS of the four; read when K9.3 (scripts/e4_job9.py's convergence) holds."""
+    return _learned_in_band(sizes, conv, "K9.6", JOB9_PATTERN, JOB9_MIN_RUNS, "K9.3", "four")
+
+
+def _learned_in_band(sizes, conv, name, pattern, min_runs, gate, of):
     labels = sorted({lab for n in JOB6_SIZES if n in sizes for lab in sizes[n]["shells"]["100"]["candidates"]
-                     if re.fullmatch(JOB7_PATTERN, lab)})
+                     if re.fullmatch(pattern, lab)})
     if not labels:
         return {}
     lo, hi = JOB6_BANDS["L1.2"]
@@ -618,10 +632,11 @@ def evaluate_job7(sizes, conv):
         if inside:
             ok.append(lab)
     converged = (conv or {}).get("holds")
-    verdict = ("holds" if len(ok) >= JOB7_MIN_RUNS else "FAILS") if converged is True else \
-        ("not read (J7.4 does not hold)" if converged is False else "not read (J7.4 not read)")
-    return {"J7.6": {"values": values, "band": [lo, hi], "runs_in_band": ok, "converged": converged, "verdict": verdict,
-                     "holds": bool(converged is True and len(ok) >= JOB7_MIN_RUNS)}}
+    verdict = ("holds" if len(ok) >= min_runs else "FAILS") if converged is True else \
+        (f"not read ({gate} does not hold)" if converged is False else f"not read ({gate} not read)")
+    return {name: {"values": values, "band": [lo, hi], "runs_in_band": ok, "converged": converged, "verdict": verdict,
+                   "holds": bool(converged is True and len(ok) >= min_runs), "min_runs": min_runs, "of": of,
+                   "gate_name": gate}}
 
 
 def tie_reading(c_iso, tie):
@@ -683,6 +698,11 @@ def run_read(a):
     if j7 is not None:                                                                    # job 7 (v0.0.31)
         import e4_job7 as J7
         bands.update(evaluate_job7(sizes, J7.convergence(J7.load_runs(j7), J7.load_runs(gd))))
+    j9 = getattr(a, "job9_dir", None)
+    if j9 is not None:                                                                    # job 9 (v0.0.33)
+        import e4_job7 as J7
+        import e4_job9 as J9
+        bands.update(evaluate_job9(sizes, J9.convergence(J7.load_runs(j9), J7.load_runs(j7), J7.load_runs(gd))))
     pm = lambda v, d=3: f"{v[0]:.{d}f} +- {v[1]:.{d}f}"
     print(f"E4, S0: the polarisation sum rules on MB-pol's trajectories (notes/e4-s0-preregistration.md), {T_K:g} K, "
           f"blocks of {a.block} frames")
@@ -708,8 +728,9 @@ def run_read(a):
                   + f"; in the band at both shells and through the gate: seeds {b['seeds_in_band'] or 'none'} "
                     f"(at least {JOB6_MIN_SEEDS} needed)")
         if "runs_in_band" in b:
-            print(f"      in the band at both shells: {', '.join(b['runs_in_band']) or 'none'} (at least {JOB7_MIN_RUNS} "
-                  f"of the six needed; J7.4 from {getattr(a, 'job7_dir', None)}: "
+            src = getattr(a, "job9_dir" if b["gate_name"] == "K9.3" else "job7_dir", None)
+            print(f"      in the band at both shells: {', '.join(b['runs_in_band']) or 'none'} (at least {b['min_runs']} "
+                  f"of the {b['of']} needed; {b['gate_name']} from {src}: "
                   f"{ {True: 'holds', False: 'does not hold', None: 'not read'}[b['converged']] })")
         if b.get("control_means"):
             print("      the control M_1uc (convergence of the learned scale, within "
@@ -803,6 +824,7 @@ def main():
     m.add_argument("--json", default="results/e4_s0/s0.json")
     m.add_argument("--gate_dir", default="results/e4_job6", help="job 6's training jsons, for its gate (L1.1)")
     m.add_argument("--job7_dir", default="results/e4_job7", help="v0.0.31: job 7's training jsons, for J7.4 (J7.6)")
+    m.add_argument("--job9_dir", default=None, help="v0.0.33: job 9's training jsons, for K9.3 (K9.6)")
     m.add_argument("--block", type=int, default=BLOCK)
     a = ap.parse_args()
     {"mbpol": run_mbpol, "model": run_model, "read": run_read}[a.cmd](a)

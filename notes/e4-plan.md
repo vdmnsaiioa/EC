@@ -525,4 +525,13 @@ code is still open: CP2K, GPAW, VASP or QE.
        - *The response now buys 1–2 % in bulk forces; its case rests on ε_∞, T5 and the far probes.*
        - *Open, not decided: S1's MD ran the old D′ (band at 0.75 Å); E3's daggers carry the same band; the comparison's
          pinned panel should take the damped band; the pressure reader, where the c6 tail should show.*
+     - *Job 9 registered 21 Nov (`e4-job9-preregistration.md`, v0.0.33; Vadic's choice of the learned charges over the
+       baselines, 20 Nov): why job 7's learned charges stopped short of the data's scale, and the charge head's own
+       learning rate (J7.4's registered branch).*
+       - *K9.1–K9.2 on job 7's warm starts again, traced: R, the slope along the charges' scale with the rest held over
+         the profile's (job 7's scan), and the pull's batch-to-batch ratio. Noise (H_N) predicts R ≈ 1 and a small
+         ratio; lock-in by E₀ (H_L) predicts R ≈ 0.*
+       - *K9.3–K9.6 on the warm starts at ten times the charge head's learning rate: convergence, the profile's minimum
+         (2.047 D), the scan's forces, the lemma's |b_T|. The start near zero beside them.*
+       - *Two tasks of five runs, 3 h each.*
 7. **The L₀ sweep** (Form II).

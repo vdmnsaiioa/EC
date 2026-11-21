@@ -509,6 +509,34 @@ def with_rung(rung: Rung, **kw):
     return replace(rung, **kw)
 
 
+# v0.0.33 (E4 job 9): the learned charges' overall scale.  The charge head's last layer is linear (heads.charges:
+# q = unit (W h + b + q_ref[Z]) less the neutrality shift, which is linear in them), so multiplying W, b and q_ref by s
+# multiplies every learned charge by s, on every atom and in every environment, and leaves the rest of the model alone.
+def charge_labels(params):
+    """the parameters' labels: "charge" for the charge head and its species offsets (heads.charge, heads.q_ref), "rest"
+    for everything else -- the charge head's own learning rate (train.fit's charge_lr_scale)."""
+    labels = jax.tree_util.tree_map(lambda _: "rest", params)
+    h = labels["heads"]
+    return {**labels, "heads": {**h, "charge": jax.tree_util.tree_map(lambda _: "charge", params["heads"]["charge"]),
+                                "q_ref": "charge"}}
+
+
+def scale_learned_charges(params, s):
+    """the parameters with every learned charge times s (the charge head's last layer and the species offsets)."""
+    h = params["heads"]
+    last = h["charge"][-1]
+    return {**params, "heads": {**h, "q_ref": h["q_ref"] * s,
+                                "charge": list(h["charge"][:-1]) + [{"w": last["w"] * s, "b": last["b"] * s}]}}
+
+
+def charge_scale_slope(params, grads):
+    """d/ds of a loss at s = 1 along scale_learned_charges, from its gradient: the sum of theta dL/dtheta over the charge
+    head's last layer and the species offsets -- the pull on the charges' overall scale with the rest of the model held."""
+    h, g = params["heads"], grads["heads"]
+    return (jnp.sum(h["q_ref"] * g["q_ref"]) + jnp.sum(h["charge"][-1]["w"] * g["charge"][-1]["w"])
+            + jnp.sum(h["charge"][-1]["b"] * g["charge"][-1]["b"]))
+
+
 def induced_dipole(params, rung: Rung, b):
     """the cell's (or cluster's) induced dipole, -dE/dE_ext at b["E_ext"] (the read-out's response; clamped nuclei)."""
     return -jax.grad(lambda ext: energy_single(params, rung, {**b, "E_ext": ext})[0])(b["E_ext"])

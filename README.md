@@ -631,6 +631,29 @@ It ran as three tasks on 14-hour allocations. Read 20 Nov (`notes/e4-job8-result
   0.487 kcal/mol/Å, 12 % below D′ and 47 % below M_∞, with D′'s ε_∞, far probes and T5.
 - **The response now buys 1–2 % in bulk forces;** its case rests on the infrared.
 
+**Job 9** (`notes/e4-job9-preregistration.md`, v0.0.33) asks why job 7's learned charges stopped short of the data's
+scale, and whether the charge head's own learning rate gets them there.
+
+- **The diagnostics** (`training.trace`; `train.fit`'s `trace_fn`, `scale_gradient`, `snapshot_adam`;
+  `e4_water.charge_diagnostics`), which change nothing in the training:
+  - the learned dipole through Adam;
+  - the pull on the charges' overall scale on every batch (`model.charge_scale_slope`);
+  - the objective along that scale with the rest held, at the end of Adam and of training
+    (`model.scale_learned_charges`).
+- **The fix:** the charge head at ten times the rest's learning rate (`train.fit(charge_lr_scale=10)`), from 0.5 and
+  1.5 times the O/H charges and from near zero (M_1x050, M_1x150, M_1x000). Job 7's warm starts run again beside them,
+  traced.
+- **K9.1–K9.6:**
+  - K9.1–K9.2 diagnose: is the pull there (R against job 7's scan as the profile), and buried in batch noise?
+  - K9.3–K9.6 ask whether the fix converges, to the data's scale, buys the scan's forces, and reads the lemma's |b_T|.
+
+```sh
+sbatch run_e4_job9.sbatch                  # 2 GPU tasks of 5 runs, 3 h each
+python scripts/e4_job9.py --out_dir results/e4_job9 --job7_dir results/e4_job7 --job6_dir results/e4_job6   # K9.1-K9.5
+python scripts/e4_sumrules.py read --gate_dir results/e4_job6 --job7_dir results/e4_job7 --job9_dir results/e4_job9  # K9.6
+python scripts/e4_water.py summary --out_dir results/e4_job9
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's
