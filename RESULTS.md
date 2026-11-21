@@ -2074,3 +2074,50 @@ tests pass and 1 is skipped.
 - **Proposed next, not registered:**
   - follow the valley: a long full-batch L-BFGS from the saved end states;
   - make it shallower: the charges' band with its own edge, as `Rung.disp_l` for c6, with its own scan.
+
+## v0.0.34, 21 Nov — job 10 pre-registered: following the valley, job 7's end states polished with L-BFGS (`notes/e4-job10-preregistration.md`)
+
+**Why:** job 9 found the learned charges' scale in a valley 7,000–19,000 times steeper with E₀ held than along the
+profile, which Adam crawls. Job 9's 50 full-batch L-BFGS steps moved every run toward the data's scale, covering 2–9 % of
+the distance. Two hypotheses:
+
+- **H_O, the optimiser:** the valley leads to c*.
+- **H_M, minima of its own:** a full-batch optimiser stalls short of it.
+
+**What changes, before any run:**
+
+- **`train.fit(params_init=...)` and `training.start_from`:** a run starts from a trained run's parameters (job 7's, by
+  rung and seed). A start whose json records another model is refused.
+- **`train.fit(lbfgs_trace_every=...)`, `polish_lbfgs`'s trace and `training.trace.lbfgs_every`:** the learned charges
+  and the objective through the polish. The trace changes nothing.
+- **`configs/e4_job10.yaml`:** no Adam, 1000 L-BFGS steps, from `results/e4_job7`. The rungs are M_1w050, M_1w100,
+  M_1w150 and the control M_1q110; seeds 0 and 1.
+- **`scripts/e4_job10.py`** reads K10.1–K10.4; `scripts/e4_sumrules.py read --job10_dir` reads K10.5.
+
+**Registered** (target c* = 1.098, 2.047 D, job 7's profile):
+
+| | reading | band |
+|---|---|---|
+| K10.1 | the four off-scale starts: the share of the way to c* covered | ≥ 0.25 on each |
+| K10.2 | the six polished warm starts' dipoles | within ±15 % of their mean; the gate |
+| K10.3 | their mean against c* | within ±10 % |
+| K10.4 | their forces against the polished control's | at most +7 % |
+| K10.5 | their \|b_T\| on S0's first shells | 1.22–1.40 on 4 of 6 |
+
+```sh
+mkdir -p results/e4_job10 logs logs_error && sbatch run_e4_job10.sbatch    # 2 GPU tasks of 4 runs, 14 h each
+python scripts/e4_job10.py --out_dir results/e4_job10 --job7_dir results/e4_job7 --job6_dir results/e4_job6
+python scripts/e4_sumrules.py read --gate_dir results/e4_job6 --job7_dir results/e4_job7 --job10_dir results/e4_job10
+python scripts/e4_water.py summary --out_dir results/e4_job10
+```
+
+**Tests:** `tests/test_job10.py`, 5 tests:
+
+- the start from given parameters and the polish's trace, against the full-batch objective, changing nothing;
+- the driver's start from a trained run and its records, and the refusal of another model's start;
+- the config against job 7's;
+- K10.1–K10.4 and their edges;
+- K10.5.
+
+With job 6's to job 9's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 171 tests pass
+and 1 is skipped.

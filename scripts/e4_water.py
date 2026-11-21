@@ -196,8 +196,13 @@ DEFAULTS = {
         "readout": {"orders": "all", "solve_iterations": 4, "ridge": 1.0e-8, "ridge_selection": "groups",
                     "solve_chunk": 64, "liquid": None, "finite_k": None, "held_from": None},
         # v0.0.33 (job 9): the learned charges traced through training (charge_diagnostics); None: off.
-        # {every: the trace's interval in Adam steps, frames: the training frames it reads}
+        # {every: the trace's interval in Adam steps, frames: the training frames it reads; v0.0.34 lbfgs_every: the
+        # interval in L-BFGS steps, 0 or absent: off}
         "trace": None,
+        # v0.0.34 (job 10): {dir: a results directory} -- every run starts from that directory's run of the same rung and
+        # seed (<dir>/<rung>_seed<seed>.params.pkl; its json's model record must be the rung's) instead of the seed's
+        # initialisation (train.fit's params_init); None: off
+        "start_from": None,
     },
     "probes": {"distances_angstrom": [8.0, 10.0, 12.0, 15.0], "train_per_distance": 2, "train_cores": 16,
                "train_core_sizes": [3, 4, 5], "test_per_distance": 10, "test_cores": 2, "seed": 400, "mc_steps": 300,
@@ -1540,13 +1545,19 @@ def charge_diagnostics(params, info, rung, structs, scale, w_energy, w_force, ch
                             "snr": float(abs(np.mean(half)) / np.std(half)) if len(half) > 1 and np.std(half) > 0
                             else None},
             "steps": [float(x) for x in g]}
-    states = {"adam": info["params_adam"], "final": params} if "params_adam" in info else {"final": params}
+    first = "start" if info["training_options"]["steps"] == 0 else "adam"   # v0.0.34: no Adam, the start's state
+    states = {first: info["params_adam"], "final": params} if "params_adam" in info else {"final": params}
     curves = scale_curves(states, rung, structs, scale, w_energy, w_force, chunk, force_mode)
     trace = [{"step": int(st), **v} for st, v in info.get("trace", [])]
-    if trace and "adam" in curves:
-        curves["adam"]["charges"] = {k: v for k, v in trace[-1].items() if k != "step"}
+    lbfgs = [{"step": int(st), "objective": val, **v} for st, v, val in info.get("lbfgs_trace", [])]
+    if first in curves and (trace or lbfgs):
+        at = trace[-1] if trace else lbfgs[0]
+        curves[first]["charges"] = {k: v for k, v in at.items() if k not in ("step", "objective")}
     curves["final"]["charges"] = tracer(params)
-    return {"frames": None, "trace": trace, "pull": pull, "scale_curve": curves}
+    out = {"frames": None, "trace": trace, "pull": pull, "scale_curve": curves}
+    if lbfgs:
+        out["lbfgs_trace"] = lbfgs                                  # v0.0.34 (job 10)
+    return out
 
 
 def charges_lines(name, seed, d):
@@ -1554,7 +1565,14 @@ def charges_lines(name, seed, d):
     tr = d["trace"]
     pick = [v for v in tr if v["step"] % 500 == 0 or v is tr[-1]]
     lines = [f"  {name} seed {seed}: the learned dipole through Adam (D, on the traced frames): "
-             + ", ".join(f"{v['dipole_debye']:.3f} at {v['step']}" for v in pick)]
+             + ", ".join(f"{v['dipole_debye']:.3f} at {v['step']}" for v in pick)] if len(tr) > 1 else []
+    lb = d.get("lbfgs_trace", [])
+    if lb:
+        every = max(len(lb) // 8, 1)
+        pick = [v for i, v in enumerate(lb) if i % every == 0 or v is lb[-1]]
+        lines.append(f"  {name} seed {seed}: the learned dipole through the L-BFGS polish (D; the objective): "
+                     + ", ".join(f"{v['dipole_debye']:.3f}" + (f" ({v['objective']:.3e})" if v["objective"] is not None
+                                                                else "") + f" at {v['step']}" for v in pick))
     h = d["pull"]["second_half"]
     if h["mean"] is not None:
         lines.append(f"  {name} seed {seed}: the pull on the charges' scale over Adam's steps {h['steps'][0]}-"
@@ -1664,8 +1682,29 @@ def run_train(a):
         if trc and learns_charges(rung):                              # job 9: the charges traced
             tracer = charge_tracer(rung, train[:int(trc["frames"])])
             extra.update(trace_every=int(trc["every"]), trace_fn=tracer, scale_gradient=True, snapshot_adam=True)
+        if trc and tracer is not None and int(trc.get("lbfgs_every", 0)) > 0:
+            extra["lbfgs_trace_every"] = int(trc["lbfgs_every"])     # job 10: the charges through the polish
+        start = tr.get("start_from")
         for seed in seeds:
             t0 = time.time()
+            init, begin = None, None
+            if start:                                                 # job 10: a trained run's parameters
+                src = os.path.join(start["dir"], f"{name}_seed{seed}")
+                with open(src + ".params.pkl", "rb") as fh:
+                    init = pickle.load(fh)
+                if os.path.exists(src + ".json"):
+                    with open(src + ".json") as fh:
+                        rec = json.load(fh).get("model")
+                    if rec is not None and rec != json.loads(json.dumps(model_record(name, cfg, rung))):
+                        raise ValueError(f"{src}.json was trained as another model: {rec}")
+                begin = {"from": src + ".params.pkl",
+                         "final_loss": final_loss(init, rung, train, scale, float(tr["loss"]["energy_weight"]),
+                                                  float(tr["loss"]["force_weight"]), chunk, tr["loss"]["forces"])}
+                if tracer is not None:
+                    begin["charges"] = tracer(init)
+                print(f"{name} seed {seed}: starting from {begin['from']}, training loss {begin['final_loss']['total']:.4e}"
+                      + (f", learned dipole {begin['charges']['dipole_debye']:.3f} D" if tracer is not None else ""),
+                      flush=True)
             print(f"{name} seed {seed}: training on {len(train)} cells (n_max {rung.ewald_n_max}, solver "
                   f"{rung.bf_solver if rung.bf_mutual else '-'}, forces {tr['loss']['forces']})"
                   + (f", the charge head's learning rate {extra['charge_lr_scale']:g} times the rest's"
@@ -1680,7 +1719,7 @@ def run_train(a):
                                  adam_b2=float(ad["beta2"]), adam_eps=float(ad["epsilon"]), scale=scale,
                                  lbfgs_memory=int(lb["memory_size"]),
                                  lbfgs_max_linesearch_steps=int(lb["max_linesearch_steps"]), readout_init=readout,
-                                 force_mode=ls["forces"], verbose=True, **extra)
+                                 force_mode=ls["forces"], verbose=True, params_init=init, **extra)
             t_train = time.time() - t0
             fl = final_loss(params, rung, train, scale, float(ls["energy_weight"]), float(ls["force_weight"]), chunk,
                             ls["forces"])
@@ -1740,6 +1779,8 @@ def run_train(a):
                       "readings": rd}
             if diag is not None:
                 result["training"]["charges"] = diag                  # job 9 (v0.0.33)
+            if begin is not None:
+                result["training"]["start"] = begin                   # job 10 (v0.0.34)
             with open(stem + ".json", "w") as fh:
                 json.dump(result, fh, indent=1)
             print(f"  {summary_line(name, seed, rd)}  [{time.time() - t0:.0f} s in all; {stem}.json]", flush=True)

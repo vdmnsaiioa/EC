@@ -138,7 +138,8 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         lbfgs_readout_only=False, readout_orders="zero", readout_solve_iterations=1, readout_ridge_selection="fixed",
         readout_solve_weights=None, readout_solve_groups=None, lbfgs_freeze_readout=False, readout_first=False,
         readout_solve_subset=None, readout_solve_w_force=None, readout_init=None, force_mode="atomic",
-        charge_lr_scale=1.0, trace_every=0, trace_fn=None, scale_gradient=False, snapshot_adam=False):
+        charge_lr_scale=1.0, trace_every=0, trace_fn=None, scale_gradient=False, snapshot_adam=False,
+        params_init=None, lbfgs_trace_every=0):
     """train one model; returns (params, info).  The band-field read-out (when the rung has one) is held at its
     zero initialisation during the Adam stage unless readout_adam=True, and switched on in the L-BFGS polish: a
     quadratic read-out in the band field spans four orders of magnitude in |E|^2 across a training set with near and
@@ -174,7 +175,12 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     trace_every-th Adam step from the start and after the last (info["trace"]: [(step, reading), ...]);
     scale_gradient, every Adam step's pull on the charges' overall scale on its batch (model.charge_scale_slope,
     info["scale_gradient"]); snapshot_adam, the parameters at the end of Adam, before any solve or polish
-    (info["params_adam"]).  None of them changes the training."""
+    (info["params_adam"]).  None of them changes the training.
+
+    v0.0.34 (E4 job 10): params_init, a trained model's parameters to start from instead of the seed's initialisation
+    (the seed then draws only Adam's batches); lbfgs_trace_every, trace_fn read at every lbfgs_trace_every-th step of the
+    L-BFGS polish with the objective there, and after the last (info["lbfgs_trace"]: [(step, reading, objective or None
+    after the last), ...])."""
     _integer_option("seed", seed)
     _integer_option("steps", steps)
     _integer_option("lbfgs_steps", lbfgs_steps)
@@ -228,7 +234,12 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
                          "the read-out frozen in Adam and in the polish (lbfgs_freeze_readout)")
     _finite_option("charge_lr_scale", charge_lr_scale, positive=True)
     _integer_option("trace_every", trace_every)
-    if (trace_every > 0) != (trace_fn is not None):
+    _integer_option("lbfgs_trace_every", lbfgs_trace_every)
+    if lbfgs_trace_every > 0 and trace_fn is None:
+        raise ValueError("lbfgs_trace_every needs trace_fn")
+    if trace_fn is not None and trace_every == 0 and lbfgs_trace_every == 0:
+        raise ValueError("trace_fn needs trace_every or lbfgs_trace_every > 0")
+    if trace_every > 0 and trace_fn is None:
         raise ValueError("trace_every > 0 and trace_fn go together")
     for name, value in (("scale_gradient", scale_gradient), ("snapshot_adam", snapshot_adam)):
         if not isinstance(value, (bool, np.bool_)):
@@ -245,6 +256,12 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     key = jax.random.PRNGKey(seed)
     scale = energy_scale(structures) if scale is None else scale
     params = M.init_params(key, rung, energy_scale=scale)
+    if params_init is not None:                                   # v0.0.34: a trained model's parameters to start from
+        ref, new = (jax.tree_util.tree_structure(t) for t in (params, params_init))
+        shapes = lambda t: [np.shape(x) for x in jax.tree_util.tree_leaves(t)]
+        if ref != new or shapes(params) != shapes(params_init):
+            raise ValueError("params_init does not have the rung's parameter structure")
+        params = jax.tree_util.tree_map(lambda x: jnp.asarray(x, jnp.float64), params_init)
     has_readout = "readout" in params
     if readout_init is not None:
         if not has_readout:
@@ -356,9 +373,13 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     if lbfgs_steps > 0:
         f = make_chunked_loss(rung, scale, data, w_energy, w_force, chunk=lbfgs_chunk, force_mode=force_mode)
         extra = {"freeze_readout": True} if lbfgs_freeze_readout and has_readout else {}
+        if lbfgs_trace_every > 0:
+            extra.update(trace_every=lbfgs_trace_every, trace_fn=trace_fn, trace=[])
         params = polish_lbfgs(params, f, lbfgs_steps, verbose, learning_rate=lbfgs_lr,
                               memory_size=lbfgs_memory, scale_init_precond=lbfgs_scale_init_precond,
                               max_linesearch_steps=lbfgs_max_linesearch_steps, readout_only=lbfgs_readout_only, **extra)
+        if lbfgs_trace_every > 0:
+            extra_info["lbfgs_trace"] = extra["trace"]
     options = dict(seed=int(seed), steps=int(steps), lr=float(lr), lr_final_ratio=float(lr_final_ratio),
                    adam_b1=float(adam_b1), adam_b2=float(adam_b2), adam_eps=float(adam_eps),
                    adam_eps_root=float(adam_eps_root),
@@ -379,6 +400,10 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         options["charge_lr_scale"] = float(charge_lr_scale)
     if trace_every > 0:
         options["trace_every"] = int(trace_every)
+    if params_init is not None:
+        options["params_init"] = True                       # started from a trained model's parameters
+    if lbfgs_trace_every > 0:
+        options["lbfgs_trace_every"] = int(lbfgs_trace_every)
     if (readout_orders, readout_solve_iterations, readout_ridge_selection, lbfgs_freeze_readout, readout_first) != \
             ("zero", 1, "fixed", False, False) or readout_solve_weights is not None or readout_solve_subset is not None \
             or readout_solve_w_force is not None:
@@ -396,9 +421,12 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
 
 
 def polish_lbfgs(params, f, steps, verbose=False, learning_rate=None, memory_size=10,
-                 scale_init_precond=True, max_linesearch_steps=20, readout_only=False, freeze_readout=False):
+                 scale_init_precond=True, max_linesearch_steps=20, readout_only=False, freeze_readout=False,
+                 trace_every=0, trace_fn=None, trace=None):
     """f(params) -> scalar loss over the whole data set.  With readout_only, preserve all other parameters; with
-    freeze_readout, preserve the read-out (polish everything else)."""
+    freeze_readout, preserve the read-out (polish everything else).  v0.0.34: with trace_every > 0, (step,
+    trace_fn(params), f(params)) is appended to the list trace at every trace_every-th step, and (steps,
+    trace_fn(params), None) after the last; the polish itself is unchanged."""
     _integer_option("steps", steps)
     _integer_option("memory_size", memory_size, 1)
     _integer_option("max_linesearch_steps", max_linesearch_steps, 1)
@@ -443,10 +471,17 @@ def polish_lbfgs(params, f, steps, verbose=False, learning_rate=None, memory_siz
         elif freeze_readout:
             new = {**new, "readout": frozen["readout"]}
         return new, state, value
+    if trace_every > 0 and (trace_fn is None or trace is None):
+        raise ValueError("trace_every needs trace_fn and a list trace")
     for it in range(steps):
+        reading = trace_fn(params) if trace_every > 0 and it % trace_every == 0 else None
         params, state, value = step(params, state)
+        if reading is not None:
+            trace.append((it, reading, float(value)))         # value: the objective at the parameters read
         if verbose and (it % max(steps // 5, 1) == 0 or it == steps - 1):
             print(f"    lbfgs {it:4d}  loss {float(value):.3e}", flush=True)
+    if trace_every > 0:
+        trace.append((steps, trace_fn(params), None))
     return params
 
 

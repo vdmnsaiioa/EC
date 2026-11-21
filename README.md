@@ -666,6 +666,24 @@ It ran as the two registered tasks. Read 21 Nov (`notes/e4-job9-results.md`):
 - **Proposed next:** follow the valley with a long full-batch L-BFGS, or make it shallower with the charges' band
   damped at contact.
 
+**Job 10** (`notes/e4-job10-preregistration.md`, v0.0.34) follows the valley: job 7's end states polished with 1000
+L-BFGS steps on every training frame, no Adam.
+
+- **A start from a trained run** (`training.start_from`, `train.fit(params_init=...)`): each run starts from job 7's run
+  of the same rung and seed; a json recording another model is refused.
+- **The charges traced through the polish** (`training.trace.lbfgs_every`, `train.fit(lbfgs_trace_every=...)`).
+- **The runs:** job 7's warm starts M_1w050, M_1w100, M_1w150, and the control M_1q110 (the pinned O/H charges at the
+  scan's best scale), seeds 0 and 1.
+- **K10.1–K10.5:** whether the off-scale starts keep moving toward c* (2.047 D), whether the six converge there, at the
+  polished control's forces and the lemma's |b_T|.
+
+```sh
+sbatch run_e4_job10.sbatch                 # 2 GPU tasks of 4 runs, 14 h each
+python scripts/e4_job10.py --out_dir results/e4_job10 --job7_dir results/e4_job7 --job6_dir results/e4_job6   # K10.1-K10.4
+python scripts/e4_sumrules.py read --gate_dir results/e4_job6 --job7_dir results/e4_job7 --job10_dir results/e4_job10  # K10.5
+python scripts/e4_water.py summary --out_dir results/e4_job10
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

@@ -545,4 +545,11 @@ code is still open: CP2K, GPAW, VASP or QE.
          the starts near zero fail the gate.*
        - *Proposed: a long full-batch L-BFGS from the saved end states; or the charges' band damped at contact, with
          its own scan (E3's rehearsal found that contact part essential for pinned charges with the response).*
+     - *Job 10 registered 21 Nov (`e4-job10-preregistration.md`, v0.0.34; Vadic's choice of option (a)): job 7's end
+       states (M_1w050, M_1w100, M_1w150, and the control M_1q110) polished with 1000 L-BFGS steps on every training
+       frame, no Adam, the charges traced every 25 steps.*
+       - *K10.1: each off-scale start covers at least a quarter of its way to c* (H_O, the optimiser, against H_M,
+         minima of its own). K10.2–K10.3: the six converge, at c*. K10.4: forces within 7 % of the polished control.
+         K10.5: the lemma's |b_T|.*
+       - *Two tasks of four runs, 14 h each.*
 7. **The L₀ sweep** (Form II).
