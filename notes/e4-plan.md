@@ -552,4 +552,13 @@ code is still open: CP2K, GPAW, VASP or QE.
          minima of its own). K10.2–K10.3: the six converge, at c*. K10.4: forces within 7 % of the polished control.
          K10.5: the lemma's |b_T|.*
        - *Two tasks of four runs, 14 h each.*
+     - *Job 10 read 22 Nov (`e4-job10-results.md`), run as the registered two tasks (1.7–2.1 h a run).*
+       - *K10.1 holds (35–85 % of the way); K10.2 fails narrowly (−20.7 to +15.1 %); K10.3 and K10.5 not read; K10.4
+         holds.*
+       - *From above the charges reach c* within 3–7 %; from below they slow 20–27 % short while the objective keeps
+         falling. The optimiser was the larger part of the obstacle, not all of it.*
+       - *The control M_1q110 loses 12 % of its forces to the long polish, without over-fitting: the standard training is
+         under-converged for every model. Learned charges near c* then beat the pinned O/H charges by about 6 %.*
+       - *Proposed: the scan polished (the profile's minimum under a long polish) with the low side continued; the long
+         polish for E4's model, first on the field-term dagger.*
 7. **The L₀ sweep** (Form II).

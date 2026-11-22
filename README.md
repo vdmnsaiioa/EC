@@ -684,6 +684,16 @@ python scripts/e4_sumrules.py read --gate_dir results/e4_job6 --job7_dir results
 python scripts/e4_water.py summary --out_dir results/e4_job10
 ```
 
+It ran as the two registered tasks. Read 22 Nov (`notes/e4-job10-results.md`):
+
+- **K10.1 holds; K10.2 fails, narrowly; K10.4 holds.** Full-batch L-BFGS moved the off-scale charges 35–85 % of the
+  way to c*: from above they arrived (3–7 % above), from below they slowed 20–27 % short.
+- **The long polish alone takes 12 % off the pinned control's forces,** without over-fitting: job 7's training is
+  under-converged for every model.
+- **Learned charges near c* now beat the pinned O/H charges by about 6 %** (0.491 kcal/mol/Å at 64 molecules).
+- **Proposed next:** the scan polished for its own minimum, with the low side continued; the long polish for E4's
+  model.
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

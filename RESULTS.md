@@ -2121,3 +2121,29 @@ python scripts/e4_water.py summary --out_dir results/e4_job10
 
 With job 6's to job 9's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 171 tests pass
 and 1 is skipped.
+
+## v0.0.34, read 22 Nov — job 10: full-batch L-BFGS moves the learned charges most of the way, from above to c*, from below short; the long polish alone takes 12 % off the forces (`notes/e4-job10-results.md`)
+
+**The job ran** as the registered two tasks of four runs (1.7–2.1 h a run, 7.4–7.6 h a task).
+
+| | band | Niflheim | |
+|---|---|---|---|
+| K10.1 | each off-scale start ≥ 25 % of its way to 2.047 D | 35, 45 % (from 0.5); 85, 73 % (from 1.5) | holds |
+| K10.2 | the six within ±15 % of their mean; the gate | −20.7 to +15.1 % | fails, narrowly |
+| K10.3 | their mean within ±10 % of 2.047 D | 1.897 D, −7.3 % | not read |
+| K10.4 | their forces ≤ +7 % above the polished control's | +5.7 to +6.6 % | holds |
+| K10.5 | \|b_T\| in band on 4 of 6 | 3 of 6 | not read |
+
+- **The optimiser was the larger part of the obstacle.** 1000 full-batch L-BFGS steps moved the off-scale charges 35–85 %
+  of the way, against Adam's 25–45 % in 3000 steps.
+- **From above they arrived** (3 % and 7 % above c*). **From below they slowed 20–27 % short,** to 4–7 % of the remaining
+  distance per 250 steps, while the objective kept falling. The ends still depend on the start.
+- **The control:** the long polish takes 12 % off the pinned M_1q110's forces (0.592 → 0.520 at 64) without over-fitting.
+  Job 7's training was under-converged for every model.
+- **Learned charges near c* (M_1w100) now beat the pinned O/H charges by 5.4–5.7 %:** 0.491 / 0.507 / 0.510, within
+  3–5 % of E4's model, which has not had the long polish.
+- **The target is a short-polish reading:** where the profile's minimum sits under a long polish is unknown.
+- **Proposed next, not registered:**
+  - the scan polished the same way, with the low side continued;
+  - the long polish for E4's model, first on the field-term dagger;
+  - the charges' band with its own edge, if the low side stops.
