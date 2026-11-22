@@ -139,7 +139,7 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         readout_solve_weights=None, readout_solve_groups=None, lbfgs_freeze_readout=False, readout_first=False,
         readout_solve_subset=None, readout_solve_w_force=None, readout_init=None, force_mode="atomic",
         charge_lr_scale=1.0, trace_every=0, trace_fn=None, scale_gradient=False, snapshot_adam=False,
-        params_init=None, lbfgs_trace_every=0):
+        params_init=None, lbfgs_trace_every=0, lbfgs_max_seconds=None):
     """train one model; returns (params, info).  The band-field read-out (when the rung has one) is held at its
     zero initialisation during the Adam stage unless readout_adam=True, and switched on in the L-BFGS polish: a
     quadratic read-out in the band field spans four orders of magnitude in |E|^2 across a training set with near and
@@ -180,7 +180,10 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     v0.0.34 (E4 job 10): params_init, a trained model's parameters to start from instead of the seed's initialisation
     (the seed then draws only Adam's batches); lbfgs_trace_every, trace_fn read at every lbfgs_trace_every-th step of the
     L-BFGS polish with the objective there, and after the last (info["lbfgs_trace"]: [(step, reading, objective or None
-    after the last), ...])."""
+    after the last), ...]).
+
+    v0.0.35 (E4 job 11): lbfgs_max_seconds, a wall-clock budget for the L-BFGS polish -- it stops after the step that
+    exceeds it, and the options record the steps it took (lbfgs_steps_done)."""
     _integer_option("seed", seed)
     _integer_option("steps", steps)
     _integer_option("lbfgs_steps", lbfgs_steps)
@@ -235,6 +238,8 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     _finite_option("charge_lr_scale", charge_lr_scale, positive=True)
     _integer_option("trace_every", trace_every)
     _integer_option("lbfgs_trace_every", lbfgs_trace_every)
+    if lbfgs_max_seconds is not None:
+        _finite_option("lbfgs_max_seconds", lbfgs_max_seconds, positive=True)
     if lbfgs_trace_every > 0 and trace_fn is None:
         raise ValueError("lbfgs_trace_every needs trace_fn")
     if trace_fn is not None and trace_every == 0 and lbfgs_trace_every == 0:
@@ -375,6 +380,9 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         extra = {"freeze_readout": True} if lbfgs_freeze_readout and has_readout else {}
         if lbfgs_trace_every > 0:
             extra.update(trace_every=lbfgs_trace_every, trace_fn=trace_fn, trace=[])
+        lbfgs_stats = {}
+        if lbfgs_max_seconds is not None:
+            extra.update(max_seconds=float(lbfgs_max_seconds), stats=lbfgs_stats)
         params = polish_lbfgs(params, f, lbfgs_steps, verbose, learning_rate=lbfgs_lr,
                               memory_size=lbfgs_memory, scale_init_precond=lbfgs_scale_init_precond,
                               max_linesearch_steps=lbfgs_max_linesearch_steps, readout_only=lbfgs_readout_only, **extra)
@@ -404,6 +412,8 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         options["params_init"] = True                       # started from a trained model's parameters
     if lbfgs_trace_every > 0:
         options["lbfgs_trace_every"] = int(lbfgs_trace_every)
+    if lbfgs_max_seconds is not None and lbfgs_steps > 0:
+        options.update(lbfgs_max_seconds=float(lbfgs_max_seconds), lbfgs_steps_done=int(lbfgs_stats["steps_done"]))
     if (readout_orders, readout_solve_iterations, readout_ridge_selection, lbfgs_freeze_readout, readout_first) != \
             ("zero", 1, "fixed", False, False) or readout_solve_weights is not None or readout_solve_subset is not None \
             or readout_solve_w_force is not None:
@@ -422,11 +432,12 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
 
 def polish_lbfgs(params, f, steps, verbose=False, learning_rate=None, memory_size=10,
                  scale_init_precond=True, max_linesearch_steps=20, readout_only=False, freeze_readout=False,
-                 trace_every=0, trace_fn=None, trace=None):
+                 trace_every=0, trace_fn=None, trace=None, max_seconds=None, stats=None):
     """f(params) -> scalar loss over the whole data set.  With readout_only, preserve all other parameters; with
     freeze_readout, preserve the read-out (polish everything else).  v0.0.34: with trace_every > 0, (step,
-    trace_fn(params), f(params)) is appended to the list trace at every trace_every-th step, and (steps,
-    trace_fn(params), None) after the last; the polish itself is unchanged."""
+    trace_fn(params), f(params)) is appended to the list trace at every trace_every-th step, and (steps done,
+    trace_fn(params), None) after the last; the polish itself is unchanged.  v0.0.35: max_seconds, a wall-clock budget
+    -- the polish stops after the step that exceeds it; stats (a dict) receives steps_done."""
     _integer_option("steps", steps)
     _integer_option("memory_size", memory_size, 1)
     _integer_option("max_linesearch_steps", max_linesearch_steps, 1)
@@ -473,15 +484,24 @@ def polish_lbfgs(params, f, steps, verbose=False, learning_rate=None, memory_siz
         return new, state, value
     if trace_every > 0 and (trace_fn is None or trace is None):
         raise ValueError("trace_every needs trace_fn and a list trace")
+    t_start, done = time.time(), 0
     for it in range(steps):
         reading = trace_fn(params) if trace_every > 0 and it % trace_every == 0 else None
         params, state, value = step(params, state)
+        done = it + 1
         if reading is not None:
             trace.append((it, reading, float(value)))         # value: the objective at the parameters read
         if verbose and (it % max(steps // 5, 1) == 0 or it == steps - 1):
             print(f"    lbfgs {it:4d}  loss {float(value):.3e}", flush=True)
+        if max_seconds is not None and time.time() - t_start > max_seconds:
+            if verbose:
+                print(f"    lbfgs stopped after {done} steps: the budget of {max_seconds:.0f} s is spent "
+                      f"(loss {float(value):.3e})", flush=True)
+            break
     if trace_every > 0:
-        trace.append((steps, trace_fn(params), None))
+        trace.append((done, trace_fn(params), None))
+    if stats is not None:
+        stats["steps_done"] = done
     return params
 
 

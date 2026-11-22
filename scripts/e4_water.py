@@ -191,7 +191,8 @@ DEFAULTS = {
     "training": {
         "adam": {"steps": 3000, "batch_size": 6, "learning_rate": 3.0e-3, "final_learning_rate_ratio": 0.01,
                  "beta1": 0.9, "beta2": 0.999, "epsilon": 1.0e-8},
-        "lbfgs": {"steps": 50, "chunk_size": 12, "memory_size": 10, "max_linesearch_steps": 20},
+        # v0.0.35 (job 11) max_minutes: a wall-clock budget for the polish (train.fit's lbfgs_max_seconds); None: none
+        "lbfgs": {"steps": 50, "chunk_size": 12, "memory_size": 10, "max_linesearch_steps": 20, "max_minutes": None},
         "loss": {"energy_weight": 100.0, "force_weight": 1.0, "forces": "rigid"},
         "readout": {"orders": "all", "solve_iterations": 4, "ridge": 1.0e-8, "ridge_selection": "groups",
                     "solve_chunk": 64, "liquid": None, "finite_k": None, "held_from": None},
@@ -201,7 +202,7 @@ DEFAULTS = {
         "trace": None,
         # v0.0.34 (job 10): {dir: a results directory} -- every run starts from that directory's run of the same rung and
         # seed (<dir>/<rung>_seed<seed>.params.pkl; its json's model record must be the rung's) instead of the seed's
-        # initialisation (train.fit's params_init); None: off
+        # initialisation (train.fit's params_init); v0.0.35 (job 11) by_rung: {rung: another directory}; None: off
         "start_from": None,
     },
     "probes": {"distances_angstrom": [8.0, 10.0, 12.0, 15.0], "train_per_distance": 2, "train_cores": 16,
@@ -1682,14 +1683,16 @@ def run_train(a):
         if trc and learns_charges(rung):                              # job 9: the charges traced
             tracer = charge_tracer(rung, train[:int(trc["frames"])])
             extra.update(trace_every=int(trc["every"]), trace_fn=tracer, scale_gradient=True, snapshot_adam=True)
-        if trc and tracer is not None and int(trc.get("lbfgs_every", 0)) > 0:
+        if trc and int(trc.get("lbfgs_every", 0)) > 0:
             extra["lbfgs_trace_every"] = int(trc["lbfgs_every"])     # job 10: the charges through the polish
+            if tracer is None:                                        # job 11: the objective alone, for any rung
+                extra["trace_fn"] = lambda p: {}
         start = tr.get("start_from")
         for seed in seeds:
             t0 = time.time()
             init, begin = None, None
             if start:                                                 # job 10: a trained run's parameters
-                src = os.path.join(start["dir"], f"{name}_seed{seed}")
+                src = os.path.join(start.get("by_rung", {}).get(name, start["dir"]), f"{name}_seed{seed}")
                 with open(src + ".params.pkl", "rb") as fh:
                     init = pickle.load(fh)
                 if os.path.exists(src + ".json"):
@@ -1719,7 +1722,9 @@ def run_train(a):
                                  adam_b2=float(ad["beta2"]), adam_eps=float(ad["epsilon"]), scale=scale,
                                  lbfgs_memory=int(lb["memory_size"]),
                                  lbfgs_max_linesearch_steps=int(lb["max_linesearch_steps"]), readout_init=readout,
-                                 force_mode=ls["forces"], verbose=True, params_init=init, **extra)
+                                 force_mode=ls["forces"], verbose=True, params_init=init,
+                                 lbfgs_max_seconds=60.0 * float(lb["max_minutes"]) if lb.get("max_minutes") else None,
+                                 **extra)
             t_train = time.time() - t0
             fl = final_loss(params, rung, train, scale, float(ls["energy_weight"]), float(ls["force_weight"]), chunk,
                             ls["forces"])
@@ -1781,6 +1786,8 @@ def run_train(a):
                 result["training"]["charges"] = diag                  # job 9 (v0.0.33)
             if begin is not None:
                 result["training"]["start"] = begin                   # job 10 (v0.0.34)
+            if "lbfgs_trace" in info:                                 # job 11 (v0.0.35): the objective through the polish
+                result["training"]["lbfgs_trace"] = [[int(st), val] for st, _, val in info["lbfgs_trace"]]
             with open(stem + ".json", "w") as fh:
                 json.dump(result, fh, indent=1)
             print(f"  {summary_line(name, seed, rd)}  [{time.time() - t0:.0f} s in all; {stem}.json]", flush=True)

@@ -2147,3 +2147,52 @@ and 1 is skipped.
   - the scan polished the same way, with the low side continued;
   - the long polish for E4's model, first on the field-term dagger;
   - the charges' band with its own edge, if the low side stops.
+
+## v0.0.35, 22 Nov — job 11 pre-registered: the long polish, for the profile, the low side and E4's model (`notes/e4-job11-preregistration.md`)
+
+**Why:** job 10's full-batch L-BFGS took the learned charges to c* from above and 20–27 % short from below, and the long
+polish alone took 12 % off the pinned control's forces. Three questions follow:
+
+- **(a1)** Where is the profile's minimum under the long polish?
+- **(a2)** Has the low side stopped?
+- **(b)** Does the polish take a comparable share off E4's model?
+
+**What changes, before any run:**
+
+- **`train.fit(lbfgs_max_seconds=...)`, `polish_lbfgs(max_seconds=...)` and `training.lbfgs.max_minutes`:** a
+  wall-clock budget for the polish, with the steps done recorded.
+- **`training.start_from.by_rung`:** one config, several start directories.
+- **The objective traced through the polish for any rung** (`training.lbfgs_trace`).
+- **`configs/e4_job11.yaml`** (job 7's settings): M_1q070, M_1q100 and M_1q145 from job 7; M_1w050 and M_1w150 from job
+  10; M_16pm_us_d20 from job 8. 1000 steps within 300 minutes.
+- **`configs/e4_job11d.yaml`** (job 8's D′ settings): M_16C2pm_us_d20 from job 8, within 600 minutes.
+- **`scripts/e4_job11.py`** reads K11.1–K11.5 and the model rule.
+
+**Registered:**
+
+| | reading | band |
+|---|---|---|
+| K11.1 | the polished profile's minimum | within ±0.05 of 1.098 |
+| K11.2 | job 10's M_1w050, another 1000 steps | at least +0.06 D each (predicted to fail) |
+| K11.3 | the field-term dagger at 2.0 Å, polished, against job 8 | at least 5 % lower |
+| K11.4 | D′ at 2.0 Å, polished, against job 8 | at least 3 % lower |
+| K11.5 | D′'s infrared | ε_∞ ±0.002; the far probes and T5 ±0.5 points |
+
+**The model rule:** if K11.4 and K11.5 hold, E4's model is D′ at the 2.0 Å band with the long polish.
+
+```sh
+mkdir -p results/e4_job11 logs logs_error && sbatch run_e4_job11.sbatch    # 5 GPU tasks, 14 h each
+python scripts/e4_job11.py --out_dir results/e4_job11 --job7_dir results/e4_job7 --job8_dir results/e4_job8 \
+    --job10_dir results/e4_job10
+python scripts/e4_water.py summary --out_dir results/e4_job11
+```
+
+**Tests:** `tests/test_job11.py`, 4 tests:
+
+- the polish's budget;
+- the driver's start by rung and the objective traced for a pinned rung;
+- the two configs against jobs 7, 8 and 8d;
+- K11.1–K11.5, the model rule and their edges.
+
+With job 6's to job 10's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 175 tests pass
+and 1 is skipped.

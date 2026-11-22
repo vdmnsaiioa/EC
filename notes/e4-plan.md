@@ -561,4 +561,11 @@ code is still open: CP2K, GPAW, VASP or QE.
          under-converged for every model. Learned charges near c* then beat the pinned O/H charges by about 6 %.*
        - *Proposed: the scan polished (the profile's minimum under a long polish) with the low side continued; the long
          polish for E4's model, first on the field-term dagger.*
+     - *Job 11 registered 22 Nov (`e4-job11-preregistration.md`, v0.0.35; Vadic's go for (a) and (b)).*
+       - *(a) Job 7's scan polished for the profile's minimum under the long polish (K11.1: within ±0.05 of 1.098), and
+         job 10's M_1w050 continued (K11.2: at least +0.06 D more; predicted to fail, the low side stopped).*
+       - *(b) The field-term dagger and D′ at the 2.0 Å band polished from job 8 (K11.3: at least 5 % lower; K11.4: at
+         least 3 %; K11.5: D′'s infrared unchanged). The model rule: if K11.4 and K11.5 hold, E4's model takes the
+         polish.*
+       - *A wall-clock budget for the polish (D′: 600 minutes, about 350 steps). Five tasks, about 50 GPU hours.*
 7. **The L₀ sweep** (Form II).

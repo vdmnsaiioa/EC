@@ -694,6 +694,25 @@ It ran as the two registered tasks. Read 22 Nov (`notes/e4-job10-results.md`):
 - **Proposed next:** the scan polished for its own minimum, with the low side continued; the long polish for E4's
   model.
 
+**Job 11** (`notes/e4-job11-preregistration.md`, v0.0.35): the long polish, for the profile, the low side and E4's
+model.
+
+- **A wall-clock budget for the polish** (`training.lbfgs.max_minutes`, `train.fit(lbfgs_max_seconds=...)`), the start
+  by rung (`training.start_from.by_rung`), and the objective traced through the polish for any rung.
+- **(a)** Job 7's scan polished (`configs/e4_job11.yaml`: M_1q070, M_1q100, M_1q145), and job 10's M_1w050 and M_1w150
+  continued.
+- **(b)** The field-term dagger and D′ at the 2.0 Å c6 band polished from job 8 (`configs/e4_job11d.yaml` for D′, 600
+  minutes).
+- **K11.1–K11.5 and the model rule:** the polished profile's minimum, whether the low side still moves, the polish's
+  gain on the E4-class models, D′'s infrared; if K11.4 and K11.5 hold, E4's model takes the polish.
+
+```sh
+sbatch run_e4_job11.sbatch                 # 5 GPU tasks, 14 h each
+python scripts/e4_job11.py --out_dir results/e4_job11 --job7_dir results/e4_job7 --job8_dir results/e4_job8 \
+    --job10_dir results/e4_job10           # K11.1-K11.5, the model rule
+python scripts/e4_water.py summary --out_dir results/e4_job11
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's
