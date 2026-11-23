@@ -743,6 +743,25 @@ python scripts/e4_job12.py --out_dir results/e4_job12 --job8_dir results/e4_job8
 python scripts/e4_water.py summary --out_dir results/e4_job12
 ```
 
+**Job 13** (`notes/e4-job13-preregistration.md`, v0.0.37): why learned charges end where their start puts them.
+
+- **`train.fit(freeze_charge_head=True)`:** learned charges by species alone (the charge head held, its species offsets
+  trained); **`training.start_from.from_rung`:** a run started from another rung's run, pinned charges released into
+  learned ones at the same scale (`e4_water.released`: the same model at the start).
+- **R:** released from job 11's polished profile at c = 0.7 and 1.45, by species alone (M_1zr070, M_1zr145) and with the
+  charge head (M_1r070, M_1r145). **T:** the pinned charges moved to 1.1 on the same states (M_1t070, M_1t145). **S:**
+  by species alone from job 7's warm starts (M_1z050, M_1z150; `configs/e4_job13s.yaml`, then the polish).
+- **K13.1–K13.5:** whether the charges reach c*_lb = 1.07 by species alone (R, S) and with the head (R), the head's part,
+  and whether E₀ re-fits when the scale is moved for it (T). Three explanations — the head, the valley, E₀'s memory —
+  read them differently; the valley is predicted.
+
+```sh
+mkdir -p results/e4_job13s results/e4_job13 && sbatch run_e4_job13.sbatch   # 5 GPU tasks, 14 h each
+python scripts/e4_job13.py --out_dir results/e4_job13 --stage_dir results/e4_job13s --job9_dir results/e4_job9 \
+    --job10_dir results/e4_job10 --job11_dir results/e4_job11   # K13.1-K13.5
+python scripts/e4_water.py summary --out_dir results/e4_job13
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

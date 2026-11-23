@@ -2275,3 +2275,58 @@ python scripts/e4_water.py summary --out_dir results/e4_job12
 
 With job 6's to job 11's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 180 tests pass
 and 1 is skipped.
+
+## v0.0.37, 24 Nov — job 13 pre-registered: why learned charges end where their start puts them (`notes/e4-job13-preregistration.md`)
+
+**Why:** the polished profile's minimum is c*_lb = 1.07 and the learned objective prefers it, yet learned charges end
+at 0.86 from 0.5, near 1.0 from 1.0 and 1.13–1.17 from 1.5 (jobs 7, 10, 11). Three explanations:
+
+- **the head:** the charges' environment dependence substitutes for their scale;
+- **the valley:** the scale moves only with E₀, along a floor 10⁴ times flatter than its walls;
+- **E₀'s memory:** an E₀ trained at the wrong scale keeps it.
+
+**What changes, before any run:**
+
+- **`train.fit(freeze_charge_head=True)`** and `polish_lbfgs(freeze_charge_head=True)` (`train.held_charge_head`): the
+  charge head's layers held, its species offsets trained. From a warm start every atom carries its species' charge: for
+  water, one free scale.
+- **`training.start_from.from_rung`** (`scripts/e4_water.py`): a run from another rung's run of the same seed, the
+  record checked against that rung's. Pinned charges are released into learned ones at the same scale (`released`: the
+  species offsets at the pins, the head's last layer at zero; the same model at the start).
+- **The rungs** M_1r070, M_1r145, M_1zr070, M_1zr145, M_1z050, M_1z150 (`RELEASE_C`, `SPECIES_C`, `SPECIES_ONLY`) and
+  M_1t070, M_1t145 (`TRANSPLANT`: M_1q110 under other names).
+- **`configs/e4_job13s.yaml`** (job 9's settings: S's first stage) and **`configs/e4_job13.yaml`** (job 11's: every
+  polish, from job 11's polished profile and from the first stage).
+- **`scripts/e4_job13.py`** reads K13.1–K13.5.
+
+**Registered:**
+
+| | reading | band | prediction |
+|---|---|---|---|
+| K13.1 | R by species alone, released from job 11's polished M_1q070 and M_1q145: every end | within ±0.05 of c*_lb = 1.070 | fails |
+| K13.2 | R with the head: every end | within ±0.05 | fails |
+| K13.3 | by species alone nearer c*_lb than with the head | on 3 of the 4 (start, seed) pairs | holds |
+| K13.4 | T, the pinned charges at 1.1 on those states, polished: final loss against job 10's M_1q110 | at most 5 % above | holds |
+| K13.5 | S, by species alone from job 7's warm starts, job 7's training and job 10's polish: every end | within ±0.05 | fails |
+
+The head predicts K13.1 and K13.5 to hold; the valley, predicted, fails all three ends with K13.4 holding; E₀'s
+memory fails K13.4.
+
+```sh
+mkdir -p results/e4_job13s results/e4_job13 logs logs_error && sbatch run_e4_job13.sbatch   # 5 GPU tasks, 14 h each
+python scripts/e4_job13.py --out_dir results/e4_job13 --stage_dir results/e4_job13s --job9_dir results/e4_job9 \
+    --job10_dir results/e4_job10 --job11_dir results/e4_job11
+python scripts/e4_water.py summary --out_dir results/e4_job13
+```
+
+**Tests:** `tests/test_job13.py`, 5 tests:
+
+- the held head: its layers do not move, its offsets do, every O and H one charge; it needs learned charges;
+- a release reproduces the pinned model (energies 10⁻¹⁵, forces 10⁻¹⁷), with the head or without;
+- the driver's start from another rung: released or not, recorded, the head held by species; a source recorded as
+  another model, or unknown, refused;
+- the two configs and the rungs against jobs 9 and 11;
+- K13.1–K13.5 and their edges.
+
+With job 6's to job 12's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 185 tests pass
+and 1 is skipped.

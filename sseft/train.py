@@ -139,7 +139,7 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         readout_solve_weights=None, readout_solve_groups=None, lbfgs_freeze_readout=False, readout_first=False,
         readout_solve_subset=None, readout_solve_w_force=None, readout_init=None, force_mode="atomic",
         charge_lr_scale=1.0, trace_every=0, trace_fn=None, scale_gradient=False, snapshot_adam=False,
-        params_init=None, lbfgs_trace_every=0, lbfgs_max_seconds=None):
+        params_init=None, lbfgs_trace_every=0, lbfgs_max_seconds=None, freeze_charge_head=False):
     """train one model; returns (params, info).  The band-field read-out (when the rung has one) is held at its
     zero initialisation during the Adam stage unless readout_adam=True, and switched on in the L-BFGS polish: a
     quadratic read-out in the band field spans four orders of magnitude in |E|^2 across a training set with near and
@@ -183,7 +183,12 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     after the last), ...]).
 
     v0.0.35 (E4 job 11): lbfgs_max_seconds, a wall-clock budget for the L-BFGS polish -- it stops after the step that
-    exceeds it, and the options record the steps it took (lbfgs_steps_done)."""
+    exceeds it, and the options record the steps it took (lbfgs_steps_done).
+
+    v0.0.37 (E4 job 13): freeze_charge_head, for rungs with learned charges, holds the charge head's layers
+    (heads.charge) through Adam and the polish and trains its species offsets (heads.q_ref) with the rest: started with
+    its last layer at zero (a warm start, Rung.q_ref_start), every charge is then its species' offset alone, the same in
+    every environment -- learned charges by species, with one free scale for water (the neutrality shift ties O to H)."""
     _integer_option("seed", seed)
     _integer_option("steps", steps)
     _integer_option("lbfgs_steps", lbfgs_steps)
@@ -251,6 +256,10 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
             raise ValueError(f"{name} must be a boolean")
     if (charge_lr_scale != 1.0 or scale_gradient) and not (rung.charges and not rung.pin_q and not rung.msites):
         raise ValueError("charge_lr_scale and scale_gradient act on learned charges: a rung whose charges are learned")
+    if not isinstance(freeze_charge_head, (bool, np.bool_)):
+        raise ValueError("freeze_charge_head must be a boolean")
+    if freeze_charge_head and not (rung.charges and not rung.pin_q and not rung.msites):
+        raise ValueError("freeze_charge_head holds a learned charge head: a rung whose charges are learned")
     if len(structures) == 0:
         raise ValueError("training structures must not be empty")
     if force_mode not in FORCE_MODES:
@@ -306,10 +315,14 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         (l, parts), g = jax.value_and_grad(loss_fn, has_aux=True)(params, batch)
         if freeze_readout:
             g = {**g, "readout": jax.tree_util.tree_map(jnp.zeros_like, g["readout"])}
+        if freeze_charge_head:
+            g = held_charge_head(g)
         gs = M.charge_scale_slope(params, g) if scale_gradient else jnp.zeros(())
         upd, state = opt.update(g, state, params)
         if freeze_readout:
             upd = {**upd, "readout": jax.tree_util.tree_map(jnp.zeros_like, upd["readout"])}
+        if freeze_charge_head:
+            upd = held_charge_head(upd)
         return optax.apply_updates(params, upd), state, l, parts, gs
 
     t0 = time.time(); hist = []; trace = []; pulls = []
@@ -378,6 +391,8 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
     if lbfgs_steps > 0:
         f = make_chunked_loss(rung, scale, data, w_energy, w_force, chunk=lbfgs_chunk, force_mode=force_mode)
         extra = {"freeze_readout": True} if lbfgs_freeze_readout and has_readout else {}
+        if freeze_charge_head:
+            extra["freeze_charge_head"] = True
         if lbfgs_trace_every > 0:
             extra.update(trace_every=lbfgs_trace_every, trace_fn=trace_fn, trace=[])
         lbfgs_stats = {}
@@ -414,6 +429,8 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
         options["lbfgs_trace_every"] = int(lbfgs_trace_every)
     if lbfgs_max_seconds is not None and lbfgs_steps > 0:
         options.update(lbfgs_max_seconds=float(lbfgs_max_seconds), lbfgs_steps_done=int(lbfgs_stats["steps_done"]))
+    if freeze_charge_head:
+        options["freeze_charge_head"] = True                 # v0.0.37: learned charges by species
     if (readout_orders, readout_solve_iterations, readout_ridge_selection, lbfgs_freeze_readout, readout_first) != \
             ("zero", 1, "fixed", False, False) or readout_solve_weights is not None or readout_solve_subset is not None \
             or readout_solve_w_force is not None:
@@ -430,14 +447,21 @@ def fit(rung, structures, seed=0, steps=2000, lr=3e-3, w_energy=1.0, w_force=10.
                     "training_options": options, **extra_info}
 
 
+def held_charge_head(tree):
+    """a parameter tree (or its gradient or update) with the charge head's layers zeroed: v0.0.37's freeze_charge_head."""
+    h = tree["heads"]
+    return {**tree, "heads": {**h, "charge": jax.tree_util.tree_map(jnp.zeros_like, h["charge"])}}
+
+
 def polish_lbfgs(params, f, steps, verbose=False, learning_rate=None, memory_size=10,
                  scale_init_precond=True, max_linesearch_steps=20, readout_only=False, freeze_readout=False,
-                 trace_every=0, trace_fn=None, trace=None, max_seconds=None, stats=None):
+                 trace_every=0, trace_fn=None, trace=None, max_seconds=None, stats=None, freeze_charge_head=False):
     """f(params) -> scalar loss over the whole data set.  With readout_only, preserve all other parameters; with
     freeze_readout, preserve the read-out (polish everything else).  v0.0.34: with trace_every > 0, (step,
     trace_fn(params), f(params)) is appended to the list trace at every trace_every-th step, and (steps done,
     trace_fn(params), None) after the last; the polish itself is unchanged.  v0.0.35: max_seconds, a wall-clock budget
-    -- the polish stops after the step that exceeds it; stats (a dict) receives steps_done."""
+    -- the polish stops after the step that exceeds it; stats (a dict) receives steps_done.  v0.0.37: freeze_charge_head,
+    the charge head's layers held (their gradient and updates zero), its species offsets polished."""
     _integer_option("steps", steps)
     _integer_option("memory_size", memory_size, 1)
     _integer_option("max_linesearch_steps", max_linesearch_steps, 1)
@@ -464,6 +488,9 @@ def polish_lbfgs(params, f, steps, verbose=False, learning_rate=None, memory_siz
     else:
         objective = f
         mask = lambda tree: tree
+    if freeze_charge_head:
+        outer = mask
+        mask = lambda tree: held_charge_head(outer(tree))
     opt = optax.lbfgs(learning_rate=learning_rate, memory_size=memory_size,
                       scale_init_precond=scale_init_precond,
                       linesearch=optax.scale_by_zoom_linesearch(max_linesearch_steps=max_linesearch_steps,

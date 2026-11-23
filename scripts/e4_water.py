@@ -160,6 +160,46 @@ CHARGE_LR = {x_rung(c): CHARGE_LR_X for c in X_C}
 STARTS = {**WARM, **{x_rung(c): c for c in X_C if c > 0}}          # every warm-started rung: its start c0
 
 
+# job 13 (v0.0.37; notes/e4-job13-preregistration.md): why learned charges end where their start puts them.  Three arms
+# beside jobs 7-11's flexible warm starts (M_1w050, M_1w150):
+#   R  released from the polished profile, job 11's M_1q070 and M_1q145 (training.start_from.from_rung): the pinned O/H
+#      charges at c0 become learned ones at c0 (released: the species offsets at the pins, the charge head's last layer
+#      at zero -- the same model at the start), with their environment dependence (M_1r070, M_1r145) or by species
+#      alone (M_1zr070, M_1zr145: the charge head held, train.fit's freeze_charge_head; one free scale for water)
+#   T  the pinned charges moved to c = 1.1 with E_0 from the same states (M_1t070, M_1t145: M_1q110 under other names):
+#      whether an E_0 trained at the wrong scale re-fits at the right one
+#   S  learned charges by species alone from the initialisation at job 7's starts (M_1z050, M_1z150): job 7's training,
+#      then job 10's polish
+RELEASE_C = {"M_1r070": 0.7, "M_1r145": 1.45, "M_1zr070": 0.7, "M_1zr145": 1.45}
+SPECIES_C = {"M_1z050": 0.5, "M_1z150": 1.5}
+SPECIES_ONLY = ("M_1zr070", "M_1zr145", "M_1z050", "M_1z150")      # the charge head held: learned charges by species
+TRANSPLANT = ("M_1t070", "M_1t145")
+for _name in list(RELEASE_C) + list(SPECIES_C):
+    E3.RUNGS.setdefault(_name, M.with_rung(E3.RUNGS["M_1"], name=_name, q_unit=Q_UNIT_WARM))
+for _name in TRANSPLANT:
+    E3.RUNGS.setdefault(_name, M.with_rung(E3.RUNGS[scan_rung(1.1)], name=_name))
+STARTS.update(RELEASE_C)
+STARTS.update(SPECIES_C)
+
+
+def released(params, rung):
+    """v0.0.37 (job 13): a pinned run's parameters as the start of a rung with learned charges -- the species offsets at
+    the rung's start charges (Rung.q_ref_start, in units of Rung.q_unit), the charge head's last layer at zero, everything
+    else the pinned run's.  Started at the pins' scale, the learned charges are the pinned ones on every atom in every
+    environment (their dependence on the environment is zero), so that the rung starts as the pinned model: the same
+    energies and forces."""
+    if not rung.q_ref_start:
+        raise ValueError(f"{rung.name}: a release needs the rung's start charges (Rung.q_ref_start: STARTS)")
+    h = params["heads"]
+    q_ref = jnp.asarray(h["q_ref"])
+    for z, q in rung.q_ref_start:
+        q_ref = q_ref.at[int(z)].set(float(q) / rung.q_unit)
+    last = h["charge"][-1]
+    head = list(h["charge"][:-1]) + [{"w": jnp.zeros_like(jnp.asarray(last["w"])),
+                                      "b": jnp.zeros_like(jnp.asarray(last["b"]))}]
+    return {**params, "heads": {**h, "q_ref": q_ref, "charge": head}}
+
+
 def warm_started(name, rung, structs):
     """job 7's warm start: a warm-started rung's (STARTS: job 7's WARM, job 9's M_1x050 and M_1x150) learned charges
     started at STARTS[name] times the O/H charges pinned on the cells (pin_rigid_site_model's "q": MB-pol's site model
@@ -202,7 +242,9 @@ DEFAULTS = {
         "trace": None,
         # v0.0.34 (job 10): {dir: a results directory} -- every run starts from that directory's run of the same rung and
         # seed (<dir>/<rung>_seed<seed>.params.pkl; its json's model record must be the rung's) instead of the seed's
-        # initialisation (train.fit's params_init); v0.0.35 (job 11) by_rung: {rung: another directory}; None: off
+        # initialisation (train.fit's params_init); v0.0.35 (job 11) by_rung: {rung: another directory}; v0.0.37 (job 13)
+        # from_rung: {rung: another rung} -- that rung's run of the same seed, its json's record that rung's; pinned
+        # charges released into learned ones (released); None: off
         "start_from": None,
         # v0.0.36 (job 12): {dagger: the rung less its response} -- a rung whose response is a constant of the rest
         # (model.response_constant: D') has it computed once per training frame and the dagger trained against the
@@ -1745,6 +1787,8 @@ def run_train(a):
         extra, tracer = {}, None
         if CHARGE_LR.get(name, 1.0) != 1.0:                           # job 9: the charge head's own learning rate
             extra["charge_lr_scale"] = float(CHARGE_LR[name])
+        if name in SPECIES_ONLY:                                      # job 13: learned charges by species alone
+            extra["freeze_charge_head"] = True
         trc = tr.get("trace")
         if trc and learns_charges(rung):                              # job 9: the charges traced
             tracer = charge_tracer(rung, train[:int(trc["frames"])])
@@ -1766,17 +1810,27 @@ def run_train(a):
             t0 = time.time()
             init, begin = None, None
             if start:                                                 # job 10: a trained run's parameters
-                src = os.path.join(start.get("by_rung", {}).get(name, start["dir"]), f"{name}_seed{seed}")
+                source = start.get("from_rung", {}).get(name, name)   # job 13: another rung's run
+                if source not in E3.RUNGS:
+                    raise ValueError(f"training.start_from.from_rung: unknown rung {source}")
+                src = os.path.join(start.get("by_rung", {}).get(name, start["dir"]), f"{source}_seed{seed}")
                 with open(src + ".params.pkl", "rb") as fh:
                     init = pickle.load(fh)
+                src_rung = rung if source == name else warm_started(source, rungs_for(source, cfg, train[0].cell)[0],
+                                                                    train)
                 if os.path.exists(src + ".json"):
                     with open(src + ".json") as fh:
                         rec = json.load(fh).get("model")
-                    if rec is not None and rec != json.loads(json.dumps(model_record(name, cfg, rung))):
+                    if rec is not None and rec != json.loads(json.dumps(model_record(source, cfg, src_rung))):
                         raise ValueError(f"{src}.json was trained as another model: {rec}")
+                release = source != name and learns_charges(rung) and not learns_charges(src_rung)
+                if release:                                           # job 13: pinned charges released
+                    init = released(init, rung)
                 begin = {"from": src + ".params.pkl",
                          "final_loss": final_loss(init, rung, train, scale, float(tr["loss"]["energy_weight"]),
                                                   float(tr["loss"]["force_weight"]), chunk, tr["loss"]["forces"])}
+                if source != name:
+                    begin.update(from_rung=source, released=bool(release))
                 if tracer is not None:
                     begin["charges"] = tracer(init)
                 print(f"{name} seed {seed}: starting from {begin['from']}, training loss {begin['final_loss']['total']:.4e}"
@@ -1786,6 +1840,7 @@ def run_train(a):
                   f"{rung.bf_solver if rung.bf_mutual else '-'}, forces {tr['loss']['forces']})"
                   + (f", the charge head's learning rate {extra['charge_lr_scale']:g} times the rest's"
                      if "charge_lr_scale" in extra else "")
+                  + (", the charge head held (charges by species)" if extra.get("freeze_charge_head") else "")
                   + (f", the charges traced every {extra['trace_every']} steps on {int(trc['frames'])} frames"
                      if tracer is not None else ""), flush=True)
             ad, lb, ls = tr["adam"], tr["lbfgs"], tr["loss"]

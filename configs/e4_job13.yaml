@@ -1,0 +1,85 @@
+# E4, job 13 (notes/e4-job13-preregistration.md; v0.0.37): why learned charges end where their start puts them.  Long
+# L-BFGS polishes on every training frame, no Adam, on job 7's settings, each from a trained run of the same seed:
+#   R  released from the polished profile (job 11's M_1q070 and M_1q145, results/e4_job11; training.start_from.
+#      from_rung): the pinned O/H charges at c0 = 0.7 and 1.45 become learned ones at c0, the same model at the start
+#      (e4_water.released) -- with their environment dependence (M_1r070, M_1r145) or by species alone, the charge head
+#      held (M_1zr070, M_1zr145)
+#   T  the pinned charges moved to c = 1.1 with E_0 from the same states (M_1t070, M_1t145: M_1q110 under other names)
+#   S  the second stage of the species-only warm starts (M_1z050, M_1z150 from results/e4_job13s: job 10's polish)
+# 1000 L-BFGS steps each, within 300 minutes; the objective traced every 25 steps, and for learned charges the dipole
+# on 4 training frames.  Everything else is configs/e4_job11.yaml's.
+#
+#   python scripts/e4_water.py train --config configs/e4_job13.yaml --rungs M_1zr070 --seeds 0 --out_dir results/e4_job13
+#   python scripts/e4_job13.py --out_dir results/e4_job13 --stage_dir results/e4_job13s --job9_dir results/e4_job9 \
+#       --job10_dir results/e4_job10 --job11_dir results/e4_job11                             # K13.1-K13.5
+#
+# (run_e4_job13.sbatch: five tasks.)
+experiment:
+  type: e4
+
+data:
+  dir: data/e4                      # scripts/e4_data.py assemble: {train,valid,test}_n{64,128,256}.npz
+  train_size: 64
+  eval_sizes: [64, 128, 256]
+  probes: data/e4/probes_mbpol.npz  # scripts/e4_water.py probes
+
+model:                              # E3-QP8's (configs/water_qaqua_pol8.yaml), in a cell
+  r_cut_angstrom: 6.0
+  features: 32
+  band_edge_angstrom: 0.75
+  response_edge_angstrom: 0.75
+  mutual_edge_angstrom: null        # v0.0.23 (Rung.bf_l_mutual): the mutual response's dipole tensor alone smeared at this
+                                    # edge, the field the read-out reads left at the response edge; null: the response edge
+  analytic_envelope_angstrom: 4.0
+  rs_over_l1: 0.0
+  charge_neutrality: fragment
+  ewald_b_max: 4.0                  # k_max = 2 b_max / l_1; n_max per cell (periodic.n_max_for)
+  solver: gmres                     # the mutual response in a cell: GMRES with implicit derivatives (the timing, 2 Nov)
+  solver_tol: 1.0e-10
+  K: 8                              # the dispersion band's Casimir-Polder grid (MB-pol's c6, water.mbpol_dispersion_pins)
+  omega0: 0.3
+
+rungs: [M_1r070, M_1r145, M_1zr070, M_1zr145, M_1t070, M_1t145, M_1z050, M_1z150]
+seeds: [0, 1]
+
+training:
+  adam: {steps: 0, batch_size: 6, learning_rate: 3.0e-3, final_learning_rate_ratio: 0.01,   # no Adam
+         beta1: 0.9, beta2: 0.999, epsilon: 1.0e-8}
+  lbfgs: {steps: 1000, chunk_size: 12, memory_size: 10, max_linesearch_steps: 20, max_minutes: 300}
+  start_from:                                           # v0.0.34-37: each run from a trained run of the same seed
+    dir: results/e4_job11                               # job 11's polished profile
+    by_rung: {M_1z050: results/e4_job13s, M_1z150: results/e4_job13s}   # S: its first stage
+    from_rung: {M_1r070: M_1q070, M_1r145: M_1q145, M_1zr070: M_1q070, M_1zr145: M_1q145,
+                M_1t070: M_1q070, M_1t145: M_1q145}    # R and T: another rung's run (R: the charges released)
+  trace: {every: 100, frames: 4, lbfgs_every: 25}
+  loss:
+    energy_weight: 100.0            # E3-QP2 on: the per-atom energy term, against force_weight 1
+    force_weight: 1.0
+    forces: rigid                   # each molecule's net force and torque (sseft.train.rigid_force_sums)
+  readout:                          # E3-QP2's matching, on MB-pol's probes, before training; held through it
+    orders: all
+    solve_iterations: 4
+    ridge: 1.0e-8
+    ridge_selection: groups
+    solve_chunk: 64
+
+probes:                             # E3-QP8's probe settings and seeds (configs/water_qaqua_pol8.yaml), on MB-pol
+  distances_angstrom: [8.0, 10.0, 12.0, 15.0]
+  train_per_distance: 2
+  train_cores: 16
+  train_core_sizes: [3, 4, 5]
+  test_per_distance: 10
+  test_cores: 2
+  seed: 400
+  mc_steps: 300
+  temperature_kelvin: 300.0
+  min_oo_angstrom: 2.7
+  min_atom_distance_angstrom: 1.7
+  far_trimers: 40                   # Theorem 2's T5: three molecules, every intermolecular pair beyond 6.5 A (> r_c)
+  trimer_seed: 900
+  trimer_min_angstrom: 6.5
+  trimer_max_oo_angstrom: 12.0
+
+reading:
+  eps_frames: 10                    # eps_inf on the first test frames of the training size (rungs with a response)
+  splits: [train, valid, test]      # at 128 and 256 molecules every split is unseen by a model trained at 64

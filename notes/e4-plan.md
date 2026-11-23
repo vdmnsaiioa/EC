@@ -585,4 +585,13 @@ code is still open: CP2K, GPAW, VASP or QE.
          infrared unchanged; K12.3: at least 1.5 % below the polished field-term dagger at 128 and 256 molecules. The
          model rule: if K12.0–K12.2 hold, E4's model takes the long polish.*
        - *Four tasks, about 16 GPU hours.*
+     - *Job 13 registered 24 Nov (`e4-job13-preregistration.md`, v0.0.37; Vadic's request for a deeper look at the
+       learned charges).*
+       - *Three explanations for the start-set ends: the head (its environment dependence substitutes for the scale),
+         the valley (the scale moves only with E₀, along a floor 10⁴ times flatter than its walls), E₀'s memory.*
+       - *R: released from job 11's polished profile (0.7, 1.45), by species alone and with the head (K13.1–K13.3). T:
+         the pinned scale moved to 1.1 on the same states (K13.4: within 5 % of the polished control). S: by species
+         alone from job 7's warm starts (K13.5). Predicted: the valley; the head helps at the margin; E₀ re-fits.*
+       - *Five tasks, about 34 GPU hours. Not tested here: the window (training at 128 molecules), the charges' band at
+         its own edge, far-field structures in training.*
 7. **The L₀ sweep** (Form II).
