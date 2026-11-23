@@ -713,6 +713,17 @@ python scripts/e4_job11.py --out_dir results/e4_job11 --job7_dir results/e4_job7
 python scripts/e4_water.py summary --out_dir results/e4_job11
 ```
 
+It ran as the five registered tasks. Read 23 Nov (`notes/e4-job11-results.md`):
+
+- **K11.1 holds:** the polished profile's minimum is c = 1.07 (1.995 D).
+- **K11.2 fails, as predicted.** The learned charges stop where their start puts them: 1.59–1.61 D from 0.5, 2.11–2.18 D
+  from 1.5.
+- **K11.3 holds:** the long polish takes 8 % off the field-term dagger.
+- **K11.4 fails by 0.3 points** (−2.7 % at 64 molecules), D′ having taken 277–290 of 1000 steps in its budget. K11.5
+  holds. The model rule does not fire.
+- **Proposed next:** D′'s polish with its response, which the polish does not train, precomputed: the dagger's cost per
+  step.
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

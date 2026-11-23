@@ -568,4 +568,13 @@ code is still open: CP2K, GPAW, VASP or QE.
          least 3 %; K11.5: D′'s infrared unchanged). The model rule: if K11.4 and K11.5 hold, E4's model takes the
          polish.*
        - *A wall-clock budget for the polish (D′: 600 minutes, about 350 steps). Five tasks, about 50 GPU hours.*
+     - *Job 11 read 23 Nov (`e4-job11-results.md`).*
+       - *K11.1 holds (the polished minimum at c = 1.07, 1.995 D); K11.2 fails as predicted; K11.3 holds (−8 %); K11.4
+         fails by 0.3 points (D′: −2.7 to −3.1 % in 277–290 steps); K11.5 holds. The model rule does not fire.*
+       - *Learned charges end where their start puts them (1.59–1.61, 1.93–2.01, 2.11–2.18 D): with E₀ trained out, bulk
+         forces at one density do not fix their scale. The lemma cannot be read through them.*
+       - *D′'s response is independent of the polished parameters (species read-out, held; pinned sources): precomputed,
+         its polish costs the dagger's.*
+       - *Proposed: D′'s polish with the response precomputed (after an exactness test), the model rule again; the long
+         polish in the protocol for every compared model.*
 7. **The L₀ sweep** (Form II).

@@ -2196,3 +2196,32 @@ python scripts/e4_water.py summary --out_dir results/e4_job11
 
 With job 6's to job 10's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 175 tests pass
 and 1 is skipped.
+
+## v0.0.35, read 23 Nov — job 11: the profile's minimum under the long polish is c = 1.07; learned charges stop where their start puts them; the polish takes 8 % off the field-term dagger, D′ ran out of budget (`notes/e4-job11-results.md`)
+
+**The job ran** as the registered five tasks. The M_1 polishes took 1.7–2.1 h a run and the field-term dagger's 3.2–3.4
+h. D′'s took 10.3 h, stopped by its 600-minute budget after 277 and 290 steps.
+
+| | band | Niflheim | |
+|---|---|---|---|
+| K11.1 | the polished profile's minimum within ±0.05 of 1.098 | 1.070 (1.995 D) | holds |
+| K11.2 | job 10's M_1w050 move up ≥ 0.06 D | +0.105, −0.059 D | fails (predicted) |
+| K11.3 | the field-term dagger, polished, ≥ 5 % lower | −7.8 to −8.2 % | holds |
+| K11.4 | D′, polished, ≥ 3 % lower | −2.7 / −3.1 / −3.1 % | fails, by 0.3 points at 64 |
+| K11.5 | D′'s infrared unchanged | job 8's to the printed digit | holds |
+
+- **The model rule does not fire.** E4's model stays job 8's D′.
+- **The profile under the long polish:** its minimum at c = 1.07 (forces: 1.04–1.08). Every point falls 22–29 % in the
+  objective and 12–16 % in forces.
+- **The learned charges stop where their start puts them.** From 0.5 they end at 1.59–1.61 D (20 % short), from 1.0 at
+  1.93–2.01 D, from 1.5 at 2.11–2.18 D (6–9 % above). Neither side moved toward c* in the second 1000 steps, while the
+  objective kept falling. With E₀ trained out, bulk forces at one density do not fix their scale.
+- **The polish takes 8 % off the field-term dagger** (0.440 / 0.453 / 0.456), without over-fitting.
+- **D′ got 28 % of the steps.** Its objective fell at the dagger's pace, so the steps, not convergence, limited it. Its
+  infrared is unchanged.
+- **D′'s response does not depend on what the polish trains:** a species read-out, held, on pinned sources. Its energy
+  and forces could be precomputed per frame, and D′'s polish would then cost the dagger's 12 s a step, not 127 s.
+- **Proposed next, not registered:**
+  - D′'s polish with the response precomputed, after a test of its independence, with the model rule again;
+  - the long polish in the protocol for every compared model;
+  - the learned charges' thread closed, or the charges' band with its own edge as the last attempt.
