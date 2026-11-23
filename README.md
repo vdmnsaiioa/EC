@@ -724,6 +724,25 @@ It ran as the five registered tasks. Read 23 Nov (`notes/e4-job11-results.md`):
 - **Proposed next:** D′'s polish with its response, which the polish does not train, precomputed: the dagger's cost per
   step.
 
+**Job 12** (`notes/e4-job12-preregistration.md`, v0.0.36): E4's model polished, its response precomputed.
+
+- **`training.response_precomputed: {dagger: ...}`:** a rung whose response is a constant of the rest
+  (`model.response_constant`: a read-out from the species alone on pinned sources, held) has the response's energy and
+  forces computed once per training frame, as the rung less its dagger (`model.is_response_free`); the dagger is then
+  trained against the remainder. Every step is the rung's own, at the dagger's cost. Checked in every run: the response
+  under other shared parameters, and the two objectives at the start and the end.
+- **D′ at the 2.0 Å c6 band** (`configs/e4_job12.yaml`), seeds 0–3 from job 8, 1000 L-BFGS steps.
+- **K12.0–K12.3 and the model rule:** exactness; the polish's gain (at least 3 %); the infrared unchanged; the
+  response's bulk gain at equal steps against job 11's polished field-term dagger. If K12.0–K12.2 hold, E4's model takes
+  the long polish.
+
+```sh
+sbatch run_e4_job12.sbatch                 # 4 GPU tasks, 8 h each
+python scripts/e4_job12.py --out_dir results/e4_job12 --job8_dir results/e4_job8 \
+    --job11_dir results/e4_job11           # K12.0-K12.3, the model rule
+python scripts/e4_water.py summary --out_dir results/e4_job12
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

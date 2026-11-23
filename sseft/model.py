@@ -509,6 +509,32 @@ def with_rung(rung: Rung, **kw):
     return replace(rung, **kw)
 
 
+# v0.0.36 (E4 job 12): the response's own fields -- the band-field read-out and its mutual response.  With band_fields
+# -1 none of them is read, so that a rung with those fields changed and the read-out off is the same model less its
+# response (is_response_free); and a read-out from the species alone on pinned sources reads nothing the rest of the model
+# learns (response_constant), so that its energy and forces on a structure are constants of the rest's parameters.
+RESPONSE_FIELDS = ("band_fields", "bf_rs", "bf_fragments", "bf_E_ref", "bf_l", "bf_l_mutual", "readout", "bf_mutual",
+                   "bf_species", "bf_solver", "bf_tol", "bf_maxiter", "bf_restart")
+
+
+def response_constant(rung: Rung):
+    """whether a rung's response depends on nothing but its read-out's parameters and the structure: a pair read-out with
+    coefficients from the species alone (Rung.bf_species: no E_0 features) reading the band field of pinned sources (a
+    site model, or pinned charges) -- E4's model D'.  The response's energy and forces are then constants of every other
+    parameter (scripts/e4_water.py's response_constants precomputes them on the training frames)."""
+    return (rung.band_fields >= 0 and rung.bf_species and rung.readout == "pair" and rung.charges
+            and (rung.msites or rung.pin_q))
+
+
+def is_response_free(rung: Rung, other: Rung):
+    """whether `other` is `rung` less its response: no band-field read-out, and every field but the name and the
+    response's own (RESPONSE_FIELDS) the rung's -- e.g. the field-term dagger M_16pm_us_d20 and D' (M_16C2pm_us_d20).  The
+    two then share every parameter but the read-out (init_params draws them from the same keys)."""
+    from dataclasses import fields
+    return other.band_fields < 0 and all(getattr(rung, f.name) == getattr(other, f.name) for f in fields(Rung)
+                                         if f.name != "name" and f.name not in RESPONSE_FIELDS)
+
+
 # v0.0.33 (E4 job 9): the learned charges' overall scale.  The charge head's last layer is linear (heads.charges:
 # q = unit (W h + b + q_ref[Z]) less the neutrality shift, which is linear in them), so multiplying W, b and q_ref by s
 # multiplies every learned charge by s, on every atom and in every environment, and leaves the rest of the model alone.

@@ -204,6 +204,10 @@ DEFAULTS = {
         # seed (<dir>/<rung>_seed<seed>.params.pkl; its json's model record must be the rung's) instead of the seed's
         # initialisation (train.fit's params_init); v0.0.35 (job 11) by_rung: {rung: another directory}; None: off
         "start_from": None,
+        # v0.0.36 (job 12): {dagger: the rung less its response} -- a rung whose response is a constant of the rest
+        # (model.response_constant: D') has it computed once per training frame and the dagger trained against the
+        # remainder, the read-out held (response_constants); None: off
+        "response_precomputed": None,
     },
     "probes": {"distances_angstrom": [8.0, 10.0, 12.0, 15.0], "train_per_distance": 2, "train_cores": 16,
                "train_core_sizes": [3, 4, 5], "test_per_distance": 10, "test_cores": 2, "seed": 400, "mc_steps": 300,
@@ -1484,11 +1488,17 @@ def divisor_at_most(n, k):
     return max(d for d in range(1, max(1, min(n, k)) + 1) if n % d == 0)
 
 
+_SUMS_FNS = {}
+
+
 def final_loss(params, rung, structs, scale, w_energy, w_force, chunk, force_mode):
     """the training objective on every training frame at the end of training (v0.0.30): the energy and force terms and
     their weighted sum, exactly the L-BFGS polish's full-batch loss, chunk by chunk.  Job 6's gate compares it rung
-    against M_inf, seed by seed (gate_status)."""
-    sums = jax.jit(T.make_loss_sums(rung, scale, w_force, force_mode))
+    against M_inf, seed by seed (gate_status).  One compilation per rung, scale and force term (v0.0.36)."""
+    key = (repr(rung), float(scale), float(w_force), force_mode)
+    if key not in _SUMS_FNS:
+        _SUMS_FNS[key] = jax.jit(T.make_loss_sums(rung, scale, w_force, force_mode))
+    sums = _SUMS_FNS[key]
     data = S.pad_batch(structs, n_freq=rung.K)
     tot = np.zeros(4)
     for i in range(0, len(structs), chunk):
@@ -1500,6 +1510,62 @@ def final_loss(params, rung, structs, scale, w_energy, w_force, chunk, force_mod
 def learns_charges(rung):
     """a rung whose charges are learned (not pinned, no site model)."""
     return rung.charges and not rung.pin_q and not rung.msites
+
+
+# v0.0.36 (job 12; notes/e4-job12-preregistration.md): the response precomputed.  D''s read-out reads the pinned sources'
+# band field with coefficients from the species alone, and it is held through training, so that its energy and forces on
+# a frame do not change while E_0 and the field term train (model.response_constant).  They are computed once per training
+# frame, as the rung's energy and forces less its dagger's (the same model less the read-out, model.is_response_free) at
+# the same parameters, and the dagger is trained against the remainder: the same objective at every step, at the dagger's
+# cost.  The check: the constants recomputed on RESPONSE_CHECK_FRAMES frames with other shared parameters (the
+# initialisation of key RESPONSE_CHECK_KEY + seed) must agree within RESPONSE_TOL of their rms, and the rung's objective
+# and the dagger's against the remainder must agree within RESPONSE_TOL at the start and at the end (the GMRES solve's
+# tolerance, 1e-10, bounds what separates them)
+RESPONSE_CHECK_FRAMES, RESPONSE_CHECK_KEY, RESPONSE_TOL = 2, 10_000, 1e-6
+
+
+def shared_params(params):
+    """a rung's parameters less its read-out: its dagger's (model.is_response_free)."""
+    return {k: v for k, v in params.items() if k != "readout"}
+
+
+def response_constants(params, rung, dagger, structs, alt=None, check=RESPONSE_CHECK_FRAMES):
+    """the response's energy (hartree) and forces (hartree/bohr) on every structure, E_rung - E_dagger and F_rung -
+    F_dagger at the rung's parameters (the dagger's: the same less the read-out), and a record: their rms, and with
+    `alt` (another set of the rung's parameters) the check that they are constants of everything but the read-out --
+    recomputed on the first `check` structures with alt's shared parameters and params' read-out, their largest change
+    relative to their rms over every structure."""
+    fr = jax.jit(lambda p, b: M.energy_forces_single(p, rung, b))
+    fd = jax.jit(lambda p, b: M.energy_forces_single(p, dagger, b))
+
+    def one(p, st):
+        b = {k: v[0] for k, v in S.pad_batch([st], n_freq=rung.K).items()}
+        E1, F1 = fr(p, b)
+        E0, F0 = fd(shared_params(p), b)
+        return float(E1) - float(E0), np.asarray(F1)[:st.n_atoms] - np.asarray(F0)[:st.n_atoms]
+
+    RE, RF = [], []
+    for st in structs:
+        e, f = one(params, st)
+        RE.append(e); RF.append(f)
+    rms_e = float(np.sqrt(np.mean(np.square(RE))))
+    rms_f = float(np.sqrt(np.mean(np.concatenate([np.ravel(f) for f in RF]) ** 2)))
+    rec = {"frames": len(structs), "energy_rms": rms_e, "force_rms": rms_f}
+    if alt is not None and check > 0:
+        p_alt = {**shared_params(alt), "readout": params["readout"]}
+        n = min(check, len(structs))
+        dE, dF = [], []
+        for i in range(n):
+            e, f = one(p_alt, structs[i])
+            dE.append(abs(e - RE[i])); dF.append(float(np.max(np.abs(f - RF[i]))))
+        rec["invariance"] = {"frames": n, "energy": max(dE) / max(rms_e, 1e-300), "forces": max(dF) / max(rms_f, 1e-300)}
+    return np.asarray(RE), RF, rec
+
+
+def remainder(structs, RE, RF):
+    """the structures with the response's energy and forces taken off their targets: what the dagger is trained on."""
+    return [replace(st, energy=float(st.energy) - float(e), forces=np.asarray(st.forces, float) - f)
+            for st, e, f in zip(structs, RE, RF)]
 
 
 SCALE_GRID = (0.5, 0.75, 0.9, 0.99, 1.0, 1.01, 1.1, 1.25, 1.5)
@@ -1688,6 +1754,14 @@ def run_train(a):
             if tracer is None:                                        # job 11: the objective alone, for any rung
                 extra["trace_fn"] = lambda p: {}
         start = tr.get("start_from")
+        rp, dagger = tr.get("response_precomputed"), None
+        if rp:                                                        # job 12: the response precomputed
+            if readout is None or not M.response_constant(rung):
+                raise ValueError(f"training.response_precomputed: {name}'s response is not a constant of the rest (a "
+                                 "read-out from the species alone on pinned sources, held: model.response_constant)")
+            dagger, _ = rungs_for(rp["dagger"], cfg, train[0].cell)
+            if not M.is_response_free(rung, dagger):
+                raise ValueError(f"training.response_precomputed: {rp['dagger']} is not {name} less its response")
         for seed in seeds:
             t0 = time.time()
             init, begin = None, None
@@ -1715,21 +1789,54 @@ def run_train(a):
                   + (f", the charges traced every {extra['trace_every']} steps on {int(trc['frames'])} frames"
                      if tracer is not None else ""), flush=True)
             ad, lb, ls = tr["adam"], tr["lbfgs"], tr["loss"]
-            params, info = T.fit(rung, train, seed=seed, steps=int(ad["steps"]), lr=float(ad["learning_rate"]),
+            loss_args = (scale, float(ls["energy_weight"]), float(ls["force_weight"]), chunk, ls["forces"])
+            fit_rung, fit_structs, fit_init, fit_readout, pre = rung, train, init, readout, None
+            if dagger is not None:                                    # job 12: the dagger against the remainder
+                t1 = time.time()
+                p_start = {**(init if init is not None else
+                              M.init_params(jax.random.PRNGKey(seed), rung, energy_scale=scale)), "readout": readout}
+                alt = M.init_params(jax.random.PRNGKey(RESPONSE_CHECK_KEY + seed), rung, energy_scale=scale)
+                RE, RF, pre = response_constants(p_start, rung, dagger, train, alt=alt)
+                inv = pre["invariance"]
+                print(f"  {name} seed {seed}: the response precomputed on {len(train)} cells (energy rms "
+                      f"{pre['energy_rms'] * KCAL:.4f} kcal/mol, forces rms {pre['force_rms'] * FORCE_UNIT:.4f} "
+                      f"kcal/mol/A); with other shared parameters on {inv['frames']} cells it changes by "
+                      f"{inv['energy']:.1e} (energy) and {inv['forces']:.1e} (forces) of its rms  "
+                      f"[{time.time() - t1:.0f} s]", flush=True)
+                if not (inv["energy"] <= RESPONSE_TOL and inv["forces"] <= RESPONSE_TOL):
+                    raise RuntimeError(f"{name}'s response depends on the shared parameters: it cannot be precomputed")
+                fit_rung, fit_structs, fit_init, fit_readout = dagger, remainder(train, RE, RF), shared_params(p_start), None
+                full0, red0 = final_loss(p_start, rung, train, *loss_args), final_loss(fit_init, dagger, fit_structs,
+                                                                                         *loss_args)
+                pre.update(dagger=rp["dagger"], objective_start={"rung": full0["total"], "dagger": red0["total"]},
+                           seconds=time.time() - t1)
+                print(f"  {name} seed {seed}: the objective at the start {full0['total']:.10e}; {rp['dagger']} against "
+                      f"the remainder {red0['total']:.10e}", flush=True)
+                if abs(red0["total"] / full0["total"] - 1.0) > RESPONSE_TOL:
+                    raise RuntimeError(f"{rp['dagger']} against the remainder is not {name}'s objective")
+            params, info = T.fit(fit_rung, fit_structs, seed=seed, steps=int(ad["steps"]), lr=float(ad["learning_rate"]),
                                  w_energy=float(ls["energy_weight"]), w_force=float(ls["force_weight"]),
                                  batch_size=int(ad["batch_size"]), lbfgs_steps=int(lb["steps"]), lbfgs_chunk=chunk,
                                  lr_final_ratio=float(ad["final_learning_rate_ratio"]), adam_b1=float(ad["beta1"]),
                                  adam_b2=float(ad["beta2"]), adam_eps=float(ad["epsilon"]), scale=scale,
                                  lbfgs_memory=int(lb["memory_size"]),
-                                 lbfgs_max_linesearch_steps=int(lb["max_linesearch_steps"]), readout_init=readout,
-                                 force_mode=ls["forces"], verbose=True, params_init=init,
+                                 lbfgs_max_linesearch_steps=int(lb["max_linesearch_steps"]), readout_init=fit_readout,
+                                 force_mode=ls["forces"], verbose=True, params_init=fit_init,
                                  lbfgs_max_seconds=60.0 * float(lb["max_minutes"]) if lb.get("max_minutes") else None,
                                  **extra)
             t_train = time.time() - t0
-            fl = final_loss(params, rung, train, scale, float(ls["energy_weight"]), float(ls["force_weight"]), chunk,
-                            ls["forces"])
+            if dagger is not None:                                    # D' again: the polished rest and the held read-out
+                red1 = final_loss(params, dagger, fit_structs, *loss_args)
+                params = {**params, "readout": readout}
+            fl = final_loss(params, rung, train, *loss_args)
             print(f"  {name} seed {seed}: final training loss {fl['total']:.4e} (energy {fl['energy']:.3e}, forces "
                   f"{fl['forces']:.3e}) on all {len(train)} cells", flush=True)
+            if dagger is not None:
+                pre["objective_end"] = {"rung": fl["total"], "dagger": red1["total"]}
+                print(f"  {name} seed {seed}: the objective at the end {fl['total']:.10e}; {rp['dagger']} against the "
+                      f"remainder {red1['total']:.10e}", flush=True)
+                if abs(red1["total"] / fl["total"] - 1.0) > RESPONSE_TOL:
+                    raise RuntimeError(f"{rp['dagger']} against the remainder is not {name}'s objective at the end")
             diag = None
             if tracer is not None:
                 t1 = time.time()
@@ -1779,8 +1886,9 @@ def run_train(a):
             result = {"rung": name, "seed": seed, "model": model_record(name, cfg, rung), "config": cfg,
                       "sseft": sseft.__version__, "jax": jax.__version__, "devices": str(jax.devices()),
                       "probes_hash": probes["hash"], "energy_scale": scale, "training_frames": len(train),
-                      "matching": match, "training": {"time": t_train, "history": info["history"],
-                                                      "options": info["training_options"], "final_loss": fl},
+                      "matching": match, "training": {"time": t_train, "fit_time": info["time"],
+                                                      "history": info["history"], "options": info["training_options"],
+                                                      "final_loss": fl},
                       "readings": rd}
             if diag is not None:
                 result["training"]["charges"] = diag                  # job 9 (v0.0.33)
@@ -1788,6 +1896,8 @@ def run_train(a):
                 result["training"]["start"] = begin                   # job 10 (v0.0.34)
             if "lbfgs_trace" in info:                                 # job 11 (v0.0.35): the objective through the polish
                 result["training"]["lbfgs_trace"] = [[int(st), val] for st, _, val in info["lbfgs_trace"]]
+            if pre is not None:                                       # job 12 (v0.0.36): the response precomputed
+                result["training"]["response_precomputed"] = pre
             with open(stem + ".json", "w") as fh:
                 json.dump(result, fh, indent=1)
             print(f"  {summary_line(name, seed, rd)}  [{time.time() - t0:.0f} s in all; {stem}.json]", flush=True)

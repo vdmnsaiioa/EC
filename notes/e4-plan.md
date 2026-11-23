@@ -577,4 +577,12 @@ code is still open: CP2K, GPAW, VASP or QE.
          its polish costs the dagger's.*
        - *Proposed: D′'s polish with the response precomputed (after an exactness test), the model rule again; the long
          polish in the protocol for every compared model.*
+     - *Job 12 registered 23 Nov (`e4-job12-preregistration.md`, v0.0.36; Vadic's go for (a)).*
+       - *D′'s response precomputed: its read-out reads the species and the pinned sources' band field, held, so its
+         energy and forces are constants of the polish. The field-term dagger is trained against the remainder: D′'s
+         objective at every step, at the dagger's cost (12 s a step against 127 s).*
+       - *D′ seeds 0–3 from job 8, 1000 steps. K12.0: exactness (10⁻⁶); K12.1: at least 3 % lower than job 8; K12.2: the
+         infrared unchanged; K12.3: at least 1.5 % below the polished field-term dagger at 128 and 256 molecules. The
+         model rule: if K12.0–K12.2 hold, E4's model takes the long polish.*
+       - *Four tasks, about 16 GPU hours.*
 7. **The L₀ sweep** (Form II).

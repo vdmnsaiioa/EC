@@ -2225,3 +2225,53 @@ h. D′'s took 10.3 h, stopped by its 600-minute budget after 277 and 290 steps.
   - D′'s polish with the response precomputed, after a test of its independence, with the model rule again;
   - the long polish in the protocol for every compared model;
   - the learned charges' thread closed, or the charges' band with its own edge as the last attempt.
+
+## v0.0.36, 23 Nov — job 12 pre-registered: E4's model polished, its response precomputed (`notes/e4-job12-preregistration.md`)
+
+**Why:** job 11's long polish took 8 % off the field-term dagger, but D′ got 277–290 of its 1000 steps in 600 minutes:
+each of its steps carries the mutual response (124–130 s against the dagger's 12 s). D′'s read-out reads the species and
+the pinned sources' band field, and it is held, so the response's energy and forces on a frame are constants of the
+polish, which trains exactly the dagger's parameters.
+
+**What changes, before any run:**
+
+- **`model.response_constant` and `model.is_response_free`:** a rung whose response depends on its read-out and the
+  structure alone, and a rung that is another less its response (`model.RESPONSE_FIELDS`).
+- **`training.response_precomputed: {dagger: ...}`** (`scripts/e4_water.py`: `response_constants`, `remainder`): the
+  response's energy and forces computed once per training frame as the rung less its dagger; the dagger trained against
+  the remainder from the rung's parameters less the read-out; the rung put back together with the held read-out.
+  Checked in every run (within 10⁻⁶): the response recomputed with other shared parameters, and the two objectives at
+  the start and the end. The json records the checks and the fit's own time (`training.fit_time`).
+- **`final_loss`** compiles once per rung, scale and force term.
+- **`configs/e4_job12.yaml`** (job 11's D′ settings): seeds 0–3 from job 8, 1000 steps, a 360-minute safety budget, the
+  response precomputed against M_16pm_us_d20.
+- **`scripts/e4_job12.py`** reads K12.0–K12.3 and the model rule.
+
+**Registered:**
+
+| | reading | band |
+|---|---|---|
+| K12.0 | exactness: the response under other shared parameters; the two objectives at the start and the end; the start against job 11's step 0 | within 10⁻⁶ |
+| K12.1 | the polished D′ against job 8's same seeds | at least 3 % lower at every size |
+| K12.2 | its infrared | ε_∞ ±0.002; the far probes and T5 ±0.5 points |
+| K12.3 | the polished D′ against job 11's polished field-term dagger, seeds 0 and 1 | at least 1.5 % lower at 128 and 256 |
+
+**The model rule:** if K12.0–K12.2 hold, E4's model is D′ at the 2.0 Å band with the long polish.
+
+```sh
+mkdir -p results/e4_job12 logs logs_error && sbatch run_e4_job12.sbatch    # 4 GPU tasks, 8 h each
+python scripts/e4_job12.py --out_dir results/e4_job12 --job8_dir results/e4_job8 --job11_dir results/e4_job11
+python scripts/e4_water.py summary --out_dir results/e4_job12
+```
+
+**Tests:** `tests/test_job12.py`, 5 tests:
+
+- the response is a constant of the rest (10⁻¹⁴), the dagger is D′ less it, and the two objectives agree (10⁻¹²); a
+  read-out from E₀'s features fails;
+- two L-BFGS steps against the remainder are D′'s own, to 10⁻¹² in the parameters;
+- the driver: the check, the objectives, the trace and the held read-out recorded; a wrong dagger refused;
+- the config against job 11's D′ config;
+- K12.0–K12.3, the model rule and their edges.
+
+With job 6's to job 11's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 180 tests pass
+and 1 is skipped.
