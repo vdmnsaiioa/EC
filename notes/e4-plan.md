@@ -594,4 +594,13 @@ code is still open: CP2K, GPAW, VASP or QE.
          alone from job 7's warm starts (K13.5). Predicted: the valley; the head helps at the margin; E₀ re-fits.*
        - *Five tasks, about 34 GPU hours. Not tested here: the window (training at 128 molecules), the charges' band at
          its own edge, far-field structures in training.*
+     - *Jobs 12 and 13 read 25 Nov (`e4-job12-results.md`, `e4-job13-results.md`).*
+       - *Job 12: K12.0–K12.3 hold, the model rule fires. E4's model is D′ at the 2.0 Å band with the long polish: 0.444
+         / 0.449 / 0.451 kcal/mol/Å (−7 %), the infrared unchanged. At equal steps the response's bulk gain is gone at 64
+         molecules and 1.8 % at 128 and 256: its bulk value is its transfer in size.*
+       - *Job 13: K13.1–K13.5 fail; E₀'s memory. The released charges move 0.05–0.07 in c in 1000 steps, with the head
+         or without; E₀ moved to 1.1 re-fits slowly from 0.7 and not from 1.45. The head moves the scale under Adam
+         rather than holding it. The valley's walls are the band's own (1.087×10⁶ c⁴, E₀-independent); the scale's
+         mobility falls as E₀ trains.*
+       - *Proposed: the learned-charges thread closed as a result; the same test on MACE-LES.*
 7. **The L₀ sweep** (Form II).

@@ -743,6 +743,12 @@ python scripts/e4_job12.py --out_dir results/e4_job12 --job8_dir results/e4_job8
 python scripts/e4_water.py summary --out_dir results/e4_job12
 ```
 
+It ran as the four registered tasks. Read 25 Nov (`notes/e4-job12-results.md`):
+
+- **K12.0–K12.3 hold; the model rule fires.** E4's model is D′ with the long polish: 0.444 / 0.449 / 0.451 kcal/mol/Å,
+  −7 % on job 8, its infrared unchanged; the precomputed polish is exact and ten times cheaper.
+- **The response's bulk gain at equal steps is its transfer in size:** +0.5 % at 64 molecules, −1.8 % at 128 and 256.
+
 **Job 13** (`notes/e4-job13-preregistration.md`, v0.0.37): why learned charges end where their start puts them.
 
 - **`train.fit(freeze_charge_head=True)`:** learned charges by species alone (the charge head held, its species offsets
@@ -761,6 +767,13 @@ python scripts/e4_job13.py --out_dir results/e4_job13 --stage_dir results/e4_job
     --job10_dir results/e4_job10 --job11_dir results/e4_job11   # K13.1-K13.5
 python scripts/e4_water.py summary --out_dir results/e4_job13
 ```
+
+It ran as the five registered tasks. Read 25 Nov (`notes/e4-job13-results.md`):
+
+- **K13.1–K13.5 all fail;** the pattern is E₀'s memory. Released from the polished profile, the charges move 0.05–0.07 in
+  c in 1000 steps, with the head or without; moved to 1.1 for it, E₀ does not re-fit in 1000 steps.
+- **The head is not the cause** (it moves the scale faster under Adam). The valley's walls are the band's own, 1.087×10⁶
+  c⁴; the learned scale is set by the start and frozen as E₀ trains.
 
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame

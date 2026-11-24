@@ -2330,3 +2330,46 @@ python scripts/e4_water.py summary --out_dir results/e4_job13
 
 With job 6's to job 12's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 185 tests pass
 and 1 is skipped.
+
+## v0.0.37, read 25 Nov — job 12: E4's model takes the long polish, 7 % lower; the response's bulk gain is its transfer in size (`notes/e4-job12-results.md`)
+
+**The job ran** as the registered four tasks: 3.6 h a run, the polish 11.8–11.9 s a step against job 11's 124–130 s for
+D′.
+
+| | band | Niflheim | |
+|---|---|---|---|
+| K12.0 | exactness within 10⁻⁶ | every check ≤ 3.7×10⁻¹⁴ | holds |
+| K12.1 | at least 3 % below job 8 | 0.444 / 0.449 / 0.451: −7.0 / −7.5 / −7.4 % | holds |
+| K12.2 | the infrared unchanged | job 8's to the printed digit | holds |
+| K12.3 | at least 1.5 % below the polished field-term dagger at 128, 256 | −1.8 / −1.8 % | holds, narrowly |
+
+- **The model rule fires: E4's model is D′ at the 2.0 Å band with the long polish,** 0.444 / 0.449 / 0.451 kcal/mol/Å.
+- **The precomputed polish is D′'s to rounding** and ten times cheaper. Its path agrees with job 11's to 10⁻⁵ at step 50,
+  then parts by rounding (about 1 % by step 150).
+- **At equal steps the response's bulk gain is gone at the training size** (+0.5 % at 64 molecules) and 1.8 % at 128
+  and 256. From 64 to 256 molecules the dagger's error grows 3.6 %, D′'s 1.1 %: what E₀ learns in place of the induction
+  holds in the cell it spans and does not carry beyond it.
+
+## v0.0.37, read 25 Nov — job 13: learned charges do not find the data's scale because it moves only with E₀, and E₀ commits (`notes/e4-job13-results.md`)
+
+**The job ran** as the registered five tasks, 5.0–8.9 h each.
+
+| | band | Niflheim | | predicted |
+|---|---|---|---|---|
+| K13.1 | R by species within ±0.05 of c*_lb = 1.07 | 0.754, 0.745; 1.379, 1.380 | fails | fails |
+| K13.2 | R with the head within ±0.05 | 0.767, 0.758; 1.403, 1.382 | fails | fails |
+| K13.3 | by species nearer on 3 of 4 pairs | 2 of 4 | fails | holds |
+| K13.4 | T within 5 % of the polished control | +30 % from 0.7; +805 to +990 % from 1.45 | fails | holds |
+| K13.5 | S within ±0.05 | 0.632, 0.625; 1.347, 1.342 | fails | fails |
+
+- **The registered pattern is E₀'s memory.** Released from the polished profile, the charges move 0.05–0.07 in c in
+  1000 steps, with the head or without. Moved to 1.1 for it, E₀ re-fits in about a training's worth from 0.7 and not at
+  all from 1.45.
+- **The head is not the cause:** through Adam it moves the scale 4–7 times further than the species offsets alone.
+- **The valley's walls are the band's alone:** with E₀ held the curvature along the scale is 1.087×10⁶ c⁴ for all
+  sixteen states by species, to 0.3 %. At c* it is 10,000 times the profile's: the identifying part is 1.0 % of the
+  band's contribution.
+- **The scale's mobility falls as E₀ trains:** 0.16–0.20 in c per 1000 steps after job 7's training, 0.05–0.07 after a
+  polish, 0–0.06 after two. The learned scale is set by the start and frozen by E₀'s convergence.
+- **Proposed next, not registered:** close the thread as a result; the same test on MACE-LES (its latent charges started
+  at two scales).
