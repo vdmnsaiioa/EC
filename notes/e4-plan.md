@@ -617,6 +617,9 @@ code is still open: CP2K, GPAW, VASP or QE.
          85–93 % of the gap. The freezing at 12 Å was the two-layer E₀'s dynamics (6 Å against 12 Å: depth alone).*
        - *The pinned minimum's place depends on the curve through four points (1.006 to 1.11 at 4.5 Å). The start still
          marks the fit (15–43 % in loss). The short reach costs 9–13 % (6 Å) and 21–41 % (4.5 Å) in forces.*
-       - *Proposed: the paths (reader v0.0.39); the 4.5 Å profile resolved, species-only warm starts there; depth
+       - *The paths (reader v0.0.39): the pull on the scale is the same at every reach; with one layer the scale
+         responds two to three times more. At 4.5 Å it settles at 0.97–0.99 from both sides (the learned charges' own
+         minimum, below the pinned one); at 6 Å it is still converging.*
+       - *Proposed: the 4.5 Å profile resolved and species-only warm starts there; the 6 Å warm starts continued; depth
          against reach; the short model's charges into the 12 Å model; MACE-LES from two starts.*
 7. **The L₀ sweep** (Form II).

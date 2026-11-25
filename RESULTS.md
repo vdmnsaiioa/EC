@@ -2440,10 +2440,17 @@ With job 6's to job 13's, S0's, the driver's, the MD's, the training stages' and
   freeze.
 - **`scripts/e4_job14.py` (v0.0.39)** also prints, beside the registered readings: the profile by seed and in c², the
   forces against 12 Å's, and every warm start's path through job 7's training (the pull in blocks of 500 Adam steps)
-  and through the polish. The paths are read when that output arrives.
-- **Proposed next, not registered:** the paths; the 4.5 Å profile resolved between 1.0 and 1.45 with species-only warm
-  starts (about 7 GPU hours); depth against reach (two layers of 3 Å); the short model's charges transplanted into the
-  12 Å model; MACE-LES from two starts.
+  and through the polish.
+- **The paths:** the data's pull on the scale is the same at every reach (|mean| / sd 0.06–0.11 in Adam's first 500
+  steps, at most 0.04 after) and the move keeps its timing; at short reach the scale goes two to three times further
+  for it. In the polish, three of the four 4.5 Å runs have stopped at 0.969–0.986, two after overshooting: a minimum
+  of the learned charges' own, below the pinned one. At 6 Å the pairs are still closing (0.02–0.04 per 250 steps).
+  The objective still falls 5–8 % per 250 steps at every reach.
+- **Learned charges at their scale cost the same as pinned ones:** +20–23 % (4.5 Å) and +13–15 % (6 Å) in forces
+  against job 10's M_1w100.
+- **Proposed next, not registered:** the 4.5 Å profile resolved between 1.0 and 1.45 with species-only warm starts
+  (about 7 GPU hours); the 6 Å warm starts continued (about 5); depth against reach (two layers of 3 Å); the short
+  model's charges transplanted into the 12 Å model; MACE-LES from two starts.
 
 **Tests:** `tests/test_job14.py` gains a fifth: the profile two ways and by seed, the forces against 12 Å's, the paths
 through the first stage and the polish, untraced runs read as untraced.
