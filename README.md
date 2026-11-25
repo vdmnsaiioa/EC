@@ -775,6 +775,20 @@ It ran as the five registered tasks. Read 25 Nov (`notes/e4-job13-results.md`):
 - **The head is not the cause** (it moves the scale faster under Adam). The valley's walls are the band's own, 1.087×10⁶
   c⁴; the learned scale is set by the start and frozen as E₀ trains.
 
+**Job 14** (`notes/e4-job14-preregistration.md`, v0.0.38): the charges' scale and E₀'s reach.
+
+- **`model.layers`:** E₀'s message-passing layers (default 2, every earlier rung and record unchanged).
+- **At two shorter reaches** — one layer of 4.5 Å (as the LES water model) and one of 6 Å — job 7's scan and warm starts,
+  trained as job 7 and polished as jobs 10–11 (`configs/e4_job14s_r45.yaml`, `e4_job14_r45.yaml`, and the same for
+  `r6`).
+- **K14.1–K14.4:** whether the profile sharpens against the walls (5 and 2 times 12 Å's), whether the warm starts find the
+  reach's own c* at 4.5 Å, and whether the gap between their ends shrinks with the reach.
+
+```sh
+sbatch run_e4_job14.sbatch                 # 6 GPU tasks, 14 h each
+python scripts/e4_job14.py --job9_dir results/e4_job9 --job10_dir results/e4_job10 --job11_dir results/e4_job11
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

@@ -367,6 +367,8 @@ def configure(rung, a):
     (RUNG_BAND_EDGE) takes it over the run's, and its read-out stays at the run's (response edge, else band edge); a rung
     with its read-out's own band edge (RUNG_RESPONSE_EDGE) takes that over the run's response edge."""
     kw = dict(lA=ang_to_bohr(a.lA), e0={**rung.e0, "r_cut": ang_to_bohr(a.rcut), "F": a.F, "n_rbf_readout": 8})
+    if getattr(a, "layers", None) is not None:                                         # E_0's message-passing layers
+        kw["e0"]["T"] = int(a.layers)                                                  # (v0.0.38, E4 job 14)
     charge_source = getattr(a, "charges", None)
     if rung.charges and charge_source is not None:
         kw["pin_q"] = charge_source == "pinned"
@@ -422,6 +424,7 @@ def model_record(name, a):
             **({"mutual_response": int(rung.bf_mutual)} if rung.bf_mutual else {}),
             **({"mutual_edge_angstrom": ang(rung.bf_l_mutual)} if rung.bf_mutual and rung.bf_l_mutual > 0 else {}),
             "r_cut_angstrom": ang(rung.e0["r_cut"]), "features": int(rung.e0["F"]),
+            **({"layers": int(rung.e0["T"])} if int(rung.e0.get("T", 2)) != 2 else {}),
             "analytic_envelope_angstrom": ang(rung.lA), "periodic": bool(rung.periodic)}
 
 

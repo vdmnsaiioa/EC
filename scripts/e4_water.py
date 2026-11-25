@@ -222,8 +222,9 @@ DEFAULTS = {
     # contact reading (None: off; {reference, frames, max_frames}: every variant's change at contact, read_contact)
     "kread": {"rung": "M_16C2pm_us", "arms": {}, "order_zero_of": [], "splits": ["heldout", "calibration"],
               "locality": None, "contact": None},
-    "model": {"r_cut_angstrom": 6.0, "features": 32, "band_edge_angstrom": 0.75, "response_edge_angstrom": 0.75,
-              "mutual_edge_angstrom": None, "analytic_envelope_angstrom": 4.0, "rs_over_l1": 0.0,
+    # v0.0.38 (job 14) layers: E_0's message-passing layers (2: its reach is twice r_cut)
+    "model": {"r_cut_angstrom": 6.0, "features": 32, "layers": 2, "band_edge_angstrom": 0.75,
+              "response_edge_angstrom": 0.75, "mutual_edge_angstrom": None, "analytic_envelope_angstrom": 4.0, "rs_over_l1": 0.0,
               "charge_neutrality": "fragment", "ewald_b_max": 4.0, "solver": "gmres", "solver_tol": 1.0e-10, "K": 8,
               "omega0": 0.3},
     "rungs": ["M_inf", "M_1", "M_16", "M_16pm", "M_16C2pm", "M_16C2pm_us", "M_G"],
@@ -282,7 +283,8 @@ def load_config(path=None):
 def e3_args(cfg):
     """the namespace E3's configure() reads: E_0's cutoff and width, the band and response edges, the neutrality."""
     m = cfg["model"]
-    return SimpleNamespace(lA=m["analytic_envelope_angstrom"], rcut=m["r_cut_angstrom"], F=m["features"], charges=None,
+    return SimpleNamespace(lA=m["analytic_envelope_angstrom"], rcut=m["r_cut_angstrom"], F=m["features"],
+                           layers=int(m.get("layers", 2)), charges=None,
                            charge_neutrality=m["charge_neutrality"], l1=m["band_edge_angstrom"],
                            rs_over_l1=m["rs_over_l1"], response_edge=m["response_edge_angstrom"])
 

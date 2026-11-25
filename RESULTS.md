@@ -2373,3 +2373,42 @@ D′.
   polish, 0–0.06 after two. The learned scale is set by the start and frozen by E₀'s convergence.
 - **Proposed next, not registered:** close the thread as a result; the same test on MACE-LES (its latent charges started
   at two scales).
+
+## v0.0.38, 25 Nov — job 14 pre-registered: the charges' scale and E₀'s reach (`notes/e4-job14-preregistration.md`)
+
+**Why:** job 13 found the part of the band that identifies the charges' scale to be 1 % of it, with E₀ reaching 12 Å in
+12.4 Å cells. The LES water model, whose learned charges reproduce Born effective charges, has a 4.5 Å cutoff and no
+message passing (`learned-charges-literature.md`). Hypothesis: the identifying part is the band beyond E₀'s reach.
+
+**What changes, before any run:**
+
+- **`model.layers`** (`e3_water.configure`, recorded when not 2): E₀'s message-passing layers. The default keeps every
+  earlier rung, record and cache key.
+- **`configs/e4_job14s_r45.yaml`, `e4_job14_r45.yaml`, `e4_job14s_r6.yaml`, `e4_job14_r6.yaml`:** E₀ of one layer at 4.5
+  and 6 Å; job 7's scan and warm starts, job 7's training (job 9's tracing), then the long polish.
+- **`scripts/e4_job14.py`** reads K14.1–K14.4.
+
+**Registered:**
+
+| | reading | band | prediction |
+|---|---|---|---|
+| K14.1 | the profile's curvature c*² L*″ at 4.5 Å against 12 Å's (143) | at least 5 times | holds |
+| K14.2 | the same at 6 Å | at least 2 times | holds |
+| K14.3 | at 4.5 Å, every polished warm start | within ±0.05 of the reach's c* (inside the scan) | holds |
+| K14.4 | the gap between the warm starts' ends, seed by seed | 4.5 Å < 6 Å < 12 Å (0.324, 0.288) | holds |
+
+```sh
+mkdir -p results/e4_job14s_r45 results/e4_job14_r45 results/e4_job14s_r6 results/e4_job14_r6 logs logs_error
+sbatch run_e4_job14.sbatch                 # 6 GPU tasks, 14 h each
+python scripts/e4_job14.py --job9_dir results/e4_job9 --job10_dir results/e4_job10 --job11_dir results/e4_job11
+```
+
+**Tests:** `tests/test_job14.py`, 4 tests:
+
+- the layers configured and recorded, the default unchanged;
+- the driver at one layer of 4.5 Å, its polish from the first stage, a start at another reach refused;
+- the four configs against jobs 9 and 13;
+- K14.1–K14.4 and their edges.
+
+With job 6's to job 13's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 189 tests pass and
+1 is skipped; E3's model-config suite passes too (209 in all).

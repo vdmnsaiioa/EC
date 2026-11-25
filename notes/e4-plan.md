@@ -603,4 +603,12 @@ code is still open: CP2K, GPAW, VASP or QE.
          rather than holding it. The valley's walls are the band's own (1.087×10⁶ c⁴, E₀-independent); the scale's
          mobility falls as E₀ trains.*
        - *Proposed: the learned-charges thread closed as a result; the same test on MACE-LES.*
+     - *Job 14 registered 25 Nov (`e4-job14-preregistration.md`, v0.0.38; Vadic's go after the literature search,
+       `learned-charges-literature.md`).*
+       - *H_R: the scale is identified by the part of the band beyond E₀'s reach; at 12 Å in 12.4 Å cells that is 1 %.
+         The LES water model (4.5 Å, no message passing) is far shorter than its cells.*
+       - *E₀ of one layer at 4.5 and 6 Å, job 7's scan and warm starts at each, job 7's training and the long polish.
+         K14.1–K14.2: the profile 5 and 2 times sharper than at 12 Å; K14.3: the warm starts at 4.5 Å within ±0.05 of its
+         c*; K14.4: the gap between their ends shrinks with the reach. All predicted to hold.*
+       - *Six tasks, about 57 GPU hours.*
 7. **The L₀ sweep** (Form II).
