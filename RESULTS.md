@@ -2412,3 +2412,38 @@ python scripts/e4_job14.py --job9_dir results/e4_job9 --job10_dir results/e4_job
 
 With job 6's to job 13's, S0's, the driver's, the MD's, the training stages' and the configs' suites, 189 tests pass and
 1 is skipped; E3's model-config suite passes too (209 in all).
+
+## v0.0.39, read 25 Nov — job 14: at short reach learned charges find one scale, though the profile barely sharpens (`notes/e4-job14-results.md`)
+
+**The job ran** as the registered six tasks in 24.9 GPU hours (estimated 57). A polish took 0.3–0.5 h at 4.5 Å and
+1.2–1.6 h at 6 Å, against 1.7–2.4 h at 12 Å.
+
+| | band | Niflheim | | predicted |
+|---|---|---|---|---|
+| K14.1 | the profile's curvature at 4.5 Å at least 5 times 12 Å's | 2.1 times (304 against 143) | fails | holds |
+| K14.2 | at 6 Å at least 2 times | 1.2 times | fails | holds |
+| K14.3 | at 4.5 Å every warm start within ±0.05 of c* (1.006) | −0.018 to −0.036 | holds | holds |
+| K14.4 | the gap 4.5 Å < 6 Å < 12 Å, seed by seed | 0.001 < 0.012 < 0.324; −0.018 < 0.104 < 0.288 | holds | holds |
+
+- **H_R as stated is refuted.** A one-layer E₀ of 4.5 Å still absorbs 98.3 % of the band's dependence on the scale,
+  against 99.0 % at 12 Å. The estimate's 19 and 8 times assumed uncorrelated dipoles.
+- **Yet the scale moves.** Job 7's training closes 33 % of the starting gap at 12 Å, 58–64 % at 6 Å and 85–93 % at 4.5
+  Å. Polished, the four ends at 4.5 Å agree to within 0.018 (0.976 ± 0.007).
+- **6 Å against 12 Å changes only the depth:** the profile is 1.2 times sharper; the polished gap falls from 0.29–0.32
+  to 0.01–0.10. The freezing at 12 Å was the dynamics of a two-layer E₀, not the identification.
+- **K14.3 depends on where c* is put.** L(1.1) < L(1.0) at every reach, and a parabola in c² puts c* at 1.07 at 4.5 Å,
+  0.08–0.10 above the ends. Robust: the ends no longer depend on the start, and they sit below the pinned minimum.
+- **The start still marks the fit:** at the same scale, runs from 0.5 end 15–43 % higher in loss and 11–20 % worse in
+  forces than runs from 1.5.
+- **The cost:** forces 9–13 % above 12 Å's at the same c at 6 Å, 21–41 % at 4.5 Å; size transfer a little better.
+- **This reconciles LES (4.5 Å, no message passing) with jobs 6–13.** MACE-LES, with message passing, is predicted to
+  freeze.
+- **`scripts/e4_job14.py` (v0.0.39)** also prints, beside the registered readings: the profile by seed and in c², the
+  forces against 12 Å's, and every warm start's path through job 7's training (the pull in blocks of 500 Adam steps)
+  and through the polish. The paths are read when that output arrives.
+- **Proposed next, not registered:** the paths; the 4.5 Å profile resolved between 1.0 and 1.45 with species-only warm
+  starts (about 7 GPU hours); depth against reach (two layers of 3 Å); the short model's charges transplanted into the
+  12 Å model; MACE-LES from two starts.
+
+**Tests:** `tests/test_job14.py` gains a fifth: the profile two ways and by seed, the forces against 12 Å's, the paths
+through the first stage and the polish, untraced runs read as untraced.

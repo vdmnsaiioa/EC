@@ -789,6 +789,14 @@ sbatch run_e4_job14.sbatch                 # 6 GPU tasks, 14 h each
 python scripts/e4_job14.py --job9_dir results/e4_job9 --job10_dir results/e4_job10 --job11_dir results/e4_job11
 ```
 
+It ran as the six registered tasks, in 24.9 GPU hours. Read 25 Nov (`notes/e4-job14-results.md`):
+
+- **K14.1 and K14.2 fail** (the profile 2.1 and 1.2 times sharper); **K14.3 and K14.4 hold.** At 4.5 Å the warm starts
+  end within 0.018 of one another, from 0.5 and from 1.5; at 6 Å the gap is 0.01–0.10, against 0.29–0.32 at 12 Å.
+- **The identifying part barely grows; the mobility does.** The freezing at 12 Å was the two-layer E₀'s dynamics. Where
+  the pinned minimum lies (1.006 registered, 1.07 in c²) the scan does not settle; the start still marks the fit.
+- **The reader (v0.0.39)** also prints the paths through the first stage and the polish; they are read next.
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

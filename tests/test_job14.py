@@ -165,3 +165,47 @@ def test_the_job14_readings():
     assert J14.evaluate(*_job14(ends45=((1.0, 1.21), (1.04, 1.08))))["K14.4"]["holds"] is False   # 0.21 > 0.20
     ev = J14.evaluate(*_job14(missing=("6",)))
     assert ev["K14.2"]["holds"] is None and ev["K14.4"]["holds"] is None and ev["K14.1"]["holds"]
+
+
+def test_the_job14_beside_readings():
+    """v0.0.39, read beside: the profile as a parabola in c and in c^2 and by seed; the forces against 12 A's at the
+    same c; a warm start's path through job 7's training (its scale, the step by which half of Adam's move was made,
+    the pull in blocks) and through the polish (the last 250 steps, the objective); untraced runs read as untraced."""
+    reach_runs, job9, job10, job11 = _job14()
+    stage, runs = reach_runs["4.5"]
+    D = J14.PERMANENT_DEBYE
+    pull = [-1.2, -0.8] * 250 + [-0.5, 0.5] * 250 + [0.1, 0.3] * 1000
+    stage["M_1w050"][0]["training"]["charges"] = {
+        "trace": [{"step": k, "dipole_debye": (0.5 + 0.4 * min(k, 1000) / 1000) * D} for k in range(0, 3001, 100)],
+        "lbfgs_trace": [{"step": 0, "dipole_debye": 0.9 * D}, {"step": 50, "dipole_debye": 0.93 * D}],
+        "pull": {"steps": pull}}
+    r = runs["M_1w050"][0]
+    r["training"]["charges"]["lbfgs_trace"] = [{"step": k, "dipole_debye": (0.93 + 1e-4 * k) * D}
+                                               for k in range(0, 1001, 25)]
+    r["training"]["lbfgs_trace"] = [[k, 50.0 - k / 100] for k in range(0, 1001, 25)] + [[1000, None]]
+    ev = J14.evaluate(reach_runs, job9, job10, job11)
+    f12 = ev["fits"]["12"]
+    assert f12["both"]["c"]["c_min"] == pytest.approx(ev["reference"]["c_min"])
+    assert f12["both"]["c2"]["c_min"] == pytest.approx(1.133, abs=2e-3) and f12["both"]["lowest"] == 1.1
+    assert f12["both"]["c2"]["curvature"] == pytest.approx(187.8, rel=2e-3)
+    a, b, _ = np.polyfit([0.7, 1.0, 1.1, 1.45], [30.75, 23.63, 21.09, 31.44], 2)
+    assert f12["seed 0"]["c"]["c_min"] == pytest.approx(-b / (2 * a))
+    assert ev["fits"]["4.5"]["both"]["c"]["c_min"] == pytest.approx(1.05)
+    assert ev["cost"]["4.5"]["M_1q070"]["64"] == pytest.approx(0.8 / 0.6 - 1)
+    assert ev["cost"]["4.5"]["M_1q110"]["256"] == pytest.approx(0.8 / 0.52 - 1)
+    assert ev["cost"]["4.5"]["M_1w150"]["128"] == pytest.approx(0.78 / 0.55 - 1)
+    p = ev["paths"]["4.5"]["M_1w050 seed 0"]
+    st, po = p["stage"], p["polish"]
+    assert st["half_step"] == 500 and st["moved"] == pytest.approx(0.4) and st["after_lbfgs"] == pytest.approx(0.93)
+    assert set(st["c"]) == {"0", "100", "200", "500", "1000", "2000", "3000"} and st["c"]["200"] == pytest.approx(0.58)
+    assert st["pull"] == pytest.approx([-5.0, 0.0, 2.0, 2.0, 2.0, 2.0])
+    assert po["last_250"] == pytest.approx(0.025) and po["c"]["1000"] == pytest.approx(1.03)
+    assert po["objective"] == pytest.approx((50.0, 40.0)) and po["objective_last_250"] == pytest.approx(40 / 42.5 - 1)
+    assert ev["paths"]["4.5"]["M_1w150 seed 1"]["stage"] is None and ev["paths"]["12"]["M_1w050 seed 0"]["polish"] is None
+    assert ev["paths"]["12"]["M_1w050 seed 0"]["stage_c"] == pytest.approx(1.214 / D)
+    text = J14.report(ev)
+    for k in ("the profile two ways", "lowest at c = 1.1", "half by 500", "pull -5.00, +0.00, +2.00",
+              "last 250 +0.025", "objective 50.00 -> 40.00 (-5.9 %)", "first stage untraced", "polish untraced",
+              "4.5 A M_1q070  +33.3 / +33.3 / +33.3 %"):
+        assert k in text, k
+    json.dumps(ev)

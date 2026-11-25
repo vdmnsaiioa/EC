@@ -611,4 +611,12 @@ code is still open: CP2K, GPAW, VASP or QE.
          K14.1–K14.2: the profile 5 and 2 times sharper than at 12 Å; K14.3: the warm starts at 4.5 Å within ±0.05 of its
          c*; K14.4: the gap between their ends shrinks with the reach. All predicted to hold.*
        - *Six tasks, about 57 GPU hours.*
+     - *Job 14 read 25 Nov (`e4-job14-results.md`). K14.1–K14.2 fail (2.1 and 1.2 times); K14.3–K14.4 hold.*
+       - *H_R refuted as stated: a one-layer E₀ of 4.5 Å absorbs 98.3 % of the band's dependence on the scale. Yet the
+         learned charges end at one scale from both sides at 4.5 Å (0.976 ± 0.007), nearly at 6 Å; Adam alone closes
+         85–93 % of the gap. The freezing at 12 Å was the two-layer E₀'s dynamics (6 Å against 12 Å: depth alone).*
+       - *The pinned minimum's place depends on the curve through four points (1.006 to 1.11 at 4.5 Å). The start still
+         marks the fit (15–43 % in loss). The short reach costs 9–13 % (6 Å) and 21–41 % (4.5 Å) in forces.*
+       - *Proposed: the paths (reader v0.0.39); the 4.5 Å profile resolved, species-only warm starts there; depth
+         against reach; the short model's charges into the 12 Å model; MACE-LES from two starts.*
 7. **The L₀ sweep** (Form II).
