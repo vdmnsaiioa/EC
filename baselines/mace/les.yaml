@@ -8,6 +8,9 @@ use_atomwise: False             # the charges come from MACE's own readout (MACE
 sigma: 1.0                      # A, Gaussian smearing of each latent charge (and the Ewald width)
 dl: 2.0                         # A, reciprocal cutoff k_max = 2 pi / dl
 remove_self_interaction: True   # LES's recommended, robust choice
+output_scale: 0.1               # MACE-LES's own (MACELES.les_output_scale, its default): the latent charges are the
+                                # readouts' sum times this, a fixed unit, not trained.  E4 job 15 (v0.0.40) changes it
+                                # in les_o050.yaml and les_o150.yaml (notes/e4-job15-preregistration.md)
 # is_periodic left unset (None): the legacy Ewald path, which sizes its k-grid from each cell's own vectors. The
 # vectorized path (True) uses a fixed grid N_max = 10 that silently truncates cells longer than N_max * dl = 20 A,
 # i.e. the 512- and 1024-molecule test cells (24.9 and 31.3 A).

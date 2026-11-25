@@ -2454,3 +2454,61 @@ With job 6's to job 13's, S0's, the driver's, the MD's, the training stages' and
 
 **Tests:** `tests/test_job14.py` gains a fifth: the profile two ways and by seed, the forces against 12 Å's, the paths
 through the first stage and the polish, untraced runs read as untraced.
+
+## v0.0.40, 25 Nov — job 15 pre-registered: the learned charges' scale after job 14, five arms (`notes/e4-job15-preregistration.md`)
+
+**Why:** job 14 found learned charges mobile with one E₀ layer and frozen with two, though the profile barely
+sharpened. Five questions follow: where the pinned minimum lies at 4.5 Å; whether depth alone gives one scale; depth
+or reach; whether a scale found shallow survives added depth; and whether MACE-LES freezes its scale too.
+
+**What changes, before any run:**
+
+- **`e4_water.grown`, `training.start_from.grow`:** E₀ grown by a block whose radial weights and update's last layer
+  start at zero; the grown model is the source model (energies and forces to 0 on CPU), checked against the source's
+  objective at the start of every grown run.
+- **M_1q090, M_1q095, M_1q105, M_1q120, M_1q130:** job 7's scan resolved between 0.9 and 1.3.
+- **Six configs** (`configs/e4_job15*.yaml`): A at 4.5 Å, B continuing job 14's 6 Å warm starts, C at two layers of 3 Å,
+  D grown to two layers of 6 Å.
+- **MACE-LES (`baselines/mace`):** the latent charges' unit written out (`output_scale: 0.1`) and set to 0.05 and 0.15
+  (`les_o050.yaml`, `les_o150.yaml`); the training call moved unchanged into `train.sh`; `eval.py` reads the latent
+  charges' molecular dipole and their mean on O and H.
+- **`scripts/e4_job15.py`** reads K15.1–K15.10.
+
+**Registered:**
+
+| | arm | reading | band | prediction |
+|---|---|---|---|---|
+| K15.1 | A | the resolved minimum c*_res against job 14's flexible ends (largest 0.987) | at least 0.03 above | holds |
+| K15.2 | A | every species-only end | within ±0.05 of c*_res | fails |
+| K15.3 | A | the species-only gap | at most half of job 13's (0.715, 0.717) | holds |
+| K15.4 | B | \|the gap\| after 2000 steps at 6 Å | at most 0.05 | holds |
+| K15.5 | C | \|the gap\| at two layers of 3 Å | ≤ 0.15 reach; ≥ 0.25 depth; else mixed | reach |
+| K15.6 | D | every grown warm start against its start | within ±0.05 | holds |
+| K15.7 | D | the grown warm starts' forces against B's | at least 5 % lower | holds |
+| K15.8 | D | the grown M_1q110 against job 10's (0.520 / 0.536 / 0.541) | within ±3 % | holds |
+| K15.9 | E1 | MACE-LES's latent dipole at units 0.05 and 0.15 against the default's | within ±10 % | fails |
+| K15.10 | E2 | released at 0.05 and 0.15 against the continued control | within ±10 % | fails |
+
+```sh
+mkdir -p results/e4_job15s_a results/e4_job15_a results/e4_job15_b results/e4_job15s_c results/e4_job15_c \
+         results/e4_job15_d results/e4_baselines results/e4_job15_les logs logs_error
+sbatch run_e4_job15.sbatch                 # arms A-D: 11 GPU tasks, 14 h each
+SMOKE=1 sbatch --array=0 -p sm3090el9_devel -t 00:30:00 run_e4_job15_les.sbatch   # MACE-LES's pipeline first
+sbatch run_e4_job15_les.sbatch             # arm E: 6 GPU tasks, 24 h each
+python scripts/e4_job15.py
+```
+
+**Tests:** `tests/test_job15.py`, 5 tests:
+
+- a grown run is the run it grew from, learned or pinned charges, and the gradient reaches the new block;
+- the driver grows a run, records it, checks its start against the source's objective, and refuses a source at another
+  cutoff, a one-layer rung and a non-boolean grow;
+- the six configs against job 14's, the new scan rungs;
+- K15.1–K15.10 and their edges, MACE-LES's evaluation jsons;
+- MACE-LES's latent dipoles (neutral per molecule, minimum image, debye).
+
+The MACE-LES pipeline (training, the release from the checkpoints, the evaluation) was run end to end on CPU with
+random labels; the unit's change at the release scales the latent charges by exactly 1.5 (2×10⁻¹⁶).
+
+With job 6's to job 14's, S0's, the driver's, the MD's, the training stages' and the configs' suites, run file by file,
+219 tests pass and 2 are skipped.

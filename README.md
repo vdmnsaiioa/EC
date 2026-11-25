@@ -799,6 +799,25 @@ It ran as the six registered tasks, in 24.9 GPU hours. Read 25 Nov (`notes/e4-jo
   responds two to three times more. At 4.5 Å it settles at 0.97–0.99 from both sides, below the pinned minimum; at 6 Å
   it is still converging.
 
+**Job 15** (`notes/e4-job15-preregistration.md`, v0.0.40): the learned charges' scale after job 14, five arms.
+
+- **A, 4.5 Å:** the pinned scan resolved (c = 0.9, 0.95, 1.05, 1.2, 1.3) and the warm starts by species alone. Where is
+  the pinned minimum, and is the flexible charges' lower end their head's?
+- **B, 6 Å:** job 14's warm starts polished 1000 steps more. Does depth alone give one scale?
+- **C, two layers of 3 Å:** the reach of one layer of 6 Å at job 7's depth. Depth or reach?
+- **D, the route:** B's warm starts with E₀ grown to two layers of 6 Å (`training.start_from.grow`, `e4_water.grown`: a
+  block that adds nothing at the start). Is the scale kept, and does depth pay?
+- **E, MACE-LES:** its latent charges' unit (`output_scale`) at 0.05 and 0.15 from scratch, and its trained run
+  released at both. Does it freeze its scale too? (`baselines/mace/train.sh`, `les_o050.yaml`, `les_o150.yaml`;
+  `eval.py` reads the latent dipole.)
+
+```sh
+sbatch run_e4_job15.sbatch                 # A-D: 11 GPU tasks
+SMOKE=1 sbatch --array=0 -p sm3090el9_devel -t 00:30:00 run_e4_job15_les.sbatch    # then:
+sbatch run_e4_job15_les.sbatch             # E: 6 GPU tasks
+python scripts/e4_job15.py
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

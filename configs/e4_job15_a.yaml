@@ -1,0 +1,74 @@
+# E4, job 15, arm A (notes/e4-job15-preregistration.md; v0.0.40): the polish at a reach of 4.5 A -- every run of the
+# first stage (results/e4_job15s_a) polished as job 14 polished its runs (configs/e4_job14_r45.yaml: 1000 full-batch
+# L-BFGS steps, the objective and the learned charges traced).
+#
+#   python scripts/e4_water.py train --config configs/e4_job15_a.yaml --rungs M_1q090 --seeds 0 \
+#       --out_dir results/e4_job15_a
+#
+# (run_e4_job15.sbatch.)
+experiment:
+  type: e4
+
+data:
+  dir: data/e4                      # scripts/e4_data.py assemble: {train,valid,test}_n{64,128,256}.npz
+  train_size: 64
+  eval_sizes: [64, 128, 256]
+  probes: data/e4/probes_mbpol.npz  # scripts/e4_water.py probes
+
+model:                              # E3-QP8's (configs/water_qaqua_pol8.yaml), in a cell
+  r_cut_angstrom: 4.5               # job 14: E_0 with one layer, its reach 4.5 A (job 7's: two layers of 6 A, 12 A)
+  features: 32
+  layers: 1
+  band_edge_angstrom: 0.75
+  response_edge_angstrom: 0.75
+  mutual_edge_angstrom: null        # v0.0.23 (Rung.bf_l_mutual): the mutual response's dipole tensor alone smeared at this
+                                    # edge, the field the read-out reads left at the response edge; null: the response edge
+  analytic_envelope_angstrom: 4.0
+  rs_over_l1: 0.0
+  charge_neutrality: fragment
+  ewald_b_max: 4.0                  # k_max = 2 b_max / l_1; n_max per cell (periodic.n_max_for)
+  solver: gmres                     # the mutual response in a cell: GMRES with implicit derivatives (the timing, 2 Nov)
+  solver_tol: 1.0e-10
+  K: 8                              # the dispersion band's Casimir-Polder grid (MB-pol's c6, water.mbpol_dispersion_pins)
+  omega0: 0.3
+
+rungs: [M_1q090, M_1q095, M_1q105, M_1q120, M_1q130, M_1z050, M_1z150]   # job 15 A: the scan resolved; species alone
+seeds: [0, 1]
+
+training:
+  adam: {steps: 0, batch_size: 6, learning_rate: 3.0e-3, final_learning_rate_ratio: 0.01,   # no Adam
+         beta1: 0.9, beta2: 0.999, epsilon: 1.0e-8}
+  lbfgs: {steps: 1000, chunk_size: 12, memory_size: 10, max_linesearch_steps: 20, max_minutes: 300}
+  start_from: {dir: results/e4_job15s_a}            # v0.0.34: the first stage's runs
+  trace: {every: 100, frames: 4, lbfgs_every: 25}
+  loss:
+    energy_weight: 100.0            # E3-QP2 on: the per-atom energy term, against force_weight 1
+    force_weight: 1.0
+    forces: rigid                   # each molecule's net force and torque (sseft.train.rigid_force_sums)
+  readout:                          # E3-QP2's matching, on MB-pol's probes, before training; held through it
+    orders: all
+    solve_iterations: 4
+    ridge: 1.0e-8
+    ridge_selection: groups
+    solve_chunk: 64
+
+probes:                             # E3-QP8's probe settings and seeds (configs/water_qaqua_pol8.yaml), on MB-pol
+  distances_angstrom: [8.0, 10.0, 12.0, 15.0]
+  train_per_distance: 2
+  train_cores: 16
+  train_core_sizes: [3, 4, 5]
+  test_per_distance: 10
+  test_cores: 2
+  seed: 400
+  mc_steps: 300
+  temperature_kelvin: 300.0
+  min_oo_angstrom: 2.7
+  min_atom_distance_angstrom: 1.7
+  far_trimers: 40                   # Theorem 2's T5: three molecules, every intermolecular pair beyond 6.5 A (> r_c)
+  trimer_seed: 900
+  trimer_min_angstrom: 6.5
+  trimer_max_oo_angstrom: 12.0
+
+reading:
+  eps_frames: 10                    # eps_inf on the first test frames of the training size (rungs with a response)
+  splits: [train, valid, test]      # at 128 and 256 molecules every split is unseen by a model trained at 64

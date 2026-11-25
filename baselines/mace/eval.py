@@ -7,7 +7,10 @@ prints and writes to <model>_eval.json:
   - the energy error per molecule: mean (signed: model - truth), MAE, RMSE, in kcal/mol and meV;
   - the force RMSE per component, kcal/mol/A and meV/A;
   - for MACE-LES, if the calculator returns the latent charges: the net latent charge per molecule (rms and largest),
-    the sum rule that LES does not impose (molecules are O, H, H in order, scripts/e4_data.py's frame format).
+    the sum rule that LES does not impose (molecules are O, H, H in order, scripts/e4_data.py's frame format); and
+    (v0.0.40, E4 job 15) the molecular dipole of the latent charges, each molecule's net charge spread evenly over its
+    three atoms and its H atoms taken to their O by the minimum image (mean and sd over molecules and frames, debye),
+    with the mean latent charge on O and on H.  LES's charges are in e: its Ewald sum has 1/(4 pi eps_0) = 14.40 eV A.
 Energies in the extxyz are eV (REF_energy / REF_forces), interaction energies with the isolated monomer at zero.
 """
 import argparse
@@ -19,6 +22,7 @@ import time
 import numpy as np
 
 KCALMOL_PER_EV = 23.060547830619026
+DEBYE_PER_E_ANGSTROM = 4.803204712570263
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -41,10 +45,25 @@ def predict(calc, atoms):
             None if q is None else q.detach().cpu().numpy())
 
 
+def latent_dipoles(q, positions, cell):
+    """v0.0.40 (E4 job 15): the molecular dipoles (n_mol, 3), in e A, of one frame's latent charges q (3 n_mol,) at
+    positions (3 n_mol, 3) in A, molecules O, H, H in order: each molecule's net charge spread evenly over its three
+    atoms (the dipole then does not depend on the origin), the H atoms taken to their O by the minimum image of the
+    cell (3, 3), rows the lattice vectors."""
+    q = np.asarray(q, float).reshape(-1, 3)
+    pos = np.asarray(positions, float).reshape(-1, 3, 3)
+    cell = np.asarray(cell, float)
+    d = pos - pos[:, :1, :]
+    frac = d @ np.linalg.inv(cell)
+    d = d - np.round(frac) @ cell
+    qn = q - q.mean(axis=1, keepdims=True)
+    return np.einsum("ma,mai->mi", qn, d)
+
+
 def evaluate(calc, frames, cpu_calc=None):
     """cpu_calc: a calculator on the CPU, for a frame that does not fit on the GPU."""
     import torch
-    de, df, q_mol, on_cpu = [], [], [], 0
+    de, df, q_mol, mu, q_species, on_cpu = [], [], [], [], [], 0
     for at in frames:
         e_ref, f_ref = at.info["REF_energy"], at.arrays["REF_forces"]
         try:
@@ -60,6 +79,8 @@ def evaluate(calc, frames, cpu_calc=None):
         df.append((f - f_ref).ravel())
         if q is not None:
             q_mol.append(q.reshape(n_mol, 3).sum(axis=1))
+            mu.append(np.linalg.norm(latent_dipoles(q, at.get_positions(), at.cell.array), axis=1))
+            q_species.append(q.reshape(n_mol, 3))
     de = np.array(de) * KCALMOL_PER_EV
     df = np.concatenate(df) * KCALMOL_PER_EV
     out = dict(frames=len(frames), molecules=len(frames[0]) // 3,
@@ -73,6 +94,10 @@ def evaluate(calc, frames, cpu_calc=None):
         q_mol = np.concatenate(q_mol)
         out["latent_q_per_molecule_rms"] = float(np.sqrt((q_mol ** 2).mean()))
         out["latent_q_per_molecule_max"] = float(np.abs(q_mol).max())
+        mu = np.concatenate(mu) * DEBYE_PER_E_ANGSTROM
+        q_species = np.concatenate(q_species)
+        out.update(latent_dipole_debye_mean=float(mu.mean()), latent_dipole_debye_sd=float(mu.std()),
+                   latent_q_O_mean=float(q_species[:, 0].mean()), latent_q_H_mean=float(q_species[:, 1:].mean()))
     return out
 
 
@@ -116,7 +141,9 @@ def main():
                 f"{r['e_mean_kcal_per_mol']:+.4f}, MAE {r['e_mae_kcal_per_mol']:.4f}, RMSE {r['e_rmse_kcal_per_mol']:.4f}"
                 f" kcal/mol; F RMSE {r['f_rmse_kcal_per_mol_A']:.3f} kcal/mol/A")
         if "latent_q_per_molecule_rms" in r:
-            line += f"; net latent q per molecule rms {r['latent_q_per_molecule_rms']:.3g}"
+            line += (f"; net latent q per molecule rms {r['latent_q_per_molecule_rms']:.3g}; latent q_O "
+                     f"{r['latent_q_O_mean']:+.3f}, q_H {r['latent_q_H_mean']:+.3f} e, dipole "
+                     f"{r['latent_dipole_debye_mean']:.3f} +- {r['latent_dipole_debye_sd']:.3f} D")
         if r["frames_on_cpu"]:
             line += f"; {r['frames_on_cpu']} frames on the CPU"
         print(line + f" ({r['seconds']:.0f} s)", flush=True)

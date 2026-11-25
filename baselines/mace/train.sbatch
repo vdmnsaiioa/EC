@@ -43,8 +43,8 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True   # less fragmentation o
 cd ~/EC
 
 case "$MODEL" in
-    MACE)    NAME=mace;   EXTRA=() ;;
-    MACELES) NAME=maceles; EXTRA=(--les_arguments=baselines/mace/les.yaml) ;;
+    MACE)    NAME=mace ;;
+    MACELES) NAME=maceles ;;
     *) echo "MODEL must be MACE or MACELES, got $MODEL" >&2; exit 1 ;;
 esac
 
@@ -62,41 +62,8 @@ echo "Run $RUN: model $MODEL, L0 = $N0 molecules, seed $SEED, $EPOCHS epochs"
 python -c "import torch, mace, les; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), '| mace', mace.__version__, '| les', les.__version__)"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
-# Hyper-parameters, the same for both models:
-#   r_max 6 A and 2 interaction layers (the plan's MACE: r_c 6 A, 2 layers);
-#   64 channels, max_L 1, correlation 3 (MACE's water defaults);
-#   energy weight 10, forces 1000 (eV, eV/A), then stage two (SWA) from epoch $SWA with energy weighted up.
-mace_run_train \
-    --name="$RUN" \
-    --work_dir="$OUT" \
-    --model="$MODEL" "${EXTRA[@]}" \
-    --train_file="data/e4/train_n${N0}.extxyz" \
-    --valid_file="data/e4/valid_n${N0}.extxyz" \
-    --energy_key=REF_energy \
-    --forces_key=REF_forces \
-    --E0s='{1: 0.0, 8: 0.0}' \
-    --r_max=6.0 \
-    --num_interactions=2 \
-    --num_channels=64 \
-    --max_L=1 \
-    --correlation=3 \
-    --energy_weight=10 \
-    --forces_weight=1000 \
-    --stress_weight=0 \
-    --batch_size=2 \
-    --valid_batch_size=2 \
-    --max_num_epochs=$EPOCHS \
-    --swa --start_swa=$SWA \
-    --ema --ema_decay=0.99 \
-    --scheduler_patience=15 \
-    --patience=100 \
-    --eval_interval=1 \
-    --error_table=PerAtomRMSE \
-    --default_dtype=float64 \
-    --device=cuda \
-    --seed="$SEED" \
-    --restart_latest \
-    --save_cpu
+# the hyper-parameters, the same for both models, are baselines/mace/train.sh's (v0.0.40: moved there unchanged)
+MODEL=$MODEL NAME=$RUN OUT=$OUT N0=$N0 SEED=$SEED EPOCHS=$EPOCHS SWA=$SWA bash baselines/mace/train.sh
 
 echo
 echo "=== evaluation on every size ==="

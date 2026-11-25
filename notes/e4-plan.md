@@ -622,4 +622,12 @@ code is still open: CP2K, GPAW, VASP or QE.
          minimum, below the pinned one); at 6 Å it is still converging.*
        - *Proposed: the 4.5 Å profile resolved and species-only warm starts there; the 6 Å warm starts continued; depth
          against reach; the short model's charges into the 12 Å model; MACE-LES from two starts.*
+     - *Job 15 registered 25 Nov (`e4-job15-preregistration.md`, v0.0.40; Vadic's go for all five).*
+       - *A: the pinned minimum at 4.5 Å resolved, the warm starts by species alone (K15.1–K15.3). B: the 6 Å warm
+         starts continued (K15.4). C: two layers of 3 Å, depth against reach (K15.5). D: E₀ grown from one layer of 6 Å
+         to two (`start_from.grow`), the scale kept and depth's accuracy (K15.6–K15.8). E: MACE-LES with its latent
+         charges' unit at 0.05 and 0.15, from scratch and released (K15.9–K15.10).*
+       - *Predicted: the learned minimum below the pinned one, species alone short of it; depth alone gives one scale;
+         reach (weakly); the route works; MACE-LES's scale follows its unit and its history.*
+       - *Eleven harness tasks (about 35 GPU hours) and six MACE-LES tasks (not timed).*
 7. **The L₀ sweep** (Form II).

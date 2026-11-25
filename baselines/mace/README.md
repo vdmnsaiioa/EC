@@ -35,16 +35,22 @@ python baselines/mace/eval.py results/e4_baselines/<run>/<run>_stagetwo.model  #
 
 - `N0` is 64, 128 or 256 (the training size, i.e. L₀). The plan trains every rung with 4 seeds.
 - `SMOKE=1` runs 2 epochs and evaluates 2 frames per set. Use it to check the pipeline on `sm3090el9_devel`.
+- The training call and its hyper-parameters are `train.sh` (v0.0.40), which `train.sbatch` and job 15's
+  `run_e4_job15_les.sbatch` both use.
 - Output goes to `results/e4_baselines/<model>_n<N0>_s<SEED>/`. The final model is `<run>_stagetwo.model` (after SWA/stage two); `<run>.model` is only stage one's best checkpoint. `eval.py` writes `<run>_eval.json` with the following
   for every valid/test set (64 to 1024 molecules):
   - the per-molecule energy error: signed mean, MAE and RMSE;
   - the force RMSE;
-  - for MACE-LES, the net latent charge per molecule.
+  - for MACE-LES, the net latent charge per molecule;
+  - for MACE-LES (v0.0.40), the latent charges' mean on O and on H and their molecular dipole (each molecule's net
+    charge spread evenly over its atoms, the H atoms taken to their O by the minimum image), in debye.
 
 ## Choices, and why
 
 - **E0s = 0 for H and O.** The labels are MB-pol interaction energies, so an isolated rigid monomer is zero.
 - **LES is monopole only** (`les.yaml`), with the published defaults: σ 1 Å, k_max = π Å⁻¹, self-interaction removed.
+  MACE-LES's own unit for the latent charges, `output_scale` 0.1, is written out too. E4 job 15 changes only that, in
+  `les_o050.yaml` and `les_o150.yaml` (`notes/e4-job15-preregistration.md`).
   - LES now has options for latent dipoles/quadrupoles and for induced charges and dipoles (`use_induced_dipole`
     etc.). Those give it a field response, so ε_∞ ≠ 1. That puts it outside Theorem 2's class.
   - If one of those variants is wanted later, it's a separate baseline with its own yaml.

@@ -181,6 +181,15 @@ for _name in TRANSPLANT:
 STARTS.update(RELEASE_C)
 STARTS.update(SPECIES_C)
 
+# job 15 (v0.0.40; notes/e4-job15-preregistration.md): job 7's scan resolved between 0.9 and 1.3 (the pinned O/H charges
+# at c, as job 7's M_1q rungs), for the profile's minimum at E_0's reach of 4.5 A; and E_0 grown by a message-passing
+# block (training.start_from.grow: grown)
+SCAN_FINE_C = (0.9, 0.95, 1.05, 1.2, 1.3)
+for _c in SCAN_FINE_C:
+    E3.RUNGS.setdefault(scan_rung(_c), M.with_rung(E3.RUNGS["M_1p"], name=scan_rung(_c), q_scale=_c))
+GROW_KEY = 20_000                                   # the new blocks' initialisation: PRNGKey(GROW_KEY + seed)
+GROW_TOL = 1e-8                                     # the grown start's objective against the source's, relative
+
 
 def released(params, rung):
     """v0.0.37 (job 13): a pinned run's parameters as the start of a rung with learned charges -- the species offsets at
@@ -198,6 +207,23 @@ def released(params, rung):
     head = list(h["charge"][:-1]) + [{"w": jnp.zeros_like(jnp.asarray(last["w"])),
                                       "b": jnp.zeros_like(jnp.asarray(last["b"]))}]
     return {**params, "heads": {**h, "q_ref": q_ref, "charge": head}}
+
+
+def grown(params, rung, key):
+    """v0.0.40 (job 15): a run's parameters with E_0 grown to the rung's message-passing blocks (Rung.e0["T"]).  The
+    blocks it has are kept; each new block is initialised from `key` with its radial weights W and its update's last
+    layer at zero, so that it adds nothing to the features (apply_e0's blocks are residual: no message, no update) and
+    the grown model is the run's model: the same energies and forces.  Every other parameter is the run's."""
+    blocks = list(params["e0"]["blocks"])
+    T_to = int(rung.e0["T"])
+    if len(blocks) >= T_to:
+        raise ValueError(f"{rung.name}: E_0 has {len(blocks)} blocks already; growing needs fewer than {T_to}")
+    fresh = M.init_params(key, rung, energy_scale=1.0)["e0"]["blocks"]
+    for b in fresh[len(blocks):]:
+        last = b["upd"][-1]
+        blocks.append({**b, "W": jnp.zeros_like(b["W"]),
+                       "upd": list(b["upd"][:-1]) + [{"w": jnp.zeros_like(last["w"]), "b": jnp.zeros_like(last["b"])}]})
+    return {**params, "e0": {**params["e0"], "blocks": blocks}}
 
 
 def warm_started(name, rung, structs):
@@ -245,7 +271,9 @@ DEFAULTS = {
         # seed (<dir>/<rung>_seed<seed>.params.pkl; its json's model record must be the rung's) instead of the seed's
         # initialisation (train.fit's params_init); v0.0.35 (job 11) by_rung: {rung: another directory}; v0.0.37 (job 13)
         # from_rung: {rung: another rung} -- that rung's run of the same seed, its json's record that rung's; pinned
-        # charges released into learned ones (released); None: off
+        # charges released into learned ones (released); v0.0.40 (job 15) grow: true -- the source has E_0 with one
+        # message-passing block fewer (its record the rung's at model.layers - 1), grown by a block that adds nothing at
+        # the start (grown; the start's objective checked against the source json's to GROW_TOL); None: off
         "start_from": None,
         # v0.0.36 (job 12): {dagger: the rung less its response} -- a rung whose response is a constant of the rest
         # (model.response_constant: D') has it computed once per training frame and the dagger trained against the
@@ -1818,21 +1846,43 @@ def run_train(a):
                 src = os.path.join(start.get("by_rung", {}).get(name, start["dir"]), f"{source}_seed{seed}")
                 with open(src + ".params.pkl", "rb") as fh:
                     init = pickle.load(fh)
-                src_rung = rung if source == name else warm_started(source, rungs_for(source, cfg, train[0].cell)[0],
-                                                                    train)
+                grow = start.get("grow", False)                       # job 15: E_0 grown by one block
+                if not isinstance(grow, bool):
+                    raise ValueError("training.start_from.grow must be a boolean")
+                src_cfg = cfg
+                if grow:
+                    layers = int(rung.e0["T"])
+                    if layers < 2:
+                        raise ValueError(f"training.start_from.grow: {name} has {layers} layer; growing needs two or more")
+                    src_cfg = merge(cfg, {"model": {"layers": layers - 1}})
+                src_rung = (rung if source == name and not grow else
+                            warm_started(source, rungs_for(source, src_cfg, train[0].cell)[0], train))
+                src_rec = None
                 if os.path.exists(src + ".json"):
                     with open(src + ".json") as fh:
-                        rec = json.load(fh).get("model")
-                    if rec is not None and rec != json.loads(json.dumps(model_record(source, cfg, src_rung))):
+                        src_rec = json.load(fh)
+                    rec = src_rec.get("model")
+                    if rec is not None and rec != json.loads(json.dumps(model_record(source, src_cfg, src_rung))):
                         raise ValueError(f"{src}.json was trained as another model: {rec}")
                 release = source != name and learns_charges(rung) and not learns_charges(src_rung)
                 if release:                                           # job 13: pinned charges released
                     init = released(init, rung)
+                if grow:                                              # job 15: the new block adds nothing at the start
+                    init = grown(init, rung, jax.random.PRNGKey(GROW_KEY + seed))
                 begin = {"from": src + ".params.pkl",
                          "final_loss": final_loss(init, rung, train, scale, float(tr["loss"]["energy_weight"]),
                                                   float(tr["loss"]["force_weight"]), chunk, tr["loss"]["forces"])}
                 if source != name:
                     begin.update(from_rung=source, released=bool(release))
+                if grow:
+                    begin["grown"] = {"layers": [int(rung.e0["T"]) - 1, int(rung.e0["T"])]}
+                    was = ((src_rec or {}).get("training") or {}).get("final_loss")
+                    if was is not None:
+                        rel = abs(begin["final_loss"]["total"] / float(was["total"]) - 1.0)
+                        begin["grown"]["against_source"] = rel
+                        if rel > GROW_TOL:
+                            raise RuntimeError(f"{name} seed {seed}: the grown start's objective differs from "
+                                               f"{src}.json's by {rel:.2e} (relative), above {GROW_TOL:g}")
                 if tracer is not None:
                     begin["charges"] = tracer(init)
                 print(f"{name} seed {seed}: starting from {begin['from']}, training loss {begin['final_loss']['total']:.4e}"
