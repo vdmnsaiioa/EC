@@ -2567,7 +2567,7 @@ across the cell. Job 7's E₀ (12 Å) covers 100 % of the 64-molecule cell, 99 %
 ```sh
 mkdir -p results/e4_job16s_128 results/e4_job16_128 results/e4_job16s_128d results/e4_job16_128d \
          results/e4_job16_64 results/e4_job16s_256 results/e4_job16_256 logs logs_error
-sbatch run_e4_job16.sbatch                 # 13 GPU tasks, 36 h each; about 125 GPU hours
+sbatch run_e4_job16.sbatch                 # 3 GPU tasks, 7 days each; about 125 GPU hours
 python scripts/e4_job16.py
 ```
 
@@ -2577,3 +2577,6 @@ python scripts/e4_job16.py
 - the driver training D′ on larger cells on a read-out cached with smaller ones;
 - the seven configs against jobs 8–12's;
 - K16.1–K16.5 and their edges.
+
+With job 6's to job 15's, S0's, the driver's, the MD's, the training stages' and the configs' suites, run file by file,
+223 tests pass and 2 are skipped.

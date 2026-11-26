@@ -835,7 +835,7 @@ Arms A–D ran (about 46 GPU hours). Read 26 Nov (`notes/e4-job15-results.md`); 
 - **`training.readout.held_from.train_size`:** E4's model's read-out, matched with the 64-molecule cells, held at 128.
 
 ```sh
-sbatch run_e4_job16.sbatch                 # 13 GPU tasks
+sbatch run_e4_job16.sbatch                 # 3 GPU tasks
 python scripts/e4_job16.py
 ```
 

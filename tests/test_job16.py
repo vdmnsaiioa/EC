@@ -116,11 +116,11 @@ def test_job16_configs_agree():
     for name, base, size, batch, rungs, start, maxm, frames in (
             ("e4_job16s_128", j9, 128, 3, ["M_inf", "M_16pm_us_d20", "M_1w050", "M_1w150"], None, None, 2),
             ("e4_job16_128", j11, 128, 3, ["M_inf", "M_16pm_us_d20", "M_1w050", "M_1w150"],
-             {"dir": "results/e4_job16s_128"}, 1200, 2),
+             {"dir": "results/e4_job16s_128"}, 2400, 2),
             ("e4_job16s_128d", j8d, 128, 3, ["M_16C2pm_us_d20"], None, None, None),
-            ("e4_job16_128d", j12, 128, 3, ["M_16C2pm_us_d20"], {"dir": "results/e4_job16s_128d"}, 1200, 2),
+            ("e4_job16_128d", j12, 128, 3, ["M_16C2pm_us_d20"], {"dir": "results/e4_job16s_128d"}, 2400, 2),
             ("e4_job16s_256", j9, 256, 1, ["M_1w050", "M_1w150"], None, None, 1),
-            ("e4_job16_256", j11, 256, 1, ["M_1w050", "M_1w150"], {"dir": "results/e4_job16s_256"}, 1500, 1)):
+            ("e4_job16_256", j11, 256, 1, ["M_1w050", "M_1w150"], {"dir": "results/e4_job16s_256"}, 3000, 1)):
         c = load(name)
         assert c["data"] == {**base["data"], "train_size": size} and c["rungs"] == rungs and c["seeds"] == [0, 1], name
         assert c["model"] == base["model"] and c["probes"] == base["probes"] and c["reading"] == base["reading"], name

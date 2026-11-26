@@ -54,20 +54,19 @@ too, his choice after the coverage question). Read against:*
   - At 256: one frame per batch and chunk (256 molecules, two thirds of job 7's batch); one frame holds about 1.3 times
     the pairs of job 7's chunk.
   - Everything else is the 64-molecule runs' settings: 3000 Adam steps on the same schedule, 50 L-BFGS steps, then
-    1000. The polishes have budgets of 1200 minutes (128) and 1500 (256).
+    1000. The polishes have budgets of 2400 minutes (128) and 3000 (256).
 - **The reader:** `scripts/e4_job16.py` reads K16.1–K16.5, without JAX.
   - Bias is the mean energy error per molecule on the frames the training did not see. At L₀ that is the validation and
     test splits; at any other size it is every frame.
 
 ## 3. The runs
 
-`run_e4_job16.sbatch`, thirteen tasks, one GPU each, seeds 0 and 1:
+`run_e4_job16.sbatch`, three tasks, one GPU each, seeds 0 and 1, each its runs one after another (Vadic's choice of
+three tasks; the partition allows 7 days):
 
-- 0, 1: E4's model at 128, the first stage then the polish;
-- 2, 3: the dagger at 128;
-- 4: M_inf at 128, then M_inf at 64 polished;
-- 5–8: the warm starts at 128, one start and seed each;
-- 9–12: the warm starts at 256.
+- 0: E4's model at 128, each seed's first stage then its polish;
+- 1: the dagger and M_inf at 128, M_inf at 64 polished, then the warm starts at 128;
+- 2: the warm starts at 256.
 
 The L₀ = 64 references are runs already made:
 
@@ -152,11 +151,12 @@ The L₀ = 64 references are runs already made:
 - **On the CPU the same atoms cost 1.8–2.6 times more in cells of 128 molecules:** per objective and gradient, M_inf
   2.5 → 6.3 s, the dagger 8.7 → 16.9 s, a warm start 9.8 → 17.9 s. Peak memory grew 1.6–1.7 times.
 - **On the GPU, scaling jobs 8–12's 64-molecule runs:**
-  - E4's model 13–18 h a task (its first stage 3–3.6 h at 64, its polish 3.6 h);
-  - the dagger 8–10 h;
-  - M_inf 8 h;
+  - E4's model 13–18 h a seed (its first stage 3–3.6 h at 64, its polish 3.6 h);
+  - the dagger 8–10 h a seed, M_inf 3 h, M_inf's polish at 64 1 h;
   - a warm start at 128 about 5 h, at 256 about 10–14 h (extrapolated).
-- **About 125 GPU hours.** The sbatch asks 36 h a task. Job 15's tasks varied by up to ten times between nodes.
+- **About 125 GPU hours, in three tasks of about 26–36, 40–50 and 40–56 h.** The sbatch asks 7 days a task.
+  - Job 15's tasks varied by up to ten times between nodes.
+  - A task that runs out of time is finished by submitting it again; finished runs are skipped.
 
 ## 9. Numbers before any run
 

@@ -1,6 +1,6 @@
 # E4, job 16 (notes/e4-job16-preregistration.md; v0.0.41): the polish of the warm starts at L_0 = 256 -- every run of
 # the first stage (results/e4_job16s_256) polished with 1000 full-batch L-BFGS steps (configs/e4_job11.yaml's settings),
-# one frame of 256 molecules per chunk, within 1500 minutes.
+# one frame of 256 molecules per chunk, within 3000 minutes.
 #
 #   python scripts/e4_water.py train --config configs/e4_job16_256.yaml --rungs M_1w050 --seeds 0 \
 #       --out_dir results/e4_job16_256
@@ -37,7 +37,7 @@ seeds: [0, 1]
 training:
   adam: {steps: 0, batch_size: 1, learning_rate: 3.0e-3, final_learning_rate_ratio: 0.01,   # no Adam
          beta1: 0.9, beta2: 0.999, epsilon: 1.0e-8}
-  lbfgs: {steps: 1000, chunk_size: 1, memory_size: 10, max_linesearch_steps: 20, max_minutes: 1500}
+  lbfgs: {steps: 1000, chunk_size: 1, memory_size: 10, max_linesearch_steps: 20, max_minutes: 3000}
   start_from: {dir: results/e4_job16s_256}            # the first stage's runs
   trace: {every: 100, frames: 1, lbfgs_every: 25}
   loss:

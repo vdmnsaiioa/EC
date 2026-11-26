@@ -1,7 +1,7 @@
 # E4, job 16 (notes/e4-job16-preregistration.md; v0.0.41): E4's model at L_0 = 128, polished as job 12 polished it --
 # 1000 full-batch L-BFGS steps with the response precomputed (training.response_precomputed: the field-term dagger
 # against the remainder) -- from the first stage's runs (results/e4_job16s_128d), in chunks of three frames of 128
-# molecules, within 1200 minutes.  Everything else is configs/e4_job12.yaml's.
+# molecules, within 2400 minutes.  Everything else is configs/e4_job12.yaml's.
 #
 #   python scripts/e4_water.py train --config configs/e4_job16_128d.yaml --rungs M_16C2pm_us_d20 --seeds 0 \
 #       --out_dir results/e4_job16_128d
@@ -52,7 +52,7 @@ seeds: [0, 1]
 training:
   adam: {steps: 0, batch_size: 3, learning_rate: 3.0e-3, final_learning_rate_ratio: 0.01,   # no Adam
          beta1: 0.9, beta2: 0.999, epsilon: 1.0e-8}
-  lbfgs: {steps: 1000, chunk_size: 3, memory_size: 10, max_linesearch_steps: 20, max_minutes: 1200}
+  lbfgs: {steps: 1000, chunk_size: 3, memory_size: 10, max_linesearch_steps: 20, max_minutes: 2400}
   start_from: {dir: results/e4_job16s_128d}             # the first stage's runs of E4's model
   response_precomputed: {dagger: M_16pm_us_d20}        # v0.0.36: D' less its read-out
   trace: {every: 100, frames: 2, lbfgs_every: 25}
