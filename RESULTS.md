@@ -2539,3 +2539,41 @@ With job 6's to job 14's, S0's, the driver's, the MD's, the training stages' and
   / 0.513, within 0.6–2.2 % of the best 12 Å learned charges (M_1w100). Growth costs 2–3 % (K15.8).
 - **The start marks E₀:** from 0.5 the forces stay 12–17 % worse at the same scale.
 - **Next:** arm E (MACE-LES); proposed, the 12 Å model trained on 128-molecule cells.
+
+## v0.0.41, 26 Nov — job 16 pre-registered: the training cells of 128 molecules (`notes/e4-job16-preregistration.md`)
+
+**Why:** E4's L₀ sweep (Form II) is the plan's next step. Job 1 found M_∞ carrying the 64-molecule cell's long-range
+energy (−0.009 kcal/mol per molecule at 128 against the dagger). Job 15 found learned charges frozen when E₀ reaches
+across the cell. Job 7's E₀ (12 Å) covers 100 % of the 64-molecule cell, 99 % of the 128 and 82 % of the 256.
+
+**What changes, before any run:**
+
+- **`training.readout.held_from.train_size`:** a read-out matched with another training set's cells is held, checked
+  against that set's cell and energy scale; only a read-out by species (a fixed unit), as E4's model's is.
+- **Seven configs** (`configs/e4_job16*.yaml`): M_inf, the dagger, E4's model and the warm starts at L₀ = 128 (three
+  frames a batch and chunk: the same atoms as job 7's), the warm starts at 256 (one frame), M_inf at 64 polished.
+- **`scripts/e4_job16.py`** reads K16.1–K16.5.
+
+**Registered:**
+
+| | reading | band | prediction |
+|---|---|---|---|
+| K16.1 | M_inf less the dagger, its step from 128 down to 64 against the 64-trained step up to 128 | opposite, within 40 %; read when ≥ 0.003 | holds |
+| K16.2 | E4's model's bias at L₀ = 128 against 64, every size | ±0.003 kcal/mol per molecule | holds |
+| K16.3 | E4's model's forces at L₀ = 128 against 64 | ±5 % | holds |
+| K16.4 | the warm starts' gap at L₀ = 128 | ≥ 0.25 frozen; ≤ 0.15 mobile | frozen |
+| K16.5 | the same at L₀ = 256 | the same | partial |
+
+```sh
+mkdir -p results/e4_job16s_128 results/e4_job16_128 results/e4_job16s_128d results/e4_job16_128d \
+         results/e4_job16_64 results/e4_job16s_256 results/e4_job16_256 logs logs_error
+sbatch run_e4_job16.sbatch                 # 13 GPU tasks, 36 h each; about 125 GPU hours
+python scripts/e4_job16.py
+```
+
+**Tests:** `tests/test_job16.py`, 4 tests:
+
+- a read-out held across training sizes, refused without the size or when not by species;
+- the driver training D′ on larger cells on a read-out cached with smaller ones;
+- the seven configs against jobs 8–12's;
+- K16.1–K16.5 and their edges.

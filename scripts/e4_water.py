@@ -1327,15 +1327,27 @@ def rung_key(rung):
 
 def held_readout(held, cfg, cell_bohr, probes, scale, response=None, resp_k=None):
     """v0.0.32 (job 8): a read-out matched before for another rung, held for this one -- training.readout.held_from
-    {rung, dir}.  The cache matched() wrote in dir for that rung, with this config's probes, liquid and finite-k
-    settings, is loaded and checked against the reference rung (its key, before or after the fields added since v0.0.29)
-    and the energy scale; nothing is matched.  Job 8 gives D''s variants D''s own read-out, so that a variant changes
-    the training and nothing else."""
+    {rung, dir; v0.0.41 (job 16) train_size: the size of the training cells it was matched with, when not this
+    config's -- their cell and energy scale then check the cache, and the read-out must be by species, in units
+    independent of the energy scale}.  The cache matched() wrote in dir for that rung, with this config's probes, liquid
+    and finite-k settings, is loaded and checked against the reference rung (its key, before or after the fields added
+    since v0.0.29) and the energy scale; nothing is matched.  Job 8 gives D''s variants D''s own read-out, so that a
+    variant changes the training and nothing else."""
     tr = cfg["training"]["readout"]
     lq, kq = tr.get("liquid"), tr.get("finite_k")
     tag = ("" if not lq else "_liq" + liquid_tag(lq, response)) + ("" if not kq else "_k" + k_tag(kq, resp_k))
     ref = held["rung"]
+    size = held.get("train_size")                             # v0.0.41 (job 16): matched with another training set's
+    if size is not None and int(size) != int(cfg["data"]["train_size"]):
+        # the read-out was matched (open, on the probes) with the energy scale of the training cells of another size, and
+        # its key holds that cell's n_max; held in cells of this size, it must not depend on the energy scale
+        src = W.e4_structures(os.path.join(cfg["data"]["dir"], f"train_n{int(size)}.npz"), pins=True,
+                              K=int(cfg["model"]["K"]), omega0=float(cfg["model"]["omega0"]))
+        cell_bohr, scale = src[0].cell, T.energy_scale(src)
     _, ref_open = rungs_for(ref, cfg, cell_bohr)
+    if size is not None and int(size) != int(cfg["data"]["train_size"]) and not ref_open.bf_species:
+        raise ValueError(f"held_from.train_size: {ref}'s read-out is in units of the site energies' scale (not by "
+                         "species), so it cannot be held with another training set's energy scale")
     path = os.path.join(held["dir"], f"matched_{ref}_{probes['hash']}{tag}.pkl")
     if not os.path.exists(path):
         raise FileNotFoundError(f"held_from: no read-out matched for {ref} in {held['dir']} with these settings ({path})")
@@ -1343,9 +1355,11 @@ def held_readout(held, cfg, cell_bohr, probes, scale, response=None, resp_k=None
         got = pickle.load(fh)
     if got["rung"] not in (repr(ref_open) + tag, rung_key(ref_open) + tag) or got["scale"] != scale:
         raise ValueError(f"{path} was matched for another rung, settings or energy scale than {ref} here")
-    print(f"  read-out held from {ref} ({path}): objective "
+    print(f"  read-out held from {ref} ({path}"
+          + (f", matched with the training cells of {int(size)} molecules" if size is not None else "") + "): objective "
           + "; ".join(f"{b:.3e} -> {c:.3e}" for b, c in got["match"]["objective"]), flush=True)
-    return got["readout"], {**got["match"], "held_from": {"rung": ref, "path": path}}
+    return got["readout"], {**got["match"], "held_from": {"rung": ref, "path": path,
+                                                          **({"train_size": int(size)} if size is not None else {})}}
 
 
 # ---------------------------------------------------------------- the readings --------------------------------------

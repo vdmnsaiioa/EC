@@ -639,4 +639,9 @@ code is still open: CP2K, GPAW, VASP or QE.
          (one layer, then grown to two) keeps the scale and reaches the best 12 Å learned accuracy within 1–2 %. The
          start still marks E₀ (12–17 % in forces from 0.5).*
        - *Next: arm E; proposed, the 12 Å model trained on 128-molecule cells.*
+     - *Job 16 registered 26 Nov (`e4-job16-preregistration.md`, v0.0.41; Vadic's go, with the cell test at 256 too).*
+       - *Form II at L₀ = 128: M_inf, the dagger and E4's model, the same atoms as at 64 (K16.1: M_inf carries its
+         training cell's long-range energy, the step reversed; K16.2–K16.3: E4's model follows the cell).*
+       - *The cell test: job 7's warm starts at 128 (coverage 99 %, predicted frozen) and 256 (82 %, predicted partial).*
+       - *Thirteen tasks, about 125 GPU hours.*
 7. **The L₀ sweep** (Form II).

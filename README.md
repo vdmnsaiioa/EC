@@ -826,6 +826,19 @@ Arms A–D ran (about 46 GPU hours). Read 26 Nov (`notes/e4-job15-results.md`); 
   12 Å in 12.4 Å cells, does not. Grown from one layer to two, the scale is kept and the accuracy is within 1–2 % of
   the best 12 Å learned charges.
 
+**Job 16** (`notes/e4-job16-preregistration.md`, v0.0.41): the training cells of 128 molecules.
+
+- **E4's L₀ sweep (Form II):** M_inf, the field-term dagger and E4's model trained and polished at L₀ = 128 on the same
+  atoms as at 64 (90 frames, three a batch); M_inf at 64 polished beside them. Does M_inf carry its training cell's
+  long-range energy (K16.1), and does E4's model follow the cell (K16.2–K16.3)?
+- **The cell test:** job 7's warm starts at L₀ = 128 (job 7's E₀ covers 99 % of the cell) and 256 (82 %) (K16.4–K16.5).
+- **`training.readout.held_from.train_size`:** E4's model's read-out, matched with the 64-molecule cells, held at 128.
+
+```sh
+sbatch run_e4_job16.sbatch                 # 13 GPU tasks
+python scripts/e4_job16.py
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's
