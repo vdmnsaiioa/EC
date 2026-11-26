@@ -818,6 +818,14 @@ sbatch run_e4_job15_les.sbatch             # E: 6 GPU tasks
 python scripts/e4_job15.py
 ```
 
+Arms A–D ran (about 46 GPU hours). Read 26 Nov (`notes/e4-job15-results.md`); arm E has not run:
+
+- **K15.1, K15.3, K15.4, K15.6, K15.8 hold; K15.2 and K15.7 fail; K15.5 reads "reach".** The pinned minimum at 4.5 Å
+  is a flat bottom at 1.05–1.2, 0.06–0.15 above the learned charges' common end.
+- **Reach over the cell, not depth, freezes the scale:** every E₀ reaching 6 Å or less finds one scale; job 7's, reaching
+  12 Å in 12.4 Å cells, does not. Grown from one layer to two, the scale is kept and the accuracy is within 1–2 % of
+  the best 12 Å learned charges.
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

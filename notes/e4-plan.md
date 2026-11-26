@@ -630,4 +630,13 @@ code is still open: CP2K, GPAW, VASP or QE.
        - *Predicted: the learned minimum below the pinned one, species alone short of it; depth alone gives one scale;
          reach (weakly); the route works; MACE-LES's scale follows its unit and its history.*
        - *Eleven harness tasks (about 35 GPU hours) and six MACE-LES tasks (not timed).*
+     - *Job 15, arms A–D, read 26 Nov (`e4-job15-results.md`); E (MACE-LES) not yet run.*
+       - *K15.1, K15.3, K15.4, K15.6, K15.8 hold; K15.2 fails (predicted); K15.7 fails narrowly (predicted to hold);
+         K15.5: reach.*
+       - *The pinned minimum at 4.5 Å is a flat bottom at 1.05–1.2; learned charges with their head end 0.06–0.15 below
+         it (their own minimum). By species alone Adam does not move the scale at any reach.*
+       - *Reach over the cell freezes the scale, not depth: two layers of 3 Å and one of 6 Å find one scale. The route
+         (one layer, then grown to two) keeps the scale and reaches the best 12 Å learned accuracy within 1–2 %. The
+         start still marks E₀ (12–17 % in forces from 0.5).*
+       - *Next: arm E; proposed, the 12 Å model trained on 128-molecule cells.*
 7. **The L₀ sweep** (Form II).

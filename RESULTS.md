@@ -2512,3 +2512,30 @@ random labels; the unit's change at the release scales the latent charges by exa
 
 With job 6's to job 14's, S0's, the driver's, the MD's, the training stages' and the configs' suites, run file by file,
 219 tests pass and 2 are skipped.
+
+## v0.0.40, read 26 Nov — job 15, arms A–D: reach over the cell freezes the scale; the route keeps it (`notes/e4-job15-results.md`)
+
+**Arms A–D ran** as `run_e4_job15.sbatch`'s eleven tasks, about 46 GPU hours. Arm E (MACE-LES) has not run yet.
+
+| | arm | band | Niflheim | | predicted |
+|---|---|---|---|---|---|
+| K15.1 | A | c*_res ≥ 0.03 above the flexible ends (0.987) | 1.123: +0.136 | holds | holds |
+| K15.2 | A | species-only ends within ±0.05 of c*_res | 0.773, 0.842, 1.053, 1.082 | fails | fails |
+| K15.3 | A | species-only gap ≤ half of 12 Å's | 0.280, 0.240 against 0.715, 0.717 | holds | holds |
+| K15.4 | B | \|gap\| ≤ 0.05 after 2000 steps at 6 Å | −0.004, +0.040 | holds | holds |
+| K15.5 | C | two layers of 3 Å: reach or depth | gaps +0.000, +0.021 | reach | reach |
+| K15.6 | D | grown ends within ±0.05 of their start | +0.017, +0.016, −0.002, −0.022 | holds | holds |
+| K15.7 | D | grown forces ≥ 5 % below B's | −7.2 to −7.7 % (from 0.5); −3.8 to −4.1 % (from 1.5) | fails | holds |
+| K15.8 | D | grown M_1q110 within ±3 % of job 10's | +2.9 / +2.4 / +2.3 % | holds | holds |
+
+- **The pinned minimum at 4.5 Å is a flat bottom at 1.05–1.2** (c*_res 1.123). The flexible learned charges' common end
+  (0.97–0.99) lies 0.06–0.15 below it, as at 6 Å (0.91–0.95): with their head, learned charges have a minimum of their
+  own.
+- **By species alone Adam moves the scale 0.02–0.04 at 4.5 Å as at 12 Å;** the short reach's mobility under Adam passes
+  through the charge head. The polish moves them 2–3.5 times further than at 12 Å, still moving.
+- **Reach, not depth:** one layer of 4.5 Å, one of 6 Å (B: the pairs meet) and two of 3 Å (C: Adam closes the gap) all
+  find one scale; two layers of 6 Å, reaching 12 Å in 12.4 Å cells, do not. C's model is weak (forces twice 12 Å's).
+- **The route keeps the scale:** grown to two layers it moves at most 0.022. From 1.5 the grown runs read 0.502 / 0.511
+  / 0.513, within 0.6–2.2 % of the best 12 Å learned charges (M_1w100). Growth costs 2–3 % (K15.8).
+- **The start marks E₀:** from 0.5 the forces stay 12–17 % worse at the same scale.
+- **Next:** arm E (MACE-LES); proposed, the 12 Å model trained on 128-molecule cells.
