@@ -826,6 +826,13 @@ Arms A–D ran (about 46 GPU hours). Read 26 Nov (`notes/e4-job15-results.md`); 
   12 Å in 12.4 Å cells, does not. Grown from one layer to two, the scale is kept and the accuracy is within 1–2 % of
   the best 12 Å learned charges.
 
+Arm E ran (about 47 GPU hours) and was read 27 Nov (`notes/e4-job15-results.md` §9–§12):
+
+- **K15.9 holds (predicted to fail), K15.10 fails.** From scratch MACE-LES ends at c = 0.59–0.61 at every unit;
+  released late it comes back from 1.5 but not from 0.5.
+- **Beside:** its energy per molecule drifts −0.0085 from 64 to 256 molecules, nearly the cutoff model's, and the
+  drift scales with its charges squared.
+
 **Job 16** (`notes/e4-job16-preregistration.md`, v0.0.41): the training cells of 128 molecules.
 
 - **E4's L₀ sweep (Form II):** M_inf, the field-term dagger and E4's model trained and polished at L₀ = 128 on the same

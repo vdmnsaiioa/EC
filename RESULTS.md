@@ -2580,3 +2580,31 @@ python scripts/e4_job16.py
 
 With job 6's to job 15's, S0's, the driver's, the MD's, the training stages' and the configs' suites, run file by file,
 223 tests pass and 2 are skipped.
+
+## v0.0.41, read 27 Nov — job 15, arm E: MACE-LES finds its scale from scratch; released, it returns only from above; its far field drifts as its charges squared (`notes/e4-job15-results.md` §9–§12)
+
+**Arm E ran** as `run_e4_job15_les.sbatch`'s six tasks, about 47 GPU hours. Seed 0's baseline, trained and evaluated
+before v0.0.40, was evaluated again for its latent dipole.
+
+| | arm | band | Niflheim | | predicted |
+|---|---|---|---|---|---|
+| K15.9 | E1 | from scratch at units 0.05, 0.15: c within ±10 % of the default's | 0.99, 0.98; 1.01, 1.00 | holds | fails |
+| K15.10 | E2 | released at 0.05, 0.15: c within ±10 % of the control's | 0.589, 0.611 (0.05); 0.955, 0.963 (0.15) | fails | fails |
+
+- **From scratch MACE-LES finds its scale:** six trainings at three units end at c = 0.592–0.605 (1.10–1.13 D), the
+  unit moving it less than the seeds do. Ours followed its unit (job 6). The reach story does not carry to it.
+- **Released late, it returns only from above:** halved, a fifth of the way back in 150 epochs (0.18, 0.22), 5–7 %
+  worse in forces; raised 1.5 times, all the way (1.09, 1.07) at the control's forces. Adam's step in the charges is
+  proportional to the unit, and stage two's learning rate is low.
+- **Forces 0.20–0.22 kcal/mol/Å,** half E4's model's.
+- **Beside, not registered: its far field.** Its mean energy error per molecule drifts −0.0085 ± 0.0006 from 64 to 256
+  molecules (six trainings), against the cutoff model's −0.0101 and the dagger's +0.0008 (job 1). Released runs drift
+  0.30 and 0.91 times their controls at c² ratios 0.36 and 0.92: the drift is in LES's own term, quadratic in the
+  charges, consistent with 1/L (the step to 256 over that to 128 is 1.8; 1/L gives 1.79). Candidates: the molecules'
+  net latent charges (0.02 e rms) and the cell's net charge.
+- **Next, proposed:** the drift's attribution without training (LES's energy with the molecules' or the cell's net
+  charge removed, by size); MACE-LES trained at L₀ = 128.
+
+**The reader** (`scripts/e4_job15.py`, no version change): MACE-LES's bias by size and the far-field summary; an
+evaluation json without the latent dipole is reported, not dropped. `tests/test_job15.py` checks both; its five tests
+pass.

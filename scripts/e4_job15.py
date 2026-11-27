@@ -34,6 +34,11 @@ permanent 1.864 D (MACE-LES: the latent charges' molecular dipole, each molecule
     K15.8  D: the grown M_1q110's forces within K15_8 of job 10's M_1q110 (job 7's E_0 trained and polished), every size
     K15.9  E1: every latent dipole at 0.05 and 0.15 within K15_9 of the default's, same seed
     K15.10 E2: every released latent dipole at 0.05 and 0.15 within K15_10 of the continued control's, same seed
+
+Beside them (read 27 Nov, not registered): MACE-LES's far field, the mean energy error per molecule on the test frames
+of 128 and 256 molecules less that on 64's, by run; E1's runs together and E2's by unit, and E2's step at 256 against
+its control's beside the squared ratio of their c.  An evaluation json without the latent dipoles (made before v0.0.40)
+is reported, not read.
 """
 import argparse
 import json
@@ -56,6 +61,7 @@ SEEDS = (0, 1)
 SIZES, PERMANENT_DEBYE = J7.SIZES, J7.PERMANENT_DEBYE
 UNITS = {"o050": 0.5, "o100": 1.0, "o150": 1.5}                          # MACE-LES's unit over its default
 LES_SET = "test_n64"
+FAR = ("test_n128", "test_n256")                                         # the far field's sets, against LES_SET
 DIRS = {"a_stage": "results/e4_job15s_a", "a": "results/e4_job15_a", "b": "results/e4_job15_b",
         "c_stage": "results/e4_job15s_c", "c": "results/e4_job15_c", "d": "results/e4_job15_d",
         "r45_stage": "results/e4_job14s_r45", "r45": "results/e4_job14_r45", "r6": "results/e4_job14_r6",
@@ -99,24 +105,28 @@ def resolved_profile(a_runs, r45_runs):
 
 def les_eval(path):
     """the MACE-LES evaluation json's reading on LES_SET: c (the latent dipole over 1.864 D), the latent charges by
-    species, the net charge per molecule; and the forces at every set; None when the json is missing."""
+    species, the net charge per molecule; the forces and the energy's RMSE and mean error (its bias) at every set, and
+    the bias's steps from LES_SET to FAR's; None when the json is missing, {"stale": path} when it has no latent
+    dipole (an evaluation made before v0.0.40)."""
     if not os.path.exists(path):
         return None
     with open(path) as fh:
         d = json.load(fh)
     s = d.get("sets", {}).get(LES_SET, {})
     if "latent_dipole_debye_mean" not in s:
-        return None
+        return {"stale": path}
+    bias = {n: v["e_mean_kcal_per_mol"] for n, v in d["sets"].items() if "e_mean_kcal_per_mol" in v}
     return {"c": s["latent_dipole_debye_mean"] / PERMANENT_DEBYE, "dipole_debye": s["latent_dipole_debye_mean"],
             "q_O": s.get("latent_q_O_mean"), "q_H": s.get("latent_q_H_mean"),
             "net_q_rms": s.get("latent_q_per_molecule_rms"),
             "forces": {n: v["f_rmse_kcal_per_mol_A"] for n, v in d["sets"].items()},
-            "energy": {n: v["e_rmse_kcal_per_mol"] for n, v in d["sets"].items()}}
+            "energy": {n: v["e_rmse_kcal_per_mol"] for n, v in d["sets"].items()},
+            "bias": bias, "steps": {n: bias[n] - bias[LES_SET] for n in FAR if n in bias and LES_SET in bias}}
 
 
 def les_runs(baselines, les):
-    """{"E1": {unit: {seed: reading}}, "E2": {...}} from the result directories' evaluation jsons."""
-    e1, e2 = {}, {}
+    """{"E1": {unit: {seed: reading}}, "E2": {...}, "stale": [paths]} from the result directories' evaluation jsons."""
+    e1, e2, stale = {}, {}, []
     for u in UNITS:
         for s in SEEDS:
             p1 = (os.path.join(baselines, f"maceles_n64_s{s}", f"maceles_n64_s{s}_stagetwo_eval.json") if u == "o100"
@@ -124,9 +134,37 @@ def les_runs(baselines, les):
             p2 = os.path.join(les, f"release_{u}_n64_s{s}", f"maceles_n64_s{s}_stagetwo_eval.json")
             for d, p in ((e1, p1), (e2, p2)):
                 r = les_eval(p)
-                if r is not None:
+                if r is not None and "stale" in r:
+                    stale.append(r["stale"])
+                elif r is not None:
                     d.setdefault(u, {})[s] = r
-    return {"E1": e1, "E2": e2}
+    return {"E1": e1, "E2": e2, "stale": stale}
+
+
+def _steps(runs):
+    """{far set: {"mean", "sd", "runs"}} of the bias's step over the runs that have it; None where none has."""
+    out = {}
+    for n in FAR:
+        x = [r["steps"][n] for r in runs if n in r.get("steps", {})]
+        out[n] = ({"mean": float(np.mean(x)), "sd": float(np.std(x, ddof=1)) if len(x) > 1 else None, "runs": len(x)}
+                  if x else None)
+    return out
+
+
+def far_field(les):
+    """MACE-LES's far field: the bias's steps of E1's runs together and of E2's by unit; E2's mean step at 256 against
+    the control's, beside the mean over seeds of (c over the control's c) squared."""
+    out = {"E1": _steps([r for by in les["E1"].values() for r in by.values()]),
+           "E2": {u: _steps(list(by.values())) for u, by in sorted(les["E2"].items())}, "against_control": {}}
+    ctl = out["E2"].get("o100", {}).get(FAR[-1])
+    for u in ("o050", "o150"):
+        st = out["E2"].get(u, {}).get(FAR[-1])
+        seeds = [s for s in les["E2"].get(u, {}) if s in les["E2"].get("o100", {})]
+        if st and ctl and seeds and ctl["mean"]:
+            out["against_control"][u] = {
+                "step": st["mean"] / ctl["mean"],
+                "c_squared": float(np.mean([(les["E2"][u][s]["c"] / les["E2"]["o100"][s]["c"]) ** 2 for s in seeds]))}
+    return out
 
 
 def _against(e, ref_unit, band):
@@ -204,6 +242,8 @@ def evaluate(R):
     # E
     les = R.get("les") or {"E1": {}, "E2": {}}
     out["les"] = les
+    out["les_stale"] = list(les.get("stale", []))
+    out["les_far"] = far_field(les)
     out["K15.9"] = _against(les["E1"], "o100", K15_9)
     k10 = _against(les["E2"], "o100", K15_10)
     k10["back"] = {k: (r - UNITS[k.split()[0]]) / (1.0 - UNITS[k.split()[0]]) for k, r in k10["ratios"].items()}
@@ -276,6 +316,9 @@ def report(ev):
                  + "; ".join(f"{n} {r:.3f}" for n, r in k["ratios"].items())
                  + ("; the share of the way back " + ", ".join(f"{n} {v:.2f}" for n, v in k["back"].items())
                     if k.get("back") else ""))
+    for p in ev["les_stale"]:
+        L.append(f"  MACE-LES: {p} has no latent dipole (evaluated before v0.0.40), so it is not read: evaluate it again "
+                 "with baselines/mace/eval.py")
 
     L.append("\n  Beside them, not registered")
     pc = ev["profile_c"]
@@ -294,7 +337,16 @@ def report(ev):
             for s, r in sorted(by.items()):
                 L.append(f"    MACE-LES {arm} {u} seed {s}: c {r['c']:.3f} ({r['dipole_debye']:.3f} D), q_O {f(r['q_O'])}, "
                          f"q_H {f(r['q_H'])} e, net q per molecule rms {f(r['net_q_rms'], 4)}; forces "
-                         + " / ".join(f"{n} {v:.3f}" for n, v in r["forces"].items()))
+                         + " / ".join(f"{n} {v:.3f}" for n, v in r["forces"].items())
+                         + ("; bias " + " / ".join(f"{n} {v:+.4f}" for n, v in r["bias"].items()) if r.get("bias") else ""))
+    fl = ev["les_far"]
+    st = lambda d: ", ".join(f"{n} {v['mean']:+.4f}" + (f" +- {v['sd']:.4f}" if v["sd"] is not None else "")
+                             + f" ({v['runs']})" for n, v in d.items() if v)
+    if any(fl["E1"].values()) or any(any(d.values()) for d in fl["E2"].values()):
+        L.append("    MACE-LES's far field (the bias per molecule less test_n64's, mean +- sd (runs), kcal/mol): E1 "
+                 + (st(fl["E1"]) or "-") + "; " + "; ".join(f"E2 {u} " + (st(d) or "-") for u, d in fl["E2"].items())
+                 + "".join(f"; E2 {u} at 256 against the control: the step {v['step']:.2f} times, c^2 {v['c_squared']:.2f}"
+                           for u, v in fl["against_control"].items()))
     L.append("    the paths (c: through job 7's training at Adam steps, half by, after its L-BFGS; the pull's mean / sd in "
              "blocks of 500; through the polish every 250 steps, the last 250 steps' move; the objective)")
     for name, v in ev["paths"].items():

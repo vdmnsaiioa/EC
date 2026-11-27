@@ -639,6 +639,12 @@ code is still open: CP2K, GPAW, VASP or QE.
          (one layer, then grown to two) keeps the scale and reaches the best 12 Å learned accuracy within 1–2 %. The
          start still marks E₀ (12–17 % in forces from 0.5).*
        - *Next: arm E; proposed, the 12 Å model trained on 128-molecule cells.*
+     - *Job 15, arm E (MACE-LES), read 27 Nov (`e4-job15-results.md` §9–§12).*
+       - *K15.9 holds (predicted to fail): from scratch MACE-LES ends at c = 0.59–0.61 whatever its unit. K15.10 fails as
+         predicted, but only from below: halved charges come back a fifth of the way, raised ones all the way.*
+       - *Beside: MACE-LES's energy per molecule drifts −0.0085 kcal/mol from 64 to 256 molecules (M_∞ −0.0101, the
+         dagger +0.0008), quadratic in its charges and consistent with the 1/L the ladder (§4) predicts for its class.*
+       - *Proposed: the drift's attribution without training; MACE-LES at L₀ = 128.*
      - *Job 16 registered 26 Nov (`e4-job16-preregistration.md`, v0.0.41; Vadic's go, with the cell test at 256 too).*
        - *Form II at L₀ = 128: M_inf, the dagger and E4's model, the same atoms as at 64 (K16.1: M_inf carries its
          training cell's long-range energy, the step reversed; K16.2–K16.3: E4's model follows the cell).*

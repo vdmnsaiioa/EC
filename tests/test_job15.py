@@ -154,12 +154,14 @@ def _parabola(names, a, c0, L0=40.0):
     return {n: L0 + a * (J15.PROFILE_A[n] - c0) ** 2 for n in names}
 
 
-def _les_json(path, c, forces=0.9):
+def _les_json(path, c, forces=0.9, latent=True):
+    """an evaluation json; its bias -0.01 c^2 per molecule at 128 molecules and -0.02 c^2 at 256 above 64's (+0.001)"""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    sets = {n: {"f_rmse_kcal_per_mol_A": forces, "e_rmse_kcal_per_mol": 0.03} for n in ("valid_n64", "test_n128")}
-    sets["test_n64"] = {"f_rmse_kcal_per_mol_A": forces, "e_rmse_kcal_per_mol": 0.03, "latent_q_O_mean": -0.6,
-                        "latent_q_H_mean": 0.3, "latent_q_per_molecule_rms": 1e-3,
-                        "latent_dipole_debye_mean": c * J15.PERMANENT_DEBYE}
+    sets = {n: {"f_rmse_kcal_per_mol_A": forces, "e_rmse_kcal_per_mol": 0.03, "e_mean_kcal_per_mol": 0.001 - k * c ** 2}
+            for n, k in (("valid_n64", 0.0), ("test_n64", 0.0), ("test_n128", 0.01), ("test_n256", 0.02))}
+    if latent:
+        sets["test_n64"].update(latent_q_O_mean=-0.6, latent_q_H_mean=0.3, latent_q_per_molecule_rms=1e-3,
+                                latent_dipole_debye_mean=c * J15.PERMANENT_DEBYE)
     json.dump({"sets": sets}, open(path, "w"))
 
 
@@ -227,10 +229,21 @@ def test_the_job15_readings(tmp_path):
     assert ev["K15.9"]["ratios"]["o150 seed 1"] == pytest.approx(1.04)
     assert ev["K15.10"]["back"]["o050 seed 0"] == pytest.approx((0.97 - 0.5) / 0.5)
     assert ev["les"]["E1"]["o100"][1]["c"] == pytest.approx(1.3) and ev["les"]["E1"]["o100"][1]["q_O"] == -0.6
+    far = ev["les_far"]                                                  # the bias's step: -0.02 c^2 at 256
+    e1_c = [r["c"] for by in ev["les"]["E1"].values() for r in by.values()]
+    assert far["E1"]["test_n256"]["runs"] == 6 and far["E1"]["test_n256"]["mean"] == pytest.approx(
+        -0.02 * np.mean(np.square(e1_c))) and far["E1"]["test_n128"]["mean"] == pytest.approx(-0.01 * np.mean(np.square(e1_c)))
+    assert ev["les"]["E2"]["o050"][0]["steps"]["test_n256"] == pytest.approx(-0.02 * (0.97 * 1.25) ** 2)
+    for u, k in (("o050", 0.97), ("o150", 1.02)):                         # a step in c^2: the two ratios agree
+        v = far["against_control"][u]
+        assert v["c_squared"] == pytest.approx(k ** 2) and v["step"] == pytest.approx(k ** 2)
+    assert ev["les_stale"] == []
     assert ev["profile_c"]["ratio"] is not None and ev["paths"]["B M_1w050 seed 0"]["end_c"] == pytest.approx(0.96)
     text = J15.report(ev)
-    for k in ("K15.1: holds", "K15.5: reach", "K15.9: holds", "K15.10: holds", "C's profile", "MACE-LES E2 o150 seed 1"):
+    for k in ("K15.1: holds", "K15.5: reach", "K15.9: holds", "K15.10: holds", "C's profile", "MACE-LES E2 o150 seed 1",
+              "bias valid_n64 +0.0010", "MACE-LES's far field", "the step 0.94 times, c^2 0.94"):
         assert k in text, k
+    assert "has no latent dipole" not in text
     json.dumps(ev)
     # the edges
     assert J15.evaluate(_job15(tmp_path, a_c0=1.01))["K15.1"]["holds"] is False                 # 0.023 above
@@ -244,6 +257,14 @@ def test_the_job15_readings(tmp_path):
     assert J15.evaluate(_job15(tmp_path, q110=0.54))["K15.8"]["holds"] is False                 # +3.8 %
     assert J15.evaluate(_job15(tmp_path, e1=(0.6, 1.04)))["K15.9"]["holds"] is False
     assert J15.evaluate(_job15(tmp_path, e2=(0.97, 1.3)))["K15.10"]["holds"] is False
+    R = _job15(tmp_path)                                                  # a baseline evaluated before v0.0.40
+    old = str(tmp_path / "baselines" / "maceles_n64_s0" / "maceles_n64_s0_stagetwo_eval.json")
+    _les_json(old, 1.2, latent=False)
+    R["les"] = J15.les_runs(str(tmp_path / "baselines"), str(tmp_path / "les"))
+    ev = J15.evaluate(R)
+    assert ev["les_stale"] == [old] and 0 not in ev["les"]["E1"]["o100"] and ev["K15.9"]["holds"] is None
+    assert ev["K15.10"]["holds"] and ev["les_far"]["E1"]["test_n256"]["runs"] == 5
+    assert f"MACE-LES: {old} has no latent dipole" in J15.report(ev)
     ev = J15.evaluate(_job15(tmp_path, a_c0=1.6))                                              # c* beyond the window
     assert ev["K15.1"]["holds"] is False and ev["K15.2"]["holds"] is None
     R = _job15(tmp_path)
