@@ -374,7 +374,8 @@ def make(truth, a):
             if slab_clearance(P_, C_) < SLAB_MIN_CLEAR:
                 raise RuntimeError(f"slab of frame {f} at {g} A: clearance {slab_clearance(P_, C_):.2f} A")
             E, Fo = truth.energy_forces(P_, C_)
-            xyz, q, _, mu = truth.sites(P_, C_)
+            sites = truth.sites(P_, C_)                         # MBPol.sites: a dict (v0.0.42 fix)
+            xyz, q, mu = sites["xyz"], sites["charges"], sites["induced"]
             S["positions"].append(P_); S["cell"].append(C_); S["energy"].append(E); S["forces"].append(Fo)
             S["slab_frame"].append(f); S["slab_gap"].append(g)
             S["dipole_permanent"].append((q[:, None] * xyz).sum(0)); S["dipole_induced"].append(mu.sum(0))

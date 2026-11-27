@@ -55,9 +55,10 @@ class Truth17:
     def energy_forces(self, pos, cell):
         return -0.01 / float(np.asarray(cell)[2, 2]), np.zeros_like(np.asarray(pos, float))
 
-    def sites(self, pos, cell=None):
+    def sites(self, pos, cell=None):                     # sseft.mbpol.MBPol.sites' dict
         xyz = np.asarray(pos, float)
-        return xyz, np.tile(Q3, len(xyz) // 3), np.zeros(len(xyz)), np.zeros_like(xyz)
+        return {"xyz": xyz, "charges": np.tile(Q3, len(xyz) // 3), "polarizabilities": np.zeros(len(xyz)),
+                "induced": np.zeros_like(xyz)}
 
     def describe(self):
         return {"name": "truth17"}
