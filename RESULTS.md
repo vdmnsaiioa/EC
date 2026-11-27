@@ -2712,3 +2712,50 @@ python scripts/e4_job18.py read
 - training on small clusters: E₀ alone and E4's model's rung, its read-out calibrated on the clusters' response
   (cached under the calibration's tag), read on the test clusters, the probes and T5;
 - K18.1–K18.7 and their edges.
+
+## v0.0.43 → v0.0.44, 28 Nov — job 16.5 pre-registered: MACE-LES trained on cells of 128 molecules (`notes/e4-job16.5-preregistration.md`)
+
+**Why:** trained at 64 molecules, MACE-LES drifts −0.0085 kcal/mol per molecule to 256 (job 15), with its charges
+squared. Job 16's K16.1 found M_inf's drift tied to its training cell: trained at 128, its step reverses. Is MACE-LES's
+drift carried as M_inf's, or the plan's law for its class, an error in 1/L of the test cell (Form II ∝ 1/L₀)? Both
+reverse the step when L₀ moves; they differ in how much of the drift to 256 a model trained at 128 keeps.
+
+**What changes, before any run:**
+
+- **`scripts/e4_job16_5.py`** (NumPy only) reads K16.5.1–K16.5.5. Each MACE model's energies come from `energies.py
+  --tag job16_5`; its latent dipole and forces from `eval.py`'s json; the dagger's errors on the same frames from job
+  11's runs (L₀ = 64) and job 16's (128). Bias at L₀ is read on the test split alone (MACE's validation split chooses its
+  checkpoints).
+- **`baselines/mace/energies.py`:** a frame that does not fit on the GPU goes to the CPU, as in `eval.py`;
+  `--max_frames`.
+- **`run_e4_job16_5.sbatch`:** one task per seed. It trains MACE-LES at 128 (`train.sh`, N0=128), evaluates it, and
+  writes both L₀'s energies on every frame of 64–256 molecules and the test frames of 512 and 1024. `MODEL=MACE` runs the
+  control.
+
+**Registered** (kcal/mol per molecule; δ is MACE-LES's bias less the dagger's at the same L₀, s its step from L₀):
+
+| | reading | band | prediction |
+|---|---|---|---|
+| K16.5.1 | s₁₂₈(64) against s₆₄(128) | opposite, within 40 %; read when \|s₆₄(128)\| ≥ 0.003 | holds |
+| K16.5.2 | r = s₁₂₈(256) / s₆₄(256) | ≤ 0.30 carried; 0.35–0.80 1/L; between, persists, reversed | 1/L |
+| K16.5.3 | latent dipole, L₀ = 128 against 64 | ±10 % | holds |
+| K16.5.4 | forces, L₀ = 128 against 64, test frames of 64–256 | ±5 % | holds |
+| K16.5.5 | plain MACE's r (the control, if trained) | carried | holds |
+
+- **The laws:** r is 0.44 for 1/L, 0.33 for 1/N; M_inf read 0.23. Job 15's unpaired steps give 0.45.
+- **The risk is noise:** MACE-LES's step to 128 is about half M_inf's, so K16.5.1's band is one to two frame standard
+  errors. r carries about ±0.1–0.15.
+
+```sh
+mkdir -p results/e4_baselines
+sbatch run_e4_job16_5.sbatch               # MACE-LES, 2 GPU tasks
+MODEL=MACE sbatch run_e4_job16_5.sbatch    # the control, 2 more
+python scripts/e4_job16_5.py --out results/e4_job16_5.json
+```
+
+**Tests:** `tests/test_job16_5.py`, 2 tests:
+
+- constructed energies whose error is one function of the cells, in 1/L: the unseen frames, the steps, K16.5.1–K16.5.4,
+  the L₀ difference flat to 1024 molecules, and the control read "carried" on M_inf's steps;
+- the edges: no error at 128 fails K16.5.1, K16.5.2's classes, a scale and forces that move, a step too small to read, a
+  missing model.

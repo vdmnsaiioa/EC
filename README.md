@@ -879,6 +879,22 @@ sbatch run_e4_job18.sbatch                 # 3 GPU tasks, 6-10 h each
 python scripts/e4_job18.py read
 ```
 
+**Job 16.5** (`notes/e4-job16.5-preregistration.md`, v0.0.44): MACE-LES trained on cells of 128 molecules, job 16's L₀
+test for the external baseline.
+
+- **MACE-LES at L₀ = 128,** the baseline's hyper-parameters, two seeds, against its L₀ = 64 baselines. Both models'
+  energies on every frame of 64–256 molecules and the test frames of 512 and 1024 (`baselines/mace/energies.py`, which
+  now sends a frame that does not fit on the GPU to the CPU).
+- **K16.5.1–K16.5.5** (`scripts/e4_job16_5.py`, NumPy only): the step reversed as K16.1 read M_inf's; the size law
+  ("carried" as M_inf's, or 1/L as the plan predicts for the class); the latent dipole and forces unmoved by the cell;
+  plain MACE as the control (`MODEL=MACE`).
+
+```sh
+mkdir -p results/e4_baselines
+sbatch run_e4_job16_5.sbatch               # 2 GPU tasks, about 8-12 h each; MODEL=MACE for the control
+python scripts/e4_job16_5.py --out results/e4_job16_5.json
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

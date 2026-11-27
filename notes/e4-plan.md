@@ -663,6 +663,13 @@ code is still open: CP2K, GPAW, VASP or QE.
          MACE-LES.*
        - *§9: tight DLPNO- or LNO-CCSD(T) for clusters of 16–64 molecules, about a week of CPU per (H₂O)₂₀; ORCA as a
          personal academic install on Niflheim.*
+     - *Job 16.5 registered 28 Nov (`e4-job16.5-preregistration.md`, v0.0.44; Vadic's go: job 15 §12(b), MACE-LES's Form
+       II beside job 16).*
+       - *MACE-LES trained at L₀ = 128, two seeds, against its 64-molecule baselines, paired with the dagger at each L₀.*
+       - *K16.5.1: the step reversed, as K16.1 read M_inf's. K16.5.2: the law, r = s₁₂₈(256) / s₆₄(256), predicted "1/L"
+         (0.44; M_inf read 0.23, "carried"). K16.5.3–K16.5.4: its latent dipole and forces unmoved by the cell. K16.5.5:
+         plain MACE, the control, "carried".*
+       - *Two GPU tasks; two more for the control.*
      - *Job 16 registered 26 Nov (`e4-job16-preregistration.md`, v0.0.41; Vadic's go, with the cell test at 256 too).*
        - *Form II at L₀ = 128: M_inf, the dagger and E4's model, the same atoms as at 64 (K16.1: M_inf carries its
          training cell's long-range energy, the step reversed; K16.2–K16.3: E4's model follows the cell).*
