@@ -4,10 +4,11 @@
         data/e4/probes_mbpol_far.extxyz [--out <run>_job17.npz]
 
 Runs in the mace-les env (baselines/mace/README.md). Frames may be open (pbc F F F: LES then sums its latent charges'
-Coulomb interaction directly) or periodic. Writes one npz (default: the model's path with .model replaced by _job17.npz)
-holding, for each file's stem: <stem>__energy (F,) the model's energy in eV, in the file's frame order; <stem>__q the
-latent charges (e) of every frame concatenated, empty for a model without them; <stem>__offsets (F + 1,) where each
-frame's charges start. scripts/e4_job17.py read reads them.
+Coulomb interaction directly) or periodic. Writes one npz -- by default the model's path with .model replaced by
+_<tag>.npz (--tag: job17 unless given; E4 job 18 gives job18) -- holding, for each file's stem: <stem>__energy (F,) the
+model's energy in eV, in the file's frame order; <stem>__q the latent charges (e) of every frame concatenated, empty for
+a model without them; <stem>__offsets (F + 1,) where each frame's charges start. scripts/e4_job17.py and e4_job18.py
+read them.
 """
 import argparse
 import os
@@ -25,6 +26,7 @@ def main():
     ap.add_argument("model")
     ap.add_argument("files", nargs="+")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--tag", default="job17", help="the default output: <model without .model>_<tag>.npz (job 18: job18)")
     ap.add_argument("--device", default=None, help="cuda or cpu (default: cuda if available)")
     a = ap.parse_args()
 
@@ -51,7 +53,7 @@ def main():
         out[f"{stem}__q"] = np.concatenate(Q) if Q else np.zeros(0)
         out[f"{stem}__offsets"] = np.array(off, int)
         print(f"  {path}: {len(frames)} frames  [{time.time() - t0:.0f} s]", flush=True)
-    dest = a.out or os.path.splitext(a.model)[0] + "_job17.npz"
+    dest = a.out or os.path.splitext(a.model)[0] + f"_{a.tag}.npz"
     np.savez(dest, model=np.array(os.path.abspath(a.model)), **out)
     print(f"written {dest}", flush=True)
 

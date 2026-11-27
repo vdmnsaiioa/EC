@@ -2656,3 +2656,59 @@ against three equals its latent charges' Coulomb sum to 6 × 10⁻¹⁵ kcal/mol
 - a harness run's energies on them: E₀ alone exactly nothing beyond r_c, the pinned site model's Coulomb band its
   charges' Coulomb sum to 10⁻⁸;
 - K17.1–K17.9 and their edges.
+
+## v0.0.42 → v0.0.43, 27 Nov — job 17's make fixed; job 18 pre-registered: from a few molecules to many (`notes/e4-job18-preregistration.md`)
+
+**Job 17's fix:** MBX's `sites` returns a dict. `make` read it as a tuple and would have stopped at the first slab after
+writing the clusters. The test's stand-in truth now returns the same dict.
+
+**Job 18, why:** CCSD(T) is affordable on a few molecules. A model for condensed water at that level must extrapolate
+from small clusters. Our model's long range comes from the molecule; MACE-LES must learn everything from the clusters.
+MB-pol stands in for CCSD(T) in the pilot, being built the same way (CCSD(T) 2- and 3-body polynomials plus polarisable
+many-body electrostatics).
+
+**What changes, before any run:**
+
+- **`scripts/e4_job18.py`:**
+  - `make` labels with MB-pol 20 monomers and 400 clusters of each size 2–6 (half compact, half sparse within 9 Å), from
+    the 256-molecule training frames. It records the response of 60 of them to a uniform field. It also labels 16
+    compact test clusters of each of 6–256 molecules from the test frames of 256, 512 and 1024 molecules.
+  - `train` trains a harness rung on the clusters, open. A read-out is matched on the far probes and, with
+    `job18.calibration`, calibrated on the 60 clusters' response.
+  - `read` reads K18.1–K18.7.
+- **`configs/e4_job18.yaml`, `e4_job18p.yaml`.**
+- **`baselines/mace/train.sh`** takes TRAIN, VALID and BATCH; **`energies.py`** takes `--tag`.
+
+**Registered** (error per molecule, rms over 16 clusters, seed means):
+
+| | reading | band | prediction |
+|---|---|---|---|
+| K18.1 | 6 molecules: MACE-LES against ours | at most ours | holds |
+| K18.2 | 128 and 256 molecules: ours against MACE-LES | below at both | holds |
+| K18.3 | MACE-LES, 256 over 6 molecules | ≥ 2 | holds |
+| K18.4 | ours, every size and seed | ≤ 0.15 kcal/mol | holds |
+| K18.5 | the dagger over ours at 256 | ≥ 2 | holds |
+| K18.6 | the mean error at 256: probes-only read-out against calibrated | larger | holds |
+| K18.7 | learned neutral charges against MACE-LES at 128 and 256 | at most | fails |
+
+**Toward CCSD(T)** (pre-registration §9):
+
+- **Accuracy:** tight PNO local CCSD(T) reproduces (H₂O)₂₀'s reference association energies to about 0.25 %, at about a
+  week of CPU per cluster (Sylvetsky and Martin).
+- **ORCA:** its DLPNO-CCSD(T) is free for academics as a personal install. MRCC's LNO-CCSD(T) is the alternative.
+- **The CCSD(T) version:** canonical CCSD(T) on the training clusters, and tight local CCSD(T) on 8 clusters each of 16,
+  32 and 64 molecules, hundreds of CPU-days.
+
+```sh
+mkdir -p results/e4_job18 results/e4_job18p results/e4_job18_mace
+sbatch run_e4_job18.sbatch                 # 3 GPU tasks: make and our model; learned charges, E0, MACE-LES; MACE
+python scripts/e4_job18.py read
+```
+
+**Tests:** `tests/test_job18.py`, 4 tests:
+
+- the clusters;
+- `make` with a stand-in truth: energies, forces and the response, the extxyz files MACE reads, the done marker;
+- training on small clusters: E₀ alone and E4's model's rung, its read-out calibrated on the clusters' response
+  (cached under the calibration's tag), read on the test clusters, the probes and T5;
+- K18.1–K18.7 and their edges.

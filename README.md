@@ -862,6 +862,23 @@ sbatch run_e4_job17.sbatch                 # 1 GPU task, about 2 h
 python scripts/e4_job17.py read
 ```
 
+**Job 18** (`notes/e4-job18-preregistration.md`, v0.0.43): from a few molecules to many, MB-pol standing in for
+CCSD(T).
+
+- **Training on what CCSD(T) affords:** MB-pol's clusters of 1–6 molecules (`scripts/e4_job18.py make`), every model
+  trained on them, open. Our model's read-out is matched on the far probes and calibrated on 60 clusters' response
+  (`configs/e4_job18.yaml`), or matched on the probes alone (`e4_job18p.yaml`). The dagger, learned charges, E₀ alone,
+  MACE-LES and MACE are trained on the same clusters.
+- **Read on clusters of 6–256 molecules** cut from the liquid (K18.1–K18.7). The pre-registration's §9 says what the
+  CCSD(T) version would take.
+- **`baselines/mace/train.sh`** takes TRAIN, VALID and BATCH.
+
+```sh
+mkdir -p results/e4_job18 results/e4_job18p results/e4_job18_mace
+sbatch run_e4_job18.sbatch                 # 3 GPU tasks, 6-10 h each
+python scripts/e4_job18.py read
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

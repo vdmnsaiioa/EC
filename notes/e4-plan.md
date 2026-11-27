@@ -654,6 +654,15 @@ code is still open: CP2K, GPAW, VASP or QE.
          charges at least half its error again at 25–30 Å. K17.9: our learned charges, neutral and unpinned, against
          MACE-LES on the same data.*
        - *One GPU task, about 2 hours.*
+     - *Job 18 registered 27 Nov (`e4-job18-preregistration.md`, v0.0.43; Vadic's go to compare extrapolation from CCSD(T)
+       on a few molecules to many, piloted with MB-pol).*
+       - *Every model trained on MB-pol's clusters of 1–6 molecules and read on clusters of 6–256 cut from the liquid.*
+       - *K18.1: MACE-LES wins in distribution. K18.2–K18.3: ours wins at 128 and 256 molecules, MACE-LES's error doubles
+         with size. K18.4: ours within 0.15 kcal/mol per molecule everywhere (the least certain). K18.5–K18.6: the response
+         and its calibration on clusters matter. K18.7, predicted to fail: learned neutral charges alone do not beat
+         MACE-LES.*
+       - *§9: tight DLPNO- or LNO-CCSD(T) for clusters of 16–64 molecules, about a week of CPU per (H₂O)₂₀; ORCA as a
+         personal academic install on Niflheim.*
      - *Job 16 registered 26 Nov (`e4-job16-preregistration.md`, v0.0.41; Vadic's go, with the cell test at 256 too).*
        - *Form II at L₀ = 128: M_inf, the dagger and E4's model, the same atoms as at 64 (K16.1: M_inf carries its
          training cell's long-range energy, the step reversed; K16.2–K16.3: E4's model follows the cell).*

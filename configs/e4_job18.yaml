@@ -1,0 +1,55 @@
+# E4, job 18 (notes/e4-job18-preregistration.md; v0.0.43): from a few molecules to many, MB-pol standing in for CCSD(T).
+# Every rung trained on MB-pol's clusters of 1-6 molecules (scripts/e4_job18.py make: data/e4/job18_clusters.npz),
+# open, and read on clusters of 6-256 molecules cut from the liquid.  A rung with a read-out (E4's model's rung,
+# M_16C2pm_us_d20) has it matched on the far probes (E3-QP2's matching: cores of 3-5 molecules and one more) and then
+# calibrated on 60 training clusters' induced dipole and field response (job18.calibration: job 2's second stage on
+# small clusters, not liquid cells), held through training.  configs/e4_job18p.yaml: the read-out on the probes alone.
+#
+#   python scripts/e4_job18.py train --config configs/e4_job18.yaml --rungs M_inf --seeds 0 --out_dir results/e4_job18
+experiment:
+  type: e4
+
+data:
+  dir: data/e4
+  probes: data/e4/probes_mbpol.npz  # scripts/e4_water.py probes
+
+model:                              # E4's model's (configs/e4_job12.yaml); used open
+  r_cut_angstrom: 6.0
+  features: 32
+  band_edge_angstrom: 0.75
+  response_edge_angstrom: 0.75
+  mutual_edge_angstrom: 2.0         # the mutual response's dipole tensor smeared at 2.0 A (notes/e4-response-regulator.md)
+  analytic_envelope_angstrom: 4.0
+  rs_over_l1: 0.0
+  charge_neutrality: fragment
+  ewald_b_max: 4.0
+  solver: gmres
+  solver_tol: 1.0e-10
+  K: 8
+  omega0: 0.3
+
+rungs: [M_16C2pm_us_d20, M_16pm_us_d20, M_1w100, M_inf]   # E4's model's rung, the dagger, learned charges, E_0 alone
+seeds: [0, 1]
+
+training:
+  adam: {steps: 3000, batch_size: 32, learning_rate: 3.0e-3, final_learning_rate_ratio: 0.01,
+         beta1: 0.9, beta2: 0.999, epsilon: 1.0e-8}
+  lbfgs: {steps: 500, chunk_size: 256, memory_size: 10, max_linesearch_steps: 20, max_minutes: 180}
+  loss:
+    energy_weight: 100.0            # E4's: the per-atom energy term against force_weight 1
+    force_weight: 1.0
+    forces: rigid                   # each molecule's net force and torque
+  readout:                          # E3-QP2's matching on MB-pol's probes, before training; held through it
+    orders: all
+    solve_iterations: 4
+    ridge: 1.0e-8
+    ridge_selection: groups
+    solve_chunk: 64
+
+job18:
+  clusters: data/e4/job18_clusters.npz
+  calibration:                      # then the calibration clusters' response, job 2's arm C on clusters
+    weight: 0.1                     # job 2's: a 1 % error of the response costs about the probes' matched objective
+    orders: zero
+    alpha_ref_angstrom3: 1.4075     # the response rows' unit per molecule: MB-pol's monomer polarisability
+    mu_ref_eangstrom: 0.15

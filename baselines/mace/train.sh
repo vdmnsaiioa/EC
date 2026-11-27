@@ -14,6 +14,8 @@
 # SEED    the training seed
 # EPOCHS  the last epoch; SWA: the first epoch of stage two
 # LES     MACELES only: the LES options (default baselines/mace/les.yaml)
+# TRAIN, VALID   v0.0.43 (E4 job 18): the training and validation extxyz instead of data/e4/{train,valid}_n<N0>.extxyz
+# BATCH   v0.0.43: the batch size (default 2)
 #
 # --restart_latest: a run continues from its latest checkpoint in <OUT>/checkpoints, if any (a resubmission; job 15's
 # releases put a trained run's checkpoints there first).
@@ -36,8 +38,8 @@ mace_run_train \
     --name="$NAME" \
     --work_dir="$OUT" \
     --model="$MODEL" "${EXTRA[@]}" \
-    --train_file="data/e4/train_n${N0}.extxyz" \
-    --valid_file="data/e4/valid_n${N0}.extxyz" \
+    --train_file="${TRAIN:-data/e4/train_n${N0}.extxyz}" \
+    --valid_file="${VALID:-data/e4/valid_n${N0}.extxyz}" \
     --energy_key=REF_energy \
     --forces_key=REF_forces \
     --E0s='{1: 0.0, 8: 0.0}' \
@@ -49,8 +51,8 @@ mace_run_train \
     --energy_weight=10 \
     --forces_weight=1000 \
     --stress_weight=0 \
-    --batch_size=2 \
-    --valid_batch_size=2 \
+    --batch_size="${BATCH:-2}" \
+    --valid_batch_size="${BATCH:-2}" \
     --max_num_epochs="$EPOCHS" \
     --swa --start_swa="$SWA" \
     --ema --ema_decay=0.99 \
