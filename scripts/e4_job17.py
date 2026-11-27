@@ -323,7 +323,7 @@ def run_make(a):
 
 def make(truth, a):
     """the structures and the truth's labels (a: run_make's arguments; truth: energy, energy_forces, components,
-    sites as sseft.mbpol.MBPol's)."""
+    sites as sseft.mbpol.MBPol's, a dict)."""
     t0 = time.time()
     d = np.load(a.source, allow_pickle=False)
     pos, cell = np.asarray(d["positions"], float), np.asarray(d["cell"], float)
@@ -374,7 +374,8 @@ def make(truth, a):
             if slab_clearance(P_, C_) < SLAB_MIN_CLEAR:
                 raise RuntimeError(f"slab of frame {f} at {g} A: clearance {slab_clearance(P_, C_):.2f} A")
             E, Fo = truth.energy_forces(P_, C_)
-            xyz, q, _, mu = truth.sites(P_, C_)
+            st = truth.sites(P_, C_)
+            xyz, q, mu = st["xyz"], st["charges"], st["induced"]
             S["positions"].append(P_); S["cell"].append(C_); S["energy"].append(E); S["forces"].append(Fo)
             S["slab_frame"].append(f); S["slab_gap"].append(g)
             S["dipole_permanent"].append((q[:, None] * xyz).sum(0)); S["dipole_induced"].append(mu.sum(0))

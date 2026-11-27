@@ -57,7 +57,8 @@ class Truth17:
 
     def sites(self, pos, cell=None):
         xyz = np.asarray(pos, float)
-        return xyz, np.tile(Q3, len(xyz) // 3), np.zeros(len(xyz)), np.zeros_like(xyz)
+        return {"xyz": xyz, "charges": np.tile(Q3, len(xyz) // 3), "polarizabilities": np.zeros(len(xyz)),
+                "induced": np.zeros_like(xyz)}           # as sseft.mbpol.MBPol.sites
 
     def describe(self):
         return {"name": "truth17"}
