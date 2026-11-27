@@ -645,6 +645,15 @@ code is still open: CP2K, GPAW, VASP or QE.
        - *Beside: MACE-LES's energy per molecule drifts −0.0085 kcal/mol from 64 to 256 molecules (M_∞ −0.0101, the
          dagger +0.0008), quadratic in its charges and consistent with the 1/L the ladder (§4) predicts for its class.*
        - *Proposed: the drift's attribution without training; MACE-LES at L₀ = 128.*
+     - *Job 17 registered 27 Nov (`e4-job17-preregistration.md`, v0.0.42; Vadic's go to focus on what MACE-LES cannot
+       do).*
+       - *No training: every model already trained, on far fields in vacuum (two clusters pulled apart to 7–30 Å,
+         slabs with gaps of 9–24 Å) and on the far probes and trimers.*
+       - *K17.1–K17.2: Proposition 1 and T5 on MACE-LES. K17.3: its share of the far probes' non-additive energy left.
+         K17.4–K17.8: the clusters and slabs, E4's model within 5 and 10 %, MACE-LES off by at least 30 %, its free net
+         charges at least half its error again at 25–30 Å. K17.9: our learned charges, neutral and unpinned, against
+         MACE-LES on the same data.*
+       - *One GPU task, about 2 hours.*
      - *Job 16 registered 26 Nov (`e4-job16-preregistration.md`, v0.0.41; Vadic's go, with the cell test at 256 too).*
        - *Form II at L₀ = 128: M_inf, the dagger and E4's model, the same atoms as at 64 (K16.1: M_inf carries its
          training cell's long-range energy, the step reversed; K16.2–K16.3: E4's model follows the cell).*

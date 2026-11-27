@@ -2608,3 +2608,51 @@ before v0.0.40, was evaluated again for its latent dipole.
 **The reader** (`scripts/e4_job15.py`, no version change): MACE-LES's bias by size and the far-field summary; an
 evaluation json without the latent dipole is reported, not dropped. `tests/test_job15.py` checks both; its five tests
 pass.
+
+## v0.0.42, 27 Nov — job 17 pre-registered: what a field-blind model with free latent charges cannot do (`notes/e4-job17-preregistration.md`)
+
+**Why:** the paper's case against MACE-LES is four statements about its class: no response to a field, no many-body
+induction beyond r_c, no dispersion beyond r_c as deployed, and a far field with each molecule's net charge free. In bulk
+water screening hides them (job 15: a drift of 0.0085 kcal/mol per molecule). This job reads them where nothing
+screens them, on every trained model at once, without training (Vadic's go, 27 Nov).
+
+**What changes, before any run** (nothing in the harness's models or training):
+
+- **`scripts/e4_job17.py`:**
+  - `make` cuts from the test frames of 64 molecules two clusters (8 or 16 molecules) pulled apart to 7–30 Å, and
+    slabs with vacuum gaps of 9–24 Å. MB-pol labels them through MBX, and `make` checks that its polynomials give
+    nothing between the clusters.
+  - `harness` evaluates one trained run on them.
+  - `read` reads K17.1–K17.9.
+- **`baselines/mace/energies.py`:** a MACE-LES model's energies and latent charges on any extxyz, open or periodic.
+
+**Registered:**
+
+| | reading | band | prediction |
+|---|---|---|---|
+| K17.1 | MACE-LES's cluster interaction against its latent charges' Coulomb sum (Proposition 1) | 10⁻⁶ kcal/mol | holds |
+| K17.2 | MACE-LES's T5 | zero within 10⁻⁶ kcal/mol | holds |
+| K17.3 | the far probes' non-additive energy MACE-LES leaves, 10–15 Å | ≥ 0.5 | holds |
+| K17.4 | E4's model, the clusters from 9 Å, relative rmse | ≤ 0.05 | holds |
+| K17.5 | MACE-LES, the same | ≥ 0.30 | holds |
+| K17.6 | MACE-LES at 25–30 Å: its error over its error with each molecule's net charge removed | ≥ 1.5 | holds |
+| K17.7 | E4's model, the slabs' E(g) − E(24 Å) at 9–16 Å | ≤ 0.10 | holds |
+| K17.8 | MACE-LES, the same | ≥ 0.30 | holds |
+| K17.9 | our learned charges (neutral, unpinned) against MACE-LES on the clusters | at most MACE-LES's | holds |
+
+```sh
+mkdir -p results/e4_job17
+sbatch run_e4_job17.sbatch                 # 1 GPU task: make, the harness's runs, MACE-LES, the reader; about 2 h
+python scripts/e4_job17.py read
+```
+
+Proposition 1 was checked on job 15's smoke MACE-LES model before registering. Its interaction of three molecules
+against three equals its latent charges' Coulomb sum to 6 × 10⁻¹⁵ kcal/mol at 7–30 Å, and differs at 5 Å, inside r_c.
+
+**Tests:** `tests/test_job17.py`, 4 tests:
+
+- the clusters and slabs' geometry;
+- `make` with a stand-in truth, and its stop when a polynomial reaches between the clusters;
+- a harness run's energies on them: E₀ alone exactly nothing beyond r_c, the pinned site model's Coulomb band its
+  charges' Coulomb sum to 10⁻⁸;
+- K17.1–K17.9 and their edges.

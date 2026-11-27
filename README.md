@@ -846,6 +846,22 @@ sbatch run_e4_job16.sbatch                 # 3 GPU tasks
 python scripts/e4_job16.py
 ```
 
+**Job 17** (`notes/e4-job17-preregistration.md`, v0.0.42): what a field-blind model with free latent charges cannot do,
+read on every trained model at once, without training.
+
+- **Far fields in vacuum** (`scripts/e4_job17.py make`, MB-pol through MBX): two clusters of 8 or 16 molecules pulled
+  apart to 7–30 Å, and liquid frames opened into slabs with vacuum gaps of 9–24 Å.
+- **Every model on them:** E4's model, the dagger, our learned charges and the cutoff model (`harness`, one run each);
+  MACE-LES (`baselines/mace/energies.py`), also on the far probes and trimers.
+- **K17.1–K17.9** (`read`): Proposition 1 and T5 on MACE-LES, the far probes, the clusters' and the slabs' far fields,
+  the free net charges' share of MACE-LES's error, our learned charges against MACE-LES on the same data.
+
+```sh
+mkdir -p results/e4_job17
+sbatch run_e4_job17.sbatch                 # 1 GPU task, about 2 h
+python scripts/e4_job17.py read
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's
