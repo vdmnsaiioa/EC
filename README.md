@@ -846,6 +846,9 @@ sbatch run_e4_job16.sbatch                 # 3 GPU tasks
 python scripts/e4_job16.py
 ```
 
+Read 28 Nov (`notes/e4-job16-results.md`): K16.1–K16.3 and K16.5 as predicted, K16.4 partial where frozen was
+predicted.
+
 **Job 17** (`notes/e4-job17-preregistration.md`, v0.0.42): what a field-blind model with free latent charges cannot do,
 read on every trained model at once, without training.
 

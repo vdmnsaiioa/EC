@@ -2824,3 +2824,34 @@ python scripts/e4_job17.py read
 - `test_the_far_monomers`: the frames, the file, and the subtraction.
 
 `tests/test_job18.py`: the MACE far readings with and without the monomers.
+
+## v0.0.45, 28 Nov — job 16 read: the cells of 128 molecules (`notes/e4-job16-results.md`)
+
+Job 16's three tasks ran at v0.0.41. Every polish ran its 1000 L-BFGS steps inside its budget.
+
+| | band | read | verdict | predicted |
+|---|---|---|---|---|
+| K16.1 | s₁₂₈(64) opposite to s₆₄(128), within 40 % | −0.0098, +0.0098 | holds | holds |
+| K16.2 | E4's model's bias at 128 within ±0.003 of 64's | −0.0014 / −0.0023 / −0.0014 | holds | holds |
+| K16.3 | its forces within ±5 % | +1.7 / −0.3 / +0.4 % | holds | holds |
+| K16.4 | the warm starts' gap at 128 | 0.211, 0.247 | partial | frozen |
+| K16.5 | the gap at 256 | 0.195, 0.268 | partial | partial |
+
+- **The cutoff model carries its training cell.**
+  - M_inf less the dagger trained at 128 differs from trained at 64 by a constant (+0.011 to +0.012) at every size.
+  - Its law: r = 0.23 ± 0.32 as job 16.5 registers it, 0.12 ± 0.20 from the frames off both L₀, 0.13 from the 64-molecule
+    runs alone. A training-cell effect spent by 128 molecules is favoured over 1/L (0.44) at one to two standard errors.
+- **E4's model follows the cell:** its bias varies by at most 0.002 across sizes at either L₀, its forces by 2 %, and
+  its ε_∞ reads 1.6889 / 1.6893 against MB-pol's 1.6885.
+- **The learned charges' scale.**
+  - Halfway through the polish the gap reads 0.31–0.36 in every cell.
+  - In the last 250 steps it closes by 0.020–0.029 at 64 and 0.033–0.066 at 128 and 256.
+  - Coverage (99 %, 82 %) does not matter. The 64-molecule cell stalls the scale; larger cells let it keep moving, and
+    none reaches one scale within the budget.
+- **The frames' standard errors** (0.0016–0.0032 a δ) are 2–3 times what job 16.5's K16.5.2 assumed. Added beside to
+  `scripts/e4_job16_5.py` before any job 16.5 number (the registered readings unchanged):
+  - r's frame error;
+  - r from the frames off both L₀;
+  - MACE-LES's own law from 256 to 1024 molecules: 1/L moves it by 0.63 of its step from 64 to 256, a carried error
+    about none.
+- `tests/test_job16_5.py` checks the three.

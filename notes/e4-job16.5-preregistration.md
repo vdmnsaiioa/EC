@@ -102,6 +102,15 @@
 - **MACE without LES:** its steps, K16.1's construction, the L₀ difference by size and its forces.
 - **Each δ's unpaired bias,** and the seed and frame spreads.
 
+**Added 28 Nov, after job 16's read and before any job 16.5 number** (`e4-job16-results.md` §4). Job 16's frames carry
+0.0016–0.0032 of standard error on each δ, two to three times §4's assumption, and r then about ±0.3. The registered
+readings are unchanged. Beside them:
+
+- r's frame standard error;
+- r from the frames off both L₀, (δ₆₄(256) − δ₆₄(128)) / (δ₁₂₈(256) − δ₁₂₈(64)) (M_inf: 0.12 ± 0.20);
+- **the law at Form II's sizes:** MACE-LES's own bias at 256, 512 and 1024 molecules, at both L₀. From 256 to 1024 an
+  error in 1/L moves it by 0.63 of its step from 64 to 256 (about −0.005), a carried one about none.
+
 ## 6. What would change the reading
 
 - **K16.5.1 holds and K16.5.2 reads "1/L"** (predicted): MACE-LES's bulk error is the plan's law for its class, ∝ 1/L in

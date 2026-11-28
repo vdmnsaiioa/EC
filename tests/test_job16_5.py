@@ -68,6 +68,11 @@ def test_the_job16_5_readings(tmp_path):
         assert ev[k]["holds"], (k, ev[k])
     assert ev["K16.5.2"]["verdict"] == "1/L" and ev["K16.5.2"]["ratio"] == pytest.approx(0.0076 / 0.0176, abs=0.02)
     assert ev["K16.5.2"]["from_64"] == pytest.approx(ev["K16.5.2"]["ratio"], abs=0.02)
+    assert ev["K16.5.2"]["off_L0"]["ratio"] == pytest.approx(ev["K16.5.2"]["ratio"], abs=0.02)
+    assert 0 < ev["K16.5.2"]["se"] < 0.05 and 0 < ev["K16.5.2"]["off_L0"]["se"] < 0.05
+    fl = ev["far_law"]                                     # the test's 1024 frames carry its 1/L on
+    assert fl["step"][64][0] == pytest.approx(fl["predicted_1/L"], rel=0.05)
+    assert fl["step"][128][0] == pytest.approx(fl["step"][64][0], abs=2e-4)
     for n in J.SIZES + J.BIG:                              # one function of the cells: the L_0's difference everywhere
         assert ev["between"][n]["mean"] == pytest.approx(0.010, abs=2e-4), n
     assert ev["K16.5.1"]["ratio"] == pytest.approx(1.0, abs=0.03)
@@ -79,6 +84,7 @@ def test_the_job16_5_readings(tmp_path):
     assert len(J.model_errors(z, dirs["data"], "1024", 64)) == FRAMES["1024"]["test"]
     text = J.report(ev)
     for k in ("K16.5.1: holds", "K16.5.2: 1/L", "a 1/L law gives 0.44", "L_0 = 128: n 64", "n 1024 +0.0",
+              "the step 256 -> 1024", "r from the frames off both L_0",
               "K16.5.5: not read (the control"):
         assert k in text, k
     _world(tmp_path, carry=(0.0, -0.0098, -0.0113), carry128=(0.0098, 0.0, -0.0026), group="mace")   # M_inf's steps

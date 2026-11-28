@@ -684,4 +684,11 @@ code is still open: CP2K, GPAW, VASP or QE.
          training cell's long-range energy, the step reversed; K16.2–K16.3: E4's model follows the cell).*
        - *The cell test: job 7's warm starts at 128 (coverage 99 %, predicted frozen) and 256 (82 %, predicted partial).*
        - *Three tasks, about 125 GPU hours.*
+       - *Read 28 Nov (`e4-job16-results.md`). Four of five as predicted. K16.1: trained at 128, M_inf's step reverses
+         exactly (−0.0098, +0.0098); its law favours a training-cell effect spent by 128 molecules (r 0.12–0.23 against
+         1/L's 0.44, at one to two standard errors). K16.2–K16.3: E4's model's bias and forces do not depend on L₀. K16.4
+         partial where frozen was predicted, K16.5 partial: coverage is not the lever; in cells larger than E₀'s reach
+         the scale keeps moving, twice as fast as at 64, and no cell reaches one scale in 1000 L-BFGS steps.*
+       - *The frames' standard errors (0.0016–0.0032 a δ) are 2–3 times job 16.5's assumption: its reader gains, beside,
+         MACE-LES's own law from 256 to 1024 molecules.*
 7. **The L₀ sweep** (Form II).

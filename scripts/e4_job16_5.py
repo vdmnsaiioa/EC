@@ -31,6 +31,12 @@ Beside them, not registered: K16.5.2's ratio as the L_0 = 64 runs alone predict 
 s_64(256)); the two L_0's difference on the same frames, MACE-LES at 128 less at 64, at every size to 1024 molecules
 (one function of the cells makes it the same at every size; no dagger is needed, so it reaches the 512- and 1024-molecule
 test frames the harness does not read); the net latent charge; MACE without LES's other readings.
+
+Added beside before any job 16.5 number (28 Nov, after job 16's read, notes/e4-job16-results.md section 4: its frames'
+standard errors are 2-3 times what K16.5.2 assumed): r's frame standard error; r from the frames off both L_0 alone,
+(delta_64(256) - delta_64(128)) / (delta_128(256) - delta_128(64)); and the law where Form II reads it, MACE-LES's own
+unpaired bias at 256, 512 and 1024 molecules: from 256 to 1024 an error in 1/L moves it LAW_FAR (0.63) times its step
+from 64 to 256 again, a carried one about none.
 """
 import argparse
 import json
@@ -57,6 +63,7 @@ DIRS = {"data": "data/e4", "baselines": "results/e4_baselines", "dagger64": "res
 STEMS = {"maceles": "maceles_n{L0}_s{seed}", "mace": "mace_n{L0}_s{seed}"}      # the registered model, and MACE beside
 K16_5_1, K16_5_1_MIN, K16_5_2, K16_5_3, K16_5_4 = 0.4, 0.003, (0.30, 0.35, 0.80), 0.10, 0.05
 LAW = {"1/L": (1 / 19.72 - 1 / 15.65) / (1 / 19.72 - 1 / 12.42), "1/N": (1 / 256 - 1 / 128) / (1 / 256 - 1 / 64)}
+LAW_FAR = (1 / 31.30 - 1 / 19.72) / (1 / 19.72 - 1 / 12.42)  # 1/L: the step 256 -> 1024 over the step 64 -> 256
 
 
 def unseen(L0, n):
@@ -137,6 +144,25 @@ def between(runs, data_dir, n):
     return {"mean": float(np.mean(d)), "sd": float(np.std(d)), "se": float(np.mean(se))}
 
 
+def bias(runs, data_dir, n, L0):
+    """MACE-LES's own (unpaired) bias at size n, trained at L0: (seed mean, frame se); None when anything is missing."""
+    m, se = [], []
+    for s in SEEDS:
+        r = runs.get(L0, {}).get(s) or {}
+        x = model_errors(r["z"], data_dir, n, L0) if r.get("z") is not None else None
+        if x is None:
+            return None
+        m.append(float(np.mean(x))); se.append(float(np.std(x) / np.sqrt(len(x))))
+    return {"mean": float(np.mean(m)), "se": float(np.mean(se))}
+
+
+def _ratio(a, sa, b, sb):
+    """a / b and its standard error, a and b independent."""
+    if a is None or b is None or sa is None or sb is None or not b:
+        return None, None
+    return a / b, float(np.hypot(sa / b, a * sb / b ** 2))
+
+
 def dipole(r):
     s = ((r or {}).get("eval") or {}).get("sets", {}).get("test_n64", {})
     return s["latent_dipole_debye_mean"] / PERMANENT_DEBYE if "latent_dipole_debye_mean" in s else None
@@ -164,6 +190,11 @@ def evaluate(runs, data_dir):
     k2 = {"band": K16_5_2, "laws": LAW, "ratio": s128_256 / s64_256 if s64_256 and s128_256 is not None else None}
     r = k2["ratio"]
     k2["from_64"] = 1.0 - s64_128 / s64_256 if s64_256 and s64_128 is not None else None
+    sse = lambda L0, n: float(np.hypot(d[L0][n]["se"], d[L0][str(L0)]["se"])) if d[L0][n] and d[L0][str(L0)] else None
+    k2["se"] = _ratio(s128_256, sse(128, "256"), s64_256, sse(64, "256"))[1]
+    dd = lambda L0, a, b: ((d[L0][a]["mean"] - d[L0][b]["mean"], float(np.hypot(d[L0][a]["se"], d[L0][b]["se"])))
+                           if d[L0][a] and d[L0][b] else (None, None))
+    k2["off_L0"] = dict(zip(("ratio", "se"), _ratio(*dd(64, "256", "128"), *dd(128, "256", "64"))))
     k2["verdict"] = (None if r is None else "reversed" if r < 0 else "carried" if r <= K16_5_2[0] else
                      "between" if r < K16_5_2[1] else "1/L" if r <= K16_5_2[2] else "persists")
     ev["K16.5.2"] = k2
@@ -176,6 +207,12 @@ def evaluate(runs, data_dir):
     ev["K16.5.4"] = {"band": K16_5_4, "forces": f, "relative": frel,
                      "holds": bool(all(abs(x) <= K16_5_4 for x in frel.values())) if len(frel) == len(SIZES) else None}
     ev["between"] = {n: between(runs, data_dir, n) for n in SIZES + BIG}
+    far = {L0: {n: bias(runs, data_dir, n, L0) for n in ("64", "256") + BIG} for L0 in L0S}
+    b64 = far[64]
+    pred = (LAW_FAR * (b64["256"]["mean"] - b64["64"]["mean"]) if b64["256"] and b64["64"] else None)
+    ev["far_law"] = {"bias": far, "law": LAW_FAR, "predicted_1/L": pred,
+                     "step": {L0: ((by["1024"]["mean"] - by["256"]["mean"], float(np.hypot(by["1024"]["se"], by["256"]["se"])))
+                                   if by["1024"] and by["256"] else None) for L0, by in far.items()}}
     ev["net_charge_rms"] = {L0: {s: (((runs.get(L0, {}).get(s) or {}).get("eval") or {}).get("sets", {})
                                      .get("test_n64", {}).get("latent_q_per_molecule_rms")) for s in SEEDS} for L0 in L0S}
     return ev
@@ -220,8 +257,18 @@ def report(ev, beside=None):
              "frames): " + " / ".join(f"{100 * v:+.1f}" for v in k["relative"].values()) + " %"
              + " (" + "; ".join(f"L_0 = {L0} " + " / ".join(g(x) for x in k["forces"][L0].values()) for L0 in L0S) + ")")
     L.append("\n  Beside them, not registered")
-    L.append(f"    K16.5.2's r as the L_0 = 64 runs alone predict it (1 - s_64(128) / s_64(256)): "
-             f"{g(ev['K16.5.2']['from_64'], 2)}")
+    k2 = ev["K16.5.2"]
+    L.append(f"    K16.5.2's r as the L_0 = 64 runs alone predict it (1 - s_64(128) / s_64(256)): {g(k2['from_64'], 2)}; "
+             f"r's frame se {g(k2.get('se'), 2)}; r from the frames off both L_0 {g(k2['off_L0'].get('ratio'), 2)} "
+             f"+- {g(k2['off_L0'].get('se'), 2)}")
+    fl = ev["far_law"]
+    L.append("    the law at Form II's sizes, MACE-LES's own bias (seed mean, frame se): " + "; ".join(
+        f"L_0 = {L0} " + ", ".join(f"n {n} " + (f"{v['mean']:+.4f} ({v['se']:.4f})" if v else "-") for n, v in by.items())
+        for L0, by in fl["bias"].items()))
+    L.append("      the step 256 -> 1024: " + ", ".join(
+        f"L_0 = {L0} " + (f"{v[0]:+.4f} +- {v[1]:.4f}" if v else "-") for L0, v in fl["step"].items())
+        + f"; an error in 1/L gives {f(fl['predicted_1/L'])} ({fl['law']:.2f} of L_0 = 64's step from 64 to 256), "
+        "a carried one about none")
     L.append("    MACE-LES at L_0 = 128 less at 64, the same frames (seed mean, sd; frame se): " + "; ".join(
         f"n {n} " + (f"{v['mean']:+.4f} ({v['sd']:.4f}; {v['se']:.4f})" if v else "-") for n, v in ev["between"].items()))
     L.append("    the net latent charge per molecule, rms (test frames of 64): " + "; ".join(
