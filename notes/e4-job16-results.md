@@ -75,8 +75,8 @@ Four of five as predicted. K16.4 reads partial where frozen was predicted, seed 
 
 (seeds 0, 1; the 64-molecule runs are jobs 9–10's)
 
-- **Adam's first stage barely moves the scale in any cell.** The gaps after it are 0.60–0.67, against 1.0 at the start.
-  The polish does the moving.
+- **Adam's first stage closes about a third of the gap in every cell:** from 1.0 at the start to 0.60–0.67 after its
+  3000 steps (job 9: 0.669 at 64). The polish closes most of the rest.
 - **Halfway through the polish the cells read alike:** gaps of 0.31–0.36 at 500 steps everywhere.
 - **Then the 64-molecule cell stalls and the larger cells do not.** In the last 250 steps the gap closes by 0.020–0.029
   at 64 and by 0.033–0.066 at 128 and 256, about twice as fast. Every end is still moving when the budget ends.
@@ -84,7 +84,12 @@ Four of five as predicted. K16.4 reads partial where frozen was predicted, seed 
   cell is its size against E₀'s 12 Å reach.
   - Of the pre-registration §6's readings this is nearest "mobile at 128: the 64-molecule cell's own geometry froze it",
     but slower: within 1000 steps no cell reaches one scale.
-- **The ends straddle c ≈ 1.0 in every cell** (midpoints 0.97–1.04).
+- **"Partial" is the low start lagging.**
+  - From 1.5 the ends come down to 1.07–1.12 at 128 and 1.07–1.18 at 256. That is about the pinned profile's minimum
+    at 64 molecules (c* = 1.070, job 11), measured only in the 64-molecule cells.
+  - From 0.5 they reach only 0.87–0.91, and in the larger cells they are the ones still moving fastest (+0.016 to
+    +0.053 in the last 250 steps).
+  - The start still marks the fit: forces from 0.5 are 6–12 % worse than from 1.5 in every cell.
 - **The warm starts' forces barely depend on the cell.** From 1.5: 0.554 / 0.562 / 0.566 at n 64 for L₀ = 64 / 128 /
   256. From 0.5: 0.619 / 0.600 / 0.635.
 - *The verdicts read the ends at a fixed budget. "Partial" here is a scale still moving, not one held at two values.*
