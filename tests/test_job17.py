@@ -222,10 +222,13 @@ def _far_file(path):
     return path
 
 
-def _les(path, T, S, far, c=0.6, net=0.05, seed=0, broken=0.0, slab_scale=0.5, far_exact=False):
+def _les(path, T, S, far, c=0.6, net=0.05, seed=0, broken=0.0, slab_scale=0.5, far_exact=False, mono=0.7, monomers=True):
     """MACE-LES's file as baselines/mace/energies.py writes it, constructed: latent charges c Q3 plus a net charge per
     molecule (normal, sd net), its cluster interactions exactly its charges' (+ broken on one), the slabs at slab_scale
-    times the truth, the far frames at zero (or the truth's: far_exact)."""
+    times the truth, the far frames at zero (or the truth's: far_exact) plus mono kcal/mol for each molecule (its isolated
+    monomer's energy, which the first read took at zero); with monomers, <path>m.npz: its energies of every molecule of
+    the far frames alone (v0.0.45)."""
+    path = str(path).replace(".npz", "_job17.npz")
     import e4_far
     rng = np.random.default_rng(seed)
     fr = J.cluster_frames(T)
@@ -260,10 +263,17 @@ def _les(path, T, S, far, c=0.6, net=0.05, seed=0, broken=0.0, slab_scale=0.5, f
             k += 1
     else:
         Ef = [0.0] * len(ff)
+    m_ev = mono / J.KCAL_PER_EV
+    Ef = [e + m_ev * (len(pos) // 3) for e, (_, pos, _, _) in zip(Ef, ff)]
     out.update({"probes_mbpol_far__energy": np.array(Ef), "probes_mbpol_far__q": np.zeros(0),
                 "probes_mbpol_far__offsets": np.zeros(len(ff) + 1, int)})
     np.savez(path, model=np.array("x"), **out)
-    return str(path)
+    if monomers:
+        nm = len(e4_far.monomer_frames(far))
+        np.savez(J.monomer_npz(path), model=np.array("x"), probes_mbpol_far_monomers__energy=np.full(nm, m_ev),
+                 probes_mbpol_far_monomers__q=np.tile([-0.5, 0.26, 0.26], nm),
+                 probes_mbpol_far_monomers__offsets=np.arange(nm + 1) * 3)
+    return path
 
 
 def _harness_run(T, S, scale_c=1.0, scale_s=1.0, hash_=None):
@@ -296,9 +306,20 @@ def test_the_job17_readings(small, tmp_path, monkeypatch):
     assert ev["K17.8"]["by_seed"][0][0] == pytest.approx(0.5)
     assert ev["harness"]["model"][0]["eps_inf"]["model"] == 1.6893
     assert ev["les"]["maceles"][0]["net_charge_rms"]["2"] > 0 and ev["les"]["maceles"][0]["probes"]["count"] == 2
+    # v0.0.45: the isolated monomers at 0.7 kcal/mol: the first read's T5 is -3 x 0.7, exactly the trimers' monomers
+    r = ev["les"]["maceles"][0]
+    assert r["monomers"]["mean"] == pytest.approx(0.7) and r["monomers"]["net_q_rms"] == pytest.approx(0.02)
+    assert ev["K17.2"]["worst"] < 1e-9 and ev["K17.2"]["uncorrected_worst"] == pytest.approx(2.1)
+    assert r["uncorrected"]["t5_minus_monomers"] < 1e-9
     text = J.report(ev)
-    for k in ("K17.1: holds", "K17.6: holds", "K17.9: holds", "MACE-LES maceles seed 1", "model seed 0: clusters", "R^-3"):
+    for k in ("K17.1: holds", "K17.2: holds", "K17.6: holds", "K17.9: holds", "MACE-LES maceles seed 1",
+              "model seed 0: clusters", "R^-3", "its isolated monomer +0.7000 kcal/mol", "the first read's T5"):
         assert k in text, k
+    # without the monomers' energies K17.2 and K17.3 are not read
+    Lm = {"maceles": {s: _les(tmp_path / f"m{s}.npz", T, S, far, seed=s, monomers=False) for s in (0, 1)}}
+    evm = J.evaluate(T, S, H, Lm, far_path=far)
+    assert evm["K17.2"]["holds"] is None and evm["K17.3"]["holds"] is None and evm["K17.1"]["holds"]
+    assert evm["K17.2"]["uncorrected_worst"] == pytest.approx(2.1) and "run_e4_job17m.sbatch" in J.report(evm)
     json.dumps(ev, default=float)
     # the edges
     L1 = {"maceles": {0: _les(tmp_path / "b0.npz", T, S, far, broken=1e-6 / J.KCAL_PER_EV * 2), 1: L["maceles"][1]}}
@@ -325,3 +346,33 @@ def test_the_job17_readings(small, tmp_path, monkeypatch):
         J.load_harness(str(out), T)
     assert J.les_group("results/e4_job15_les/release_o050_n64_s1/maceles_n64_s1_stagetwo_job17.npz") == ("release_o050", 1)
     assert J.les_group("results/e4_baselines/maceles_n64_s0/x.npz") == ("maceles", 0)
+
+
+def test_the_far_monomers(tmp_path):
+    """v0.0.45: every molecule of the far frames, alone, in order; a model that is the sum of its isolated molecules
+    (each with its own energy, a function of its coordinates) reads no interaction, no non-additive energy and no three-body energy once they are
+    subtracted, and the first read's T5 is minus the trimer's monomers."""
+    import e4_far
+    far = _far_file(str(tmp_path / "probes.npz"))
+    fr, mf = e4_far.frames(far), e4_far.monomer_frames(far)
+    assert len(mf) == sum(len(p) // 3 for _, p, _, _ in fr) == 36
+    path = e4_far.write_monomers(far, str(tmp_path / "mono.extxyz"))
+    lines = open(path).read().splitlines()
+    assert len(lines) == 5 * len(mf) and lines[1].startswith("Properties=") and 'pbc="F F F"' in lines[1]
+    f, m, pos = mf[7]
+    assert np.allclose(pos, fr[f][1][3 * m:3 * m + 3]) and lines[5 * 7 + 1].endswith(f"f={f} m={m}")
+    e_mol = np.array([0.05 * np.sin(pos.sum()) for _, _, pos in mf])   # eV, each molecule's own, by its coordinates
+    E = np.zeros(len(fr))
+    np.add.at(E, [f for f, _, _ in mf], e_mol)
+    out = e4_far.readings(far, E, monomers_ev=e_mol)
+    b = out["probes"]
+    ref = np.load(far)
+    assert b["nonadditive_rmse"] == pytest.approx(b["nonadditive_rms"]) and b["interaction_rmse"] == pytest.approx(
+        b["interaction_rms"])                                    # the model's readings are zero: the truth's rms left
+    assert np.allclose(out["far_trimers"]["model"], 0.0, atol=1e-15)
+    raw = e4_far.readings(far, E)
+    tri = e4_far.monomer_sums(far, e_mol)[[k for k, (kind, *_) in enumerate(fr) if kind == "trimer"]]
+    assert np.allclose(raw["far_trimers"]["model"], -tri, atol=1e-15)
+    assert ref["trimer_three_body"].shape == (2,)
+    with pytest.raises(ValueError, match="monomer energies"):
+        e4_far.readings(far, E, monomers_ev=e_mol[:-1])

@@ -4,6 +4,7 @@ that it runs in the baselines' environment too (baselines/mace, without JAX).
 
     python scripts/e4_far.py extxyz data/e4/probes_mbpol.npz             # -> data/e4/probes_mbpol_far.extxyz
     python scripts/e4_far.py read data/e4/probes_mbpol.npz energies.npy   # a model's energies (eV), in the extxyz's order
+    python scripts/e4_far.py monomers data/e4/probes_mbpol.npz           # -> data/e4/probes_mbpol_far_monomers.extxyz
 
 The extxyz holds, open (pbc F F F), in this order:
   - every test probe: the configuration (kind=probe), its core (kind=core) and its dimers, core molecule i with the probe
@@ -15,6 +16,13 @@ probe's interaction E - E_core and its non-additive part, less the probe's dimer
 three-body energy against the truth's: rmse, rms and slope), the same numbers scripts/e4_water.py reads for the
 harness's rungs.  A model whose sources do not answer a far field -- MACE, MACE-LES (Theorem 2), the dagger -- gives
 T5 exactly zero.
+
+v0.0.45 (E4 job 17's read): the readings take the truth's convention, the isolated monomer at zero, which the
+harness's rungs keep and a model trained on the liquid alone need not (MACE-LES's isolated monomer sits 0.1-2 kcal/mol
+from zero).  `monomers` writes every molecule of every frame above, alone, open, in that order (kind=monomer, tags f the
+frame, m the molecule); readings(..., monomers_ev=) subtracts each frame's monomers from its energy first.  Without it
+a three-body energy read from E(ABC) - E(AB) - E(AC) - E(BC) is off by -(e_A + e_B + e_C), and a probe's non-additive
+part by minus its core's monomers and the probe's taken (n_core - 1) times.
 
     python scripts/e4_far.py cells data/e4/test_n128.npz mace_test_n128.npz [--json out.json]
 
@@ -74,13 +82,42 @@ def write_extxyz(path, out_path=None):
     return out_path
 
 
-def readings(path, energies_ev):
-    """E3's probe reading and T5 from a model's energies (eV) of frames(path), in their order (hartree inside)."""
+def monomer_frames(path):
+    """[(frame index, molecule index, positions (3, 3) A)]: every molecule of every frame of frames(path), alone."""
+    return [(f, m, pos[3 * m:3 * m + 3]) for f, (_, pos, _, _) in enumerate(frames(path)) for m in range(len(pos) // 3)]
+
+
+def write_monomers(path, out_path=None):
+    out_path = out_path or os.path.splitext(path)[0] + "_far_monomers.extxyz"
+    with open(out_path, "w") as fh:
+        for f, m, pos in monomer_frames(path):
+            fh.write(f"3\nProperties=species:S:1:pos:R:3 pbc=\"F F F\" config_type=monomer f={f} m={m}\n")
+            for sym, (x, y, z) in zip(("O", "H", "H"), pos):
+                fh.write(f"{sym} {x:.10f} {y:.10f} {z:.10f}\n")
+    return out_path
+
+
+def monomer_sums(path, monomers_ev):
+    """each frame's monomers' energies summed (hartree), from a model's energies (eV) of monomer_frames(path)."""
+    mf = monomer_frames(path)
+    e = np.asarray(monomers_ev, float) / EV_PER_HARTREE
+    if len(e) != len(mf):
+        raise ValueError(f"{len(e)} monomer energies for {len(mf)} monomers")
+    out = np.zeros(len(frames(path)))
+    np.add.at(out, [f for f, _, _ in mf], e)
+    return out
+
+
+def readings(path, energies_ev, monomers_ev=None):
+    """E3's probe reading and T5 from a model's energies (eV) of frames(path), in their order (hartree inside); with
+    monomers_ev (its energies of monomer_frames(path)), each frame's isolated monomers subtracted first."""
     d = np.load(path, allow_pickle=False)
     fr = frames(path)
     E = np.asarray(energies_ev, float) / EV_PER_HARTREE
     if len(E) != len(fr):
         raise ValueError(f"{len(E)} energies for {len(fr)} frames")
+    if monomers_ev is not None:
+        E = E - monomer_sums(path, monomers_ev)
     n_probe = len(d["test_offsets"]) - 1
     inter, pairs = np.zeros(n_probe), np.zeros(n_probe)
     core = np.zeros(n_probe)
@@ -167,6 +204,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     x = sub.add_parser("extxyz", help="the far-field test structures as extxyz")
     x.add_argument("probes"); x.add_argument("--out", default=None)
+    mo = sub.add_parser("monomers", help="every molecule of the extxyz's frames, alone (v0.0.45)")
+    mo.add_argument("probes"); mo.add_argument("--out", default=None)
     r = sub.add_parser("read", help="a model's probe reading and T5 from its energies of the extxyz's frames")
     r.add_argument("probes"); r.add_argument("energies", help=".npy (eV), one per frame in the extxyz's order")
     r.add_argument("--json", default=None)
@@ -177,6 +216,9 @@ def main():
     a = ap.parse_args()
     if a.cmd == "extxyz":
         print(write_extxyz(a.probes, a.out))
+        return
+    if a.cmd == "monomers":
+        print(write_monomers(a.probes, a.out))
         return
     if a.cmd == "cells":
         m = np.load(a.model, allow_pickle=False)

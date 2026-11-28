@@ -74,6 +74,7 @@ ROLES = {"model": ("results/e4_job18", "M_16C2pm_us_d20"),        # E4's model's
          "learned": ("results/e4_job18", "M_1w100"),
          "cutoff": ("results/e4_job18", "M_inf")}
 MACE_GLOB = "results/e4_job18_mace/*_s*/*_stagetwo_job18.npz"
+MONO_XYZ = "data/e4/probes_mbpol_far_monomers.extxyz"     # v0.0.45 (E4 job 17's read): every far molecule, alone
 
 
 # ---------------------------------------------------------------- the clusters (NumPy) ------------------------------
@@ -546,9 +547,15 @@ def evaluate(C, runs, mace, far_path=PROBES):
             E = np.asarray(z[f"{stem_t}__energy"], float) / EV_PER_HARTREE
             r = {"sizes": by_size(E, C)}
             if f"{stem_f}__energy" in z.files and os.path.exists(far_path):
-                rf = e4_far.readings(far_path, z[f"{stem_f}__energy"])
+                # v0.0.45: each frame's isolated monomers subtracted when the model's energies of them are there
+                # (<run>_stagetwo_job18m.npz, run_e4_job17m.sbatch); else taken at zero, as the truth has them
+                mp, ms = path[:-len(".npz")] + "m.npz", os.path.splitext(os.path.basename(MONO_XYZ))[0]
+                zm = np.load(mp, allow_pickle=False) if os.path.exists(mp) else None
+                mono = zm[f"{ms}__energy"] if zm is not None and f"{ms}__energy" in zm.files else None
+                rf = e4_far.readings(far_path, z[f"{stem_f}__energy"], monomers_ev=mono)
                 r["probes"] = rf["probes"]
                 r["far_trimers"] = rf.get("far_trimers")
+                r["monomer"] = float(np.mean(mono)) * KCAL / EV_PER_HARTREE if mono is not None else None
             models.setdefault(g, {})[s] = r
     ev["models"] = models
     sm = {g: {n: seed_mean({s: r["sizes"] for s, r in by.items()}, n) for n in sizes} for g, by in models.items()}
@@ -629,6 +636,9 @@ def report(ev):
                     f(p[d]["nonadditive_rmse"] / p[d]["nonadditive_rms"], 3) for d in ("10", "12", "15") if d in p)
             if r.get("far_trimers"):
                 line += f"; T5 slope {f(r['far_trimers']['slope'], 4)}"
+            if "monomer" in r:
+                line += (f"; its isolated monomer {r['monomer']:+.4f} kcal/mol, subtracted" if r["monomer"] is not None
+                         else "; its isolated monomers taken at zero (run_e4_job17m.sbatch reads them)")
             if r.get("calibration"):
                 line += f"; calibration response {f(r['calibration']['trace_ratio_mean'], 4)} of MB-pol's"
             L.append(line)

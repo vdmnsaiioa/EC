@@ -862,6 +862,14 @@ sbatch run_e4_job17.sbatch                 # 1 GPU task, about 2 h
 python scripts/e4_job17.py read
 ```
 
+Read 28 Nov (`notes/e4-job17-results.md`). v0.0.45: the far probes' and trimers' readings take each isolated monomer
+at zero, which MACE-LES does not; `scripts/e4_far.py monomers` writes every far molecule alone, and K17.2–K17.3 are read
+once each MACE model's energies of them are there:
+
+```sh
+sbatch run_e4_job17m.sbatch                # about 15 min: the monomers, every MACE model's energies of them, the read
+```
+
 **Job 18** (`notes/e4-job18-preregistration.md`, v0.0.43): from a few molecules to many, MB-pol standing in for
 CCSD(T).
 

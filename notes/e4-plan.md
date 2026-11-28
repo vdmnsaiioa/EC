@@ -654,6 +654,15 @@ code is still open: CP2K, GPAW, VASP or QE.
          charges at least half its error again at 25–30 Å. K17.9: our learned charges, neutral and unpinned, against
          MACE-LES on the same data.*
        - *One GPU task, about 2 hours.*
+       - *Read 28 Nov (`e4-job17-results.md`). Seven of nine hold as predicted. Proposition 1 holds on all twelve
+         trained MACE-LES models to 10⁻⁸ kcal/mol. In vacuum its clusters carry net latent charges of one sign (0.1–0.4
+         e), its interaction falls as 1/R and misses MB-pol 1.9–24 times at 9–30 Å; neutral molecule by molecule, 0.71–0.74.
+         E4's model within 0.6–0.8 % on clusters and 0.5 % on slabs, every seed; the dagger's error is the induced share
+         exactly; our learned charges 0.22–0.27.*
+       - *K17.2 (T5) failed as first read and K17.3 held: both read MACE-LES's isolated monomer (0.07–1.8 kcal/mol from
+         zero) as non-additive energy, the reader assuming the truth's convention. Fixed in v0.0.45 and registered again
+         before the monomers are computed (`run_e4_job17m.sbatch`): both predicted to hold.*
+       - *Proposed next: MACE-LES retrained with each molecule neutral (the sum-rule ablation).*
      - *Job 18 registered 27 Nov (`e4-job18-preregistration.md`, v0.0.43; Vadic's go to compare extrapolation from CCSD(T)
        on a few molecules to many, piloted with MB-pol).*
        - *Every model trained on MB-pol's clusters of 1–6 molecules and read on clusters of 6–256 cut from the liquid.*

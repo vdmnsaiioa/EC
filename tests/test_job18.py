@@ -218,3 +218,24 @@ def test_the_job18_readings(small, tmp_path):
     with pytest.raises(ValueError, match="other clusters"):
         J.load_runs({"cutoff": (str(d), "M_inf")}, C)
     assert J.mace_group("results/e4_job18_mace/maceles_s1/maceles_job18_s1_stagetwo_job18.npz") == ("maceles", 1)
+    # v0.0.45: MACE's far probes and trimers, its isolated monomers subtracted when their energies are there
+    import e4_far
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from test_job17 import _far_file
+    far = _far_file(str(tmp_path / "probes.npz"))
+    fr, mf = e4_far.frames(far), e4_far.monomer_frames(far)
+    m_ev = 0.4 / J.KCAL * J.EV_PER_HARTREE
+    for k, mono in ((0, True), (1, False)):
+        path = tmp_path / f"far{k}_job18.npz"
+        z = dict(np.load(mace["maceles"][k]))
+        z["probes_mbpol_far__energy"] = np.array([m_ev * (len(pos) // 3) for _, pos, _, _ in fr])
+        np.savez(path, **z)
+        if mono:
+            np.savez(tmp_path / f"far{k}_job18m.npz", probes_mbpol_far_monomers__energy=np.full(len(mf), m_ev))
+        mace["maceles"][k] = str(path)
+    evf = J.evaluate(C, runs, mace, far_path=far)
+    r0, r1 = evf["models"]["maceles"][0], evf["models"]["maceles"][1]
+    assert r0["monomer"] == pytest.approx(0.4) and np.allclose(r0["far_trimers"]["model"], 0.0, atol=1e-15)
+    assert r1["monomer"] is None and np.allclose(np.asarray(r1["far_trimers"]["model"]) * J.KCAL, -1.2)
+    text = J.report(evf)
+    assert "its isolated monomer +0.4000 kcal/mol, subtracted" in text and "taken at zero" in text

@@ -9,6 +9,13 @@ MACE-LES -- on structures whose truth MB-pol gives through MBX.  No training: ev
         data/e4/probes_mbpol_far.extxyz                                     # GPU, mace-les env: one MACE-LES model
     python scripts/e4_job17.py read                                        # NumPy only
 
+v0.0.45, after the first read (notes/e4-job17-results.md): the far probes' and trimers' readings take the truth's
+convention, each isolated monomer at zero.  MACE-LES's isolated monomer is not (it was trained on the liquid alone), so
+K17.2 and K17.3 are read once each model's energies of every molecule of the far file, alone, are there:
+    python scripts/e4_far.py monomers data/e4/probes_mbpol.npz              # data/e4/probes_mbpol_far_monomers.extxyz
+    python baselines/mace/energies.py <model> data/e4/probes_mbpol_far_monomers.extxyz --tag job17m
+(run_e4_job17m.sbatch); the first read's numbers, without them, are printed beside.
+
 Three rows (the pre-registration's section 1):
 
   a  the response to a uniform field, eps_inf: E4's model's from its own runs (job 12's jsons, the read-out held since
@@ -40,9 +47,10 @@ probes, T5, the liquid's eps_inf) into results/e4_job17/<run directory>__<rung>_
     K17.1  MACE-LES beyond r_c is its latent charges' Coulomb interaction (Proposition 1 of les-vs-eft): for every
            MACE-LES model, the clusters' interaction from its energies equals k sum_{i in A, j in B} q_i q_j
            erf(r/sqrt2 sigma)/r from its latent charges within K17_1 kcal/mol, at every gap
-    K17.2  T5: every MACE-LES model's three-body energy of the far trimers exactly zero (within K17_2 kcal/mol)
+    K17.2  T5: every MACE-LES model's three-body energy of the far trimers exactly zero (within K17_2 kcal/mol), its
+           isolated monomers subtracted (v0.0.45)
     K17.3  the far probes: the default MACE-LES (both seeds) leaves at least K17_3 of the non-additive energy at 10, 12
-           and 15 A
+           and 15 A, its isolated monomers subtracted (v0.0.45)
     K17.4  the clusters: E4's model's interaction within K17_4 (relative rmse over the pairs, both sizes) at every gap
            from 9 A, every seed
     K17.5  the clusters: the default MACE-LES's relative rmse at least K17_5 at every gap from 9 A, both seeds
@@ -80,6 +88,7 @@ CLUSTERS_XYZ = "data/e4/job17_clusters.extxyz"
 SLABS_XYZ = "data/e4/job17_slabs.extxyz"
 PROBES = "data/e4/probes_mbpol.npz"
 FAR_XYZ = "data/e4/probes_mbpol_far.extxyz"
+MONO_XYZ = "data/e4/probes_mbpol_far_monomers.extxyz"     # v0.0.45: every molecule of FAR_XYZ's frames, alone
 OUT_DIR = "results/e4_job17"
 
 SIZES = (8, 16)                                          # molecules per cluster
@@ -605,6 +614,11 @@ def les_group(path):
     return stem.replace("_n64", ""), int(seed)
 
 
+def monomer_npz(path):
+    """v0.0.45: a model's energies of MONO_XYZ, beside its job 17 energies: <run>_stagetwo_job17m.npz."""
+    return path[:-len("_job17.npz")] + "_job17m.npz" if path.endswith("_job17.npz") else None
+
+
 def load_les(globs=LES_GLOBS):
     out = {}
     for pattern in globs.values():
@@ -668,12 +682,28 @@ def evaluate(T, S, H, L, far_path=PROBES):
                     i, j = gaps.index(16.0), gaps.index(30.0)
                     r["tail_ratio"][str(n)] = float(np.median(lc[n]["energies"][:, j] / lc[n]["energies"][:, i]))
             stem = os.path.splitext(os.path.basename(FAR_XYZ))[0]
+            mstem = os.path.splitext(os.path.basename(MONO_XYZ))[0]
             if f"{stem}__energy" in z.files and os.path.exists(far_path):
-                rf = e4_far.readings(far_path, z[f"{stem}__energy"])
-                r["probes"] = rf["probes"]
-                if "far_trimers" in rf:
-                    r["far_trimers"] = rf["far_trimers"]
-                    r["t5_max"] = float(np.abs(rf["far_trimers"]["model"]).max()) * KCAL
+                raw = e4_far.readings(far_path, z[f"{stem}__energy"])     # the first read's: the monomers at zero
+                r["uncorrected"] = {"probes": raw["probes"], "far_trimers": raw.get("far_trimers")}
+                mp = monomer_npz(path)
+                zm = np.load(mp, allow_pickle=False) if mp and os.path.exists(mp) else None
+                if zm is not None and f"{mstem}__energy" in zm.files:
+                    e = np.asarray(zm[f"{mstem}__energy"], float) * KCAL_PER_EV
+                    q = np.asarray(zm[f"{mstem}__q"], float).reshape(-1, 3) if zm[f"{mstem}__q"].size else None
+                    rf = e4_far.readings(far_path, z[f"{stem}__energy"], monomers_ev=zm[f"{mstem}__energy"])
+                    r["monomers"] = {"count": len(e), "mean": float(np.mean(e)), "sd": float(np.std(e)),
+                                     "net_q_rms": rms(q.sum(axis=1)) if q is not None else None}
+                    r["probes"] = rf["probes"]
+                    if "far_trimers" in rf:
+                        r["far_trimers"] = rf["far_trimers"]
+                        r["t5_max"] = float(np.abs(rf["far_trimers"]["model"]).max()) * KCAL
+                        # the first read's three-body energy is the trimer's monomers' energy, negated, if T5 is zero
+                        sums = e4_far.monomer_sums(far_path, zm[f"{mstem}__energy"])
+                        fr = e4_far.frames(far_path)
+                        tri = np.array([sums[k] for k, (kind, *_) in enumerate(fr) if kind == "trimer"])
+                        r["uncorrected"]["t5_minus_monomers"] = float(np.abs(
+                            np.asarray(raw["far_trimers"]["model"]) + tri).max()) * KCAL
             les[g] = {**les.get(g, {}), s: r}
     ev["les"] = les
     if 16.0 in gaps and 30.0 in gaps:                 # the truth along each ray, and what a R^-3 or R^-1 tail gives
@@ -692,11 +722,16 @@ def evaluate(T, S, H, L, far_path=PROBES):
                    "charges_worst": max((r["prop1_charges"] for by in les.values() for r in by.values()), default=None)}
     ev["K17.1"]["holds"] = None if not les else bool(ev["K17.1"]["worst"] <= K17_1)
     t5 = [r["t5_max"] for by in les.values() for r in by.values() if "t5_max" in r]
-    ev["K17.2"] = {"band": K17_2, "worst": max(t5) if t5 else None, "holds": bool(max(t5) <= K17_2) if t5 else None}
+    complete = bool(les) and all("monomers" in r for by in les.values() for r in by.values())
+    ev["K17.2"] = {"band": K17_2, "worst": max(t5) if t5 else None, "complete": complete,
+                   "uncorrected_worst": max((float(np.abs(r["uncorrected"]["far_trimers"]["model"]).max()) * KCAL
+                                             for by in les.values() for r in by.values()
+                                             if (r.get("uncorrected") or {}).get("far_trimers")), default=None),
+                   "holds": bool(max(t5) <= K17_2) if t5 and complete else None}
     left = {s: {dd: r["probes"]["by_distance_angstrom"][dd]["nonadditive_rmse"]
                 / r["probes"]["by_distance_angstrom"][dd]["nonadditive_rms"]
                 for dd in PROBE_DISTANCES if dd in r["probes"]["by_distance_angstrom"]}
-            for s, r in dflt.items() if r.get("probes")}
+            for s, r in dflt.items() if r.get("probes") and r.get("monomers")}
     ev["K17.3"] = {"band": K17_3, "left": left,
                    "holds": bool(all(v >= K17_3 for x in left.values() for v in x.values())) if two and len(left) >= 2 else None}
     mod = runs.get("model", {})
@@ -737,7 +772,9 @@ def report(ev):
              f"{k['band']:g} kcal/mol): worst {f(k['worst'], 9)}; the charges' largest change in AB {f(k['charges_worst'], 12)} e")
     k = ev["K17.2"]
     L.append(f"  K17.2: {_verdict(k['holds'])} (T5: MACE-LES's three-body energy of the far trimers within "
-             f"{k['band']:g} kcal/mol of zero): worst {f(k['worst'], 9)}")
+             f"{k['band']:g} kcal/mol of zero, its isolated monomers subtracted): worst {f(k['worst'], 9)}"
+             + ("" if k["complete"] else " (not every model's monomers are there: run_e4_job17m.sbatch)")
+             + f"; the first read's, the monomers taken at zero, {f(k['uncorrected_worst'], 6)}")
     k = ev["K17.3"]
     L.append(f"  K17.3: {_verdict(k['holds'])} (the far probes: the default MACE-LES leaves at least {k['band']:g} of the "
              "non-additive energy at 10 / 12 / 15 A): "
@@ -800,6 +837,16 @@ def report(ev):
                     f(b[dd]["interaction_rmse"] / b[dd]["interaction_rms"], 3) for dd in PROBE_DISTANCES if dd in b)
             if r.get("far_trimers"):
                 line += f"; T5 slope {f(r['far_trimers']['slope'], 6)}"
+            m, u = r.get("monomers"), r.get("uncorrected") or {}
+            if m:
+                line += (f"; its isolated monomer {m['mean']:+.4f} kcal/mol (sd {m['sd']:.1e}, {m['count']}), net latent "
+                         f"charge rms {f(m['net_q_rms'], 4)} e; the first read's T5 plus the trimers' monomers "
+                         f"{f(u.get('t5_minus_monomers'), 9)}")
+            if u.get("probes"):
+                b = u["probes"]["by_distance_angstrom"]
+                line += ("; the first read's (monomers at zero): probes non-additive left " + " / ".join(
+                    f(b[dd]["nonadditive_rmse"] / b[dd]["nonadditive_rms"], 3) for dd in PROBE_DISTANCES if dd in b)
+                    + (f", T5 slope {f(u['far_trimers']['slope'], 3)}" if u.get("far_trimers") else ""))
             L.append(line)
     L.append("    eps_inf: every model without a field term (the dagger, the learned charges, the cutoff model, MACE-LES as "
              "deployed) has 1 by construction")

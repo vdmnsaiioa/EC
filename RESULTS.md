@@ -2759,3 +2759,68 @@ python scripts/e4_job16_5.py --out results/e4_job16_5.json
   the L₀ difference flat to 1024 molecules, and the control read "carried" on M_inf's steps;
 - the edges: no error at 128 fails K16.5.1, K16.5.2's classes, a scale and forces that move, a step too small to read, a
   missing model.
+
+## v0.0.44 → v0.0.45, 28 Nov — job 17 read; the far readings take MACE's isolated monomer into account (`notes/e4-job17-results.md`)
+
+**Job 17** ran on Niflheim at 4f842d3 (v0.0.43) in half an hour: ten harness runs and twelve MACE-LES models, no
+training.
+
+| | band | read | verdict |
+|---|---|---|---|
+| K17.1 | MACE-LES's cluster interaction = its latent charges' Coulomb sum, 10⁻⁶ | worst 1.0 × 10⁻⁸ kcal/mol | holds |
+| K17.2 | MACE-LES's T5 within 10⁻⁶ of zero | 5.47 kcal/mol | fails as first read: 3 × its isolated monomer |
+| K17.3 | default MACE-LES leaves ≥ 0.5 of the probes' non-additive energy | 361–1699 | holds as first read: 5 × its monomer |
+| K17.4 | E4's model, clusters, ≤ 0.05 | 0.006–0.007 | holds |
+| K17.5 | default MACE-LES, clusters, ≥ 0.30 | 1.86–24.3 | holds |
+| K17.6 | its error over its error neutral by molecule, ≥ 1.5 at 25–30 Å | 9.6–34.2 | holds |
+| K17.7 | E4's model, slabs, ≤ 0.10 | 0.005 | holds |
+| K17.8 | default MACE-LES, slabs, ≥ 0.30 | 0.320–2.54 | holds |
+| K17.9 | our learned charges ≤ default MACE-LES | 0.23–0.25 against 3.2–16.8 | holds |
+
+- **Proposition 1 holds on trained MACE-LES,** all twelve models, to 10⁻⁸ kcal/mol.
+- **In vacuum MACE-LES's far field is its free net charges.**
+  - Its clusters of 8 and 16 molecules carry 0.11–0.40 e, nearly in proportion to their size, and of one sign at the
+    surface.
+  - Its interaction falls as 1/R (30 Å over 16 Å: 0.59–0.65; 1/R 0.61–0.63, MB-pol 0.22–0.25) and misses MB-pol 1.9–24
+    times (the default).
+  - Its error goes as the net charge squared. Neutral molecule by molecule it reads 0.71–0.74, about its scale (c ≈
+    0.6).
+- **E4's model** is within 0.6–0.8 % on the clusters and 0.5 % on the slabs, the same on every seed. The dagger's error
+  equals MB-pol's induced share (0.283–0.287) at every gap.
+- **K17.2 and K17.3 read MACE-LES's isolated monomer, not its far field.**
+  - `e4_far.readings` assumes the truth's convention, the isolated monomer at zero. MACE-LES, trained on the liquid
+    alone, puts its monomer 0.07–1.8 kcal/mol from zero.
+  - The first read then gives T5 = −3e and a probe's non-additive energy −5e plus its own. The ratio of the two is −5.90
+    on eleven models to 0.2 % (+6.00 on the one whose e has the other sign).
+  - Every other reading cancels e.
+
+**What changes:**
+
+- **`scripts/e4_far.py`:** `monomers` writes every molecule of the far frames alone (1400 frames); `readings(...,
+  monomers_ev=)` subtracts each frame's monomers.
+- **`scripts/e4_job17.py read`:** K17.2 and K17.3 are read only with each model's monomer energies
+  (`<run>_stagetwo_job17m.npz`). It prints each model's isolated monomer, its net latent charge, and the first read's
+  numbers beside.
+- **`scripts/e4_job18.py read`:** its MACE models' far readings are corrected the same way when `_job18m.npz` is there.
+- **`run_e4_job17m.sbatch`.**
+
+**Registered again, before the monomers are computed:**
+
+- K17.2 (every model's T5, monomers subtracted, within 10⁻⁶) holds.
+- K17.3 (the default's share left at 10 / 12 / 15 Å, monomers subtracted, at least 0.5) holds.
+- Beside: each model's |e| as the first read implies it (0.962 and 1.340 for the default), within 1 %, spread below
+  10⁻³ kcal/mol.
+
+```sh
+sbatch run_e4_job17m.sbatch                # about 15 min
+python scripts/e4_job17.py read
+```
+
+**Tests:** `tests/test_job17.py` (5 tests):
+
+- the constructed MACE-LES with an isolated monomer at 0.7 kcal/mol: the first read's T5 is −2.1 exactly, and the
+  completed one zero;
+- K17.2–K17.3 not read without the monomers;
+- `test_the_far_monomers`: the frames, the file, and the subtraction.
+
+`tests/test_job18.py`: the MACE far readings with and without the monomers.
