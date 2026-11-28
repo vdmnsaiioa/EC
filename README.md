@@ -906,6 +906,16 @@ sbatch run_e4_job16_5.sbatch               # 2 GPU tasks, about 8-12 h each; MOD
 python scripts/e4_job16_5.py --out results/e4_job16_5.json
 ```
 
+Read 28 Nov (`notes/e4-job16.5-results.md`): MACE-LES's bias falls to 256 molecules and turns back at 512 and 1024, on
+every trajectory; plain MACE does not. **Job 16.6** (`notes/e4-job16.6-preregistration.md`, v0.0.46), no training: is it
+LES's k-space cutoff? `scripts/e4_job16_6.py tails` computes, from each trained model's own latent charges, the energy
+LES's reciprocal sum leaves out beyond |k| = π / Å, on every frame; `read` reads K16.6.1–K16.6.4.
+
+```sh
+sbatch run_e4_job16_6.sbatch               # 1 GPU task, about half an hour
+python scripts/e4_job16_6.py read
+```
+
 `scripts/e4_report.py` (v0.0.22, NumPy only) reads job 1's jsons against the pre-registration: the readings the matching
 fixes, the bulk table by size and frame set, predictions 1–4 (paired by seed; prediction 3 with the frame-to-frame
 standard error as registered), the truth's energy per molecule by size and trajectory, and the Adam curves. Job 1's

@@ -679,6 +679,17 @@ code is still open: CP2K, GPAW, VASP or QE.
          (0.44; M_inf read 0.23, "carried"). K16.5.3–K16.5.4: its latent dipole and forces unmoved by the cell. K16.5.5:
          plain MACE, the control, "carried".*
        - *Two GPU tasks; two more for the control.*
+     - *Job 16.5 read 28 Nov (`e4-job16.5-results.md`). K16.5.1 and K16.5.3 hold; K16.5.2 reads "1/L" but r is 0.65 ±
+       0.62; K16.5.4 fails (+9 % forces), most likely the halved optimizer steps (two frames a batch at both sizes).
+       Beside: MACE-LES's bias falls to 256 molecules (−0.0077) and turns back at 512 and 1024 (−0.0019, −0.0029), on every
+       trajectory; plain MACE does not (−0.0037, −0.0039); the training size shifts it by a constant +0.004.*
+     - *Job 16.6 registered 28 Nov (`e4-job16.6-preregistration.md`, v0.0.46), no training: is that LES's k-space cutoff?
+       LES sums its Gaussian charges in reciprocal space alone to |k| = π / Å (dl = 2 Å). The ~0.05 kcal/mol per molecule
+       it leaves out has a part that changes with the cell, not smoothly. An estimate on each cell's k lattice gives the
+       observed pattern with one fitted scale. K16.6.1–K16.6.3 (the reversal, the drift, the L₀ shift are the tail) and
+       K16.6.4 (job 17's slabs are not) are predicted to hold.*
+       - *If they do, the plan's Form II row for MACE-LES (∝ 1/L₀) and job 15 §10's reading are revised: its bulk size
+         dependence is its implementation's cutoff.*
      - *Job 16 registered 26 Nov (`e4-job16-preregistration.md`, v0.0.41; Vadic's go, with the cell test at 256 too).*
        - *Form II at L₀ = 128: M_inf, the dagger and E4's model, the same atoms as at 64 (K16.1: M_inf carries its
          training cell's long-range energy, the step reversed; K16.2–K16.3: E4's model follows the cell).*

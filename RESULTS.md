@@ -2855,3 +2855,59 @@ Job 16's three tasks ran at v0.0.41. Every polish ran its 1000 L-BFGS steps insi
   - MACE-LES's own law from 256 to 1024 molecules: 1/L moves it by 0.63 of its step from 64 to 256, a carried error
     about none.
 - `tests/test_job16_5.py` checks the three.
+
+## v0.0.45 → v0.0.46, 28 Nov — job 16.5 read; job 16.6 pre-registered: MACE-LES's size dependence and LES's k-space cutoff (`notes/e4-job16.5-results.md`, `notes/e4-job16.6-preregistration.md`)
+
+**Job 16.5** ran on Niflheim: MACE-LES trained at 128 molecules in about 6.1 h a seed.
+
+| | band | read | verdict | predicted |
+|---|---|---|---|---|
+| K16.5.1 | s₁₂₈(64) opposite to s₆₄(128), within 40 % | −0.0065, +0.0045 | holds | holds |
+| K16.5.2 | r: carried ≤ 0.30, 1/L 0.35–0.80 | 0.65 ± 0.62 | "1/L" | 1/L |
+| K16.5.3 | latent dipole within ±10 % | +6.6, +5.2 % | holds | holds |
+| K16.5.4 | forces within ±5 % | +9.2 to +9.7 % | fails | holds |
+
+- **K16.5.2's r carries no weight.** It leans on 15 frames of one trajectory at 128. Beside, from the frames off both
+  L₀: 0.20 ± 0.19.
+- **K16.5.4 most likely measures the training.** MACE's batch stayed at two frames, so at 128 the runs took half the
+  optimizer steps. `BATCH=1` would have matched the atoms per step.
+- **MACE-LES's bias falls to 256 molecules and turns back:** +0.0002 / −0.0043 / −0.0077 / −0.0019 / −0.0029 at 64–1024
+  (L₀ = 64).
+  - Every trajectory at 256 lies 0.004–0.007 below every one at 512.
+  - Plain MACE drifts −0.003 and stays there (−0.0037, −0.0039 at 512, 1024).
+  - The training size shifts MACE-LES by a constant (+0.0040 to +0.0053).
+
+**Job 16.6, why:**
+
+- LES sums its Gaussian charges (σ = 1 Å) in reciprocal space alone, to |k| = π / Å. What it leaves out, about 0.05
+  kcal/mol per molecule, has a part that changes with the cell's k lattice, not smoothly.
+- A model trained at L₀ reads b(L) = g(L) + T̄(L₀) − T(L).
+- An estimate with a rigid molecule's form factor gives −0.0044 / −0.0077 / −0.0016 / −0.0033 at 128–1024 with one
+  fitted scale, against −0.0045 / −0.0079 / −0.0021 / −0.0031 read.
+
+**What changes:**
+
+- `scripts/e4_job16_6.py`: `tails` computes T and LES's energy from every trained model's own latent charges, on every
+  frame and on job 17's slabs (torch on the GPU, else NumPy); `read` reads K16.6.1–K16.6.4.
+- `run_e4_job16_6.sbatch`.
+
+**Registered** (c = b + T, kcal/mol per molecule):
+
+| | reading | band | prediction |
+|---|---|---|---|
+| K16.6.1 | c₆₄(1024) − c₆₄(256) | within ±0.0015 of zero (b: +0.0048) | holds |
+| K16.6.2 | \|c₆₄(256) − c₆₄(64)\| | at most half of b's (0.0079) | holds |
+| K16.6.3 | c₁₂₈ − c₆₄ at 64–1024 | within ±0.0015 of T̄₁₂₈(128) − T̄₆₄(64) | holds |
+| K16.6.4 | the slabs' tail change with the gap | at most 10 % of MB-pol's | holds |
+
+```sh
+sbatch run_e4_job16_6.sbatch               # about half an hour
+python scripts/e4_job16_6.py read
+```
+
+**Tests:** `tests/test_job16_6.py`, 4 tests:
+
+- the sum by hand;
+- a replica's invariance, a translation's, and the tail as the difference of two dl;
+- against les 0.2.0's own Ewald, numpy and torch (skipped without les);
+- K16.6.1–K16.6.4 on constructed models, and their edges.
